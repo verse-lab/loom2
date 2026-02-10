@@ -1,0 +1,12 @@
+name = "loom2"
+version = "0.1.0"
+defaultTargets = ["loom2"]
+
+[[lean_lib]]
+name = "Loom"
+moreLeanArgs = ["-Dwarn.sorry=false"]
+precompileModules = true
+
+[[lean_exe]]
+name = "loom2"
+root = "Main"
