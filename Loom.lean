@@ -1,3 +1,4 @@
--- This module serves as the root of the `VelvetSimple` library.
+-- This module serves as the root of the `Loom` library.
 -- Import modules here that should be built as part of the library.
-import Loom.Defs
+import Loom.WP.Basic
+import Loom.WP.SimpLemmas

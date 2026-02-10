@@ -8,13 +8,13 @@ open Lean.Order
 The continuation monad for weakest precondition transformers.
 -/
 
-abbrev ECont (t : Type v) (ε : Type w) (α : Type u) := (α → t) → (ε → t) → t
+abbrev ECont (t : Type v) (e : Type w) (α : Type u) := (α → t) → e → t
 
 instance instMonadCont (t : Type v) (e : Type w) : Monad (ECont t e) where
   pure x := fun cont _econt => cont x
   bind x f := fun cont econt => x (f · cont econt) econt
 
-instance instLawfulMonadCont (t : Type v) (ε : Type w) : LawfulMonad (ECont t ε) where
+instance instLawfulMonadCont (t : Type v) (e : Type w) : LawfulMonad (ECont t e) where
   map_const := rfl
   id_map _ := rfl
   seqLeft_eq _ _ := rfl
@@ -28,9 +28,9 @@ instance instLawfulMonadCont (t : Type v) (ε : Type w) : LawfulMonad (ECont t �
 def ECont.monotone {t : Type v} {e : Type w} {α : Type u} [PartialOrder t] (wp : ECont t e α) :=
   ∀ (cont cont' : α → t), (∀ a, cont a ⊑ cont' a) → wp cont ⊑ wp cont'
 
-def ECont.exceptMonotone {t : Type v} {ε : Type w} {α : Type u} [PartialOrder ε] [PartialOrder t] (wp : ECont t ε α) :=
-  ∀ (econt econt' : ε → t) (cont : α → t), (∀ e, econt e ⊑ econt' e) → wp cont econt ⊑ wp cont econt'
+def ECont.exceptMonotone {t : Type v} {e : Type w} {α : Type u} [PartialOrder e] [PartialOrder t] (wp : ECont t e α) :=
+  ∀ (econt econt' : e) (cont : α → t), (econt ⊑ econt') → wp cont econt ⊑ wp cont econt'
 
-instance monadExceptOfECont (t : Type u) (ε : Type v) : MonadExceptOf ε (ECont t ε) where
+instance monadExceptOfECont (t : Type u) (ε : Type v) : MonadExceptOf ε (ECont t (ε → t)) where
   throw e := fun _cont econt => econt e
   tryCatch x handle := fun cont econt => x cont (handle · cont econt)
