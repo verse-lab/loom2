@@ -158,7 +158,7 @@ theorem throwThe_wp [MonadExceptOf ε m] [Monad m] [CompleteLattice l] [WPMonad 
   rfl
 
 @[simp]
-theorem throw_Except_wp (e : ε) : wp (MonadExceptOf.throw e : Except ε α) post epost = epost e := by
+theorem throw_Except_wp (e : ε) : wp (MonadExceptOf.throw e : Except ε α) post epost = epost.2 e := by
   simp only [wp]
 
 @[simp]
@@ -196,9 +196,8 @@ theorem tryCatchThe_wp [MonadExceptOf ε m] [Monad m] [CompleteLattice l] [WPMon
 
 @[simp]
 theorem tryCatch_Except_wp (x : Except ε α) (h : ε → Except ε α) :
-  ∀ post (epost : ε → Prop),
   wp (MonadExceptOf.tryCatch x h : Except ε α) post epost =
-    wp x post (fun e => wp (h e) post epost) := by
+    wp x post (.unit, fun e => wp (h e) post epost) := by
   simp only [wp, MonadExceptOf.tryCatch, Except.tryCatch]
   cases x <;> simp
 
@@ -614,7 +613,7 @@ theorem restoreM_refl_wp [Pure m] [Monad m] [CompleteLattice l] [WPMonad m l e] 
 @[simp]
 theorem orElse_Except_wp (x : Except ε α) (h : Unit → Except ε α) :
   wp (OrElse.orElse x h : Except ε α) post epost =
-    wp x post (fun _ => wp (h ()) post epost) := by
+    wp x post (.unit, fun _ => wp (h ()) post epost) := by
   simp only [wp, OrElse.orElse, MonadExcept.orElse]
   cases x <;> rfl
 

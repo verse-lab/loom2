@@ -31,6 +31,6 @@ def ECont.monotone {t : Type v} {e : Type w} {α : Type u} [PartialOrder t] (wp 
 def ECont.exceptMonotone {t : Type v} {e : Type w} {α : Type u} [PartialOrder e] [PartialOrder t] (wp : ECont t e α) :=
   ∀ (econt econt' : e) (cont : α → t), (econt ⊑ econt') → wp cont econt ⊑ wp cont econt'
 
-instance monadExceptOfECont (t : Type u) (ε : Type v) : MonadExceptOf ε (ECont t (ε → t)) where
-  throw e := fun _cont econt => econt e
-  tryCatch x handle := fun cont econt => x cont (handle · cont econt)
+instance monadExceptOfECont (t : Type u) (ε : Type v) : MonadExceptOf ε (ECont t (e × (ε → t))) where
+  throw e := fun _cont econt => econt.2 e
+  tryCatch x handle := fun cont econt => x cont (econt.1, (handle · cont econt))

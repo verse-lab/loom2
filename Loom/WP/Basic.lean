@@ -158,10 +158,10 @@ instance Reader.instWPMonad : WPMonad (ReaderM ρ) (ρ → Prop) PUnit :=
   inferInstanceAs (WPMonad (ReaderT ρ Id) (ρ → Prop) PUnit)
 
 -- Except is a simple sum type, so error continuation is just ε → Prop
-instance Except.instWPMonad : WPMonad (Except ε) Prop (ε → Prop) where
+instance Except.instWPMonad : WPMonad (Except ε) Prop (PUnit × (ε → Prop)) where
   wp x post epost := match x with
     | .ok a => post a
-    | .error e => epost e
+    | .error e => epost.2 e
   wp_pure x post epost := rfl
   wp_bind x f post epost := by cases x <;> exact id
   wp_cons x post post' epost h := by cases x with
@@ -225,7 +225,7 @@ theorem ReaderM.of_wp_run_eq {α ρ : Type} {x : α} {prog : ReaderM ρ α} {r :
 
 theorem Except.of_wp_eq {ε α : Type} {x prog : Except ε α}
   (h : prog = x) (P : Except ε α → Prop)
-  (hwp : wp prog (fun a => P (.ok a)) (fun e => P (.error e))) : P x := by
+  (hwp : wp prog (fun a => P (.ok a)) (.unit, fun e => P (.error e))) : P x := by
   subst h
   cases prog with
   | ok a => exact hwp

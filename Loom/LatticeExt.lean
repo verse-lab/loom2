@@ -15,6 +15,8 @@ needed for program verification.
 
 section LatticeExtensions
 
+attribute [refl] PartialOrder.rel_refl
+
 variable {α : Type u} [CompleteLattice α]
 
 /-- Top element of a complete lattice (supremum of all elements) -/
