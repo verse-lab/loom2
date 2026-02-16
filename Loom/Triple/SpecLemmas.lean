@@ -1,152 +1,12 @@
-import Init.Data.Range.Polymorphic.Iterators
-import Init.Data.Range.Polymorphic
-import Init.Data.Slice.Array
-import Init.Data.Iterators.ToIterator
 import Loom.Triple.Basic
 import Loom.WP.SimpLemmas
+import Loom.Tactic.Attr
 
 /-!
 # Hoare triple specifications for select functions
 
 This module contains Hoare triple specifications for some functions in Core.
 -/
-
-namespace Std.Legacy.Range
-
-/--
-Converts a range to the list of all numbers in the range.
--/
-abbrev toList (r : Std.Legacy.Range) : List Nat :=
-  List.range' r.start ((r.stop - r.start + r.step - 1) / r.step) r.step
-
-end Std.Legacy.Range
-
-namespace List
-
-/--
-A pointer at a specific location in a list. List cursors are used in loop invariants for the
-`mvcgen` tactic.
-
-Moving the cursor to the left or right takes time linear in the current position of the cursor, so
-this data structure is not appropriate for run-time code.
--/
-@[ext]
-structure Cursor {α : Type u} (l : List α) : Type u where
-  /--
-  The elements before to the current position in the list.
-  -/
-  «prefix» : List α
-  /--
-  The elements starting at the current position. If the position is after the last element of the
-  list, then the suffix is empty; otherwise, the first element of the suffix is the current element
-  that the cursor points to.
-  -/
-  suffix : List α
-  /-- Appending the prefix to the suffix yields the original list. -/
-  property : «prefix» ++ suffix = l
-
-/--
-Creates a cursor at position `n` in the list `l`.
-The prefix contains the first `n` elements, and the suffix contains the remaining elements.
-If `n` is larger than the length of the list, the cursor is positioned at the end of the list.
--/
-def Cursor.at (l : List α) (n : Nat) : Cursor l := ⟨l.take n, l.drop n, by simp⟩
-
-/--
-Creates a cursor at the beginning of the list (position 0).
-The prefix is empty and the suffix is the entire list.
--/
-abbrev Cursor.begin (l : List α) : Cursor l := .at l 0
-
-/--
-Creates a cursor at the end of the list.
-The prefix is the entire list and the suffix is empty.
--/
-abbrev Cursor.end (l : List α) : Cursor l := .at l l.length
-
-/--
-Returns the element at the current cursor position.
-
-Requires that is a current element: the suffix must be non-empty, so the cursor is not at the end of
-the list.
--/
-def Cursor.current {α} {l : List α} (c : Cursor l) (h : 0 < c.suffix.length := by get_elem_tactic) : α :=
-  c.suffix[0]'(by simp [h])
-
-/--
-Advances the cursor by one position, moving the current element from the suffix to the prefix.
-
-Requires that the cursor is not already at the end of the list.
--/
-def Cursor.tail (s : Cursor l) (h : 0 < s.suffix.length := by get_elem_tactic) : Cursor l :=
-  { «prefix» := s.prefix ++ [s.current]
-  , suffix := s.suffix.tail
-  , property := by
-      have : s.suffix ≠ [] := by simp only [List.ne_nil_iff_length_pos, h]
-      simp [current, ←List.head_eq_getElem this, s.property] }
-
-@[simp, grind =] theorem Cursor.prefix_at (l : List α) : (Cursor.at l n).prefix = l.take n := rfl
-@[simp, grind =] theorem Cursor.suffix_at (l : List α) : (Cursor.at l n).suffix = l.drop n := rfl
-@[simp, grind =] theorem Cursor.current_at (l : List α) (h : n < l.length) :
-    (Cursor.at l n).current  (by simpa using Nat.sub_lt_sub_right (Nat.le_refl n) h) = l[n] := by
-  induction n with simp_all [Cursor.current]
-@[simp, grind =] theorem Cursor.tail_at (l : List α) (h : n < l.length) :
-    (Cursor.at l n).tail (by simpa using Nat.sub_lt_sub_right (Nat.le_refl n) h) = Cursor.at l (n + 1) := by
-  simp [Cursor.tail, Cursor.at, Cursor.current]
-
-/--
-The position of the cursor in the list.
-It's a shortcut for the number of elements in the prefix.
--/
-abbrev Cursor.pos (c : Cursor l) : Nat := c.prefix.length
-
-@[simp, grind =]
-theorem Cursor.pos_at {l : List α} {n : Nat} (h : n < l.length) :
-    (Cursor.at l n).pos = n := by simp only [pos, «at», length_take]; omega
-
-@[simp]
-theorem Cursor.pos_mk {l pre suff : List α} (h : pre ++ suff = l) :
-    (Cursor.mk pre suff h).pos = pre.length := rfl
-
-@[grind →]
-theorem eq_of_range'_eq_append_cons (h : range' s n step = xs ++ cur :: ys) :
-    cur = s + step * xs.length := by
-  rw [range'_eq_append_iff] at h
-  obtain ⟨k, hk, hxs, hcur⟩ := h
-  have h := (range'_eq_cons_iff.mp hcur.symm).1.symm
-  have hk : k = xs.length := by simp_all [length_range']
-  simp only [h, hk, Nat.add_left_cancel_iff]
-  apply Nat.mul_comm
-
-@[grind →]
-theorem length_of_range'_eq_append_cons (h : range' s n step = xs ++ cur :: ys) :
-    n = xs.length + ys.length + 1 := by
-  have : n = (range' s n step).length := by simp
-  simpa [h] using this
-
-@[grind →]
-theorem mem_of_range'_eq_append_cons (h : range' s n step = xs ++ i :: ys) :
-    i ∈ range' s n step := by simp [h]
-
-@[grind →]
-theorem gt_of_range'_eq_append_cons (h : range' s n step = xs ++ i :: ys) (hstep : 0 < step) (hj : j ∈ xs) :
-    j < i := by
-  obtain ⟨nxs, _, rfl, htail⟩ := range'_eq_append_iff.mp h
-  obtain ⟨rfl, _⟩ := range'_eq_cons_iff.mp htail.symm
-  simp only [mem_range'] at hj
-  obtain ⟨i, _, rfl⟩ := hj
-  apply Nat.add_lt_add_left
-  simp [Nat.mul_comm, *]
-
-@[grind →]
-theorem lt_of_range'_eq_append_cons (h : range' s n step = xs ++ i :: ys) (hstep : 0 < step) (hj : j ∈ ys) :
-    i < j := by
-  obtain ⟨k, hk, rfl, htail⟩ := range'_eq_append_iff.mp h
-  obtain ⟨rfl, _, _, _⟩ := range'_eq_cons_iff.mp htail.symm
-  simp only [mem_range'] at hj
-  omega
-
-end List
 
 namespace Loom
 
@@ -161,6 +21,7 @@ variable [Monad m] [WPMonad m l e]
 
 /-- Spec for `pure`: if the precondition entails the postcondition applied to `a`, then `pure a`
 satisfies the triple. -/
+
 theorem Spec.pure' (a : α) (h : pre ⊑ post a) :
     Triple pre (Pure.pure (f := m) a) post epost :=
   Triple.pure a h
@@ -172,6 +33,7 @@ theorem Spec.pure (a : α) :
 
 /-- Spec for `bind`: if `x` establishes `wp (f a) post epost` for each result `a`, then
 `x >>= f` satisfies the triple. -/
+
 theorem Spec.bind' (x : m α) (f : α → m β)
     (h : Triple pre x (fun a => wp (f a) post epost) epost) :
     Triple pre (x >>= f) post epost :=
@@ -2138,7 +2000,7 @@ theorem Spec.Iter.fold_filterM {α β δ : Type w}
 
 end Iterators
 
-@[spec]
+
 theorem Spec.forIn'_array {xs : Array α} {init : β} {f : (a : α) → a ∈ xs → β → m (ForInStep β)}
     (inv : Invariant xs.toList β l)
     (eInv : e)
@@ -2157,7 +2019,6 @@ theorem Spec.forIn'_array {xs : Array α} {init : β} {f : (a : α) → a ∈ xs
       eInv := by
   cases xs; simp; apply Spec.forIn'_list inv eInv step
 
-@[spec]
 theorem Spec.forIn_array {xs : Array α} {init : β} {f : α → β → m (ForInStep β)}
     (inv : Invariant xs.toList β l)
     (eInv : e)
@@ -2176,7 +2037,6 @@ theorem Spec.forIn_array {xs : Array α} {init : β} {f : α → β → m (ForIn
       eInv := by
   cases xs; simp; apply Spec.forIn_list inv eInv step
 
-@[spec]
 theorem Spec.foldlM_array [LawfulMonad m]
     {xs : Array α} {init : β} {f : β → α → m β}
     (inv : Invariant xs.toList β l)

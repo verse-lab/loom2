@@ -2,6 +2,11 @@ name = "loom2"
 version = "0.1.0"
 defaultTargets = ["loom2"]
 
+[[require]]
+name = "plausible"
+git = "https://github.com/leanprover-community/plausible.git"
+rev = "main"
+
 [[lean_lib]]
 name = "Loom"
 moreLeanArgs = ["-Dwarn.sorry=false"]

@@ -1,5 +1,15 @@
 {"version": "1.1.0",
  "packagesDir": ".lake/packages",
- "packages": [],
- "name": "«velvet-simple»",
+ "packages":
+ [{"url": "https://github.com/leanprover-community/plausible.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "7311586e1a56af887b1081d05e80c11b6c41d212",
+   "name": "plausible",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "main",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
+ "name": "loom2",
  "lakeDir": ".lake"}
