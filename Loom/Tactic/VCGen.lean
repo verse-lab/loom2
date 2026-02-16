@@ -44,6 +44,10 @@ def preprocessExpr (e : Expr) : SymM Expr := do
 
 
 /--
+TODO:
+  - Transform Triple to ⊑ at @[lspec] level
+  - add abstraction over `post` and `epost`
+
 Try to build a backward rule from a single spec theorem in `⊑` form.
 
 Given a spec `pre ⊑ wp prog post epost` where the lattice type is
@@ -65,12 +69,9 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   (l _monadInst instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
   -- Instantiate the spec theorem, creating metavars for all universally quantified params
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
-  -- Match: pre ⊑ rhs
   let_expr PartialOrder.rel l' _cl' pre rhs := specType
     | throwError "target not a partial order ⊑ application {specType}"
-  -- Ensure the spec's lattice type matches the goal's (e.g. both `Nat → Prop`)
-  guard <| ← isDefEqS l l'
-  -- Match: rhs = wp prog post epost (and unify instances via instWP)
+  guard <| ← isDefEqS l l' -- Ensure the spec's lattice type matches the goal's (e.g. both `Nat → Prop`)
   let_expr wp _m' _ _e' _monadInst' _cl' instWP' _α _prog _post _epost := rhs
     | throwError "target not a wp application {rhs}"
   -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification
