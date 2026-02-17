@@ -410,14 +410,15 @@ def runBenchUsingMeta (sizes : List Nat) : MetaM Unit := do
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
-#eval runBenchUsingMeta [400]
+set_option diagnostics true in
+#eval runBenchUsingMeta [800]
 
--- -- set_option trace.profiler true in
--- example (p : Nat -> Prop) : Triple p (loop 1000) (fun _ => p) () := by
---   simp only [Triple.iff, loop, step,]
---   intro s hs
---   mvcgen'
---   all_goals sorry
+set_option diagnostics true in
+example (p : Nat -> Prop) : p ⊑ wp (loop 300) (fun _ => p) () := by
+  simp only [loop, step]
+  intro s hs
+  mvcgen'
+  grind
 
 end Test
 

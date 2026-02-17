@@ -89,10 +89,12 @@ theorem Spec.monadLift_ExceptT (x : m α) (post : α → l) (epost : e × (ε �
     Triple (wp x post epost.1) (MonadLift.monadLift x : ExceptT ε m α) post epost :=
   Triple.iff.mpr (monadLift_ExceptT_wp x post epost)
 
+/-
 /-- Spec for `monadLift` into `OptionT`. -/
 theorem Spec.monadLift_OptionT (x : m α) (post : α → l) (epost : e × l) :
     Triple (wp x post epost.1) (MonadLift.monadLift x : OptionT m α) post epost :=
   Triple.iff.mpr (monadLift_OptionT_wp x)
+-/
 
 /-! # `MonadFunctor` -/
 
@@ -115,16 +117,18 @@ theorem Spec.monadMap_ReaderT
 /-- Spec for `monadMap` on `ExceptT`. -/
 theorem Spec.monadMap_ExceptT
     (f : ∀{β}, m β → m β) {α} (x : ExceptT ε m α) (post : α → l) (epost : e × (ε → l)) :
-    Triple (wp (f x.run) (fun r => match r with | .ok a => post a | .error e => epost.2 e) epost.1)
+    Triple (wp (f x.run) (pushExcept.post post epost) epost.1)
       (MonadFunctor.monadMap (m := m) f x : ExceptT ε m α) post epost :=
-  Triple.iff.mpr (by rw [monadMap_ExceptT_wp]; rfl)
+  Triple.iff.mpr (by rw [monadMap_ExceptT_wp])
 
+/-
 /-- Spec for `monadMap` on `OptionT`. -/
 theorem Spec.monadMap_OptionT
     (f : ∀{β}, m β → m β) {α} (x : OptionT m α) (post : α → l) (epost : e × l) :
     Triple (wp (f x.run) (fun o => match o with | some a => post a | none => epost.2) epost.1)
       (MonadFunctor.monadMap (m := m) f x : OptionT m α) post epost :=
   Triple.iff.mpr (by rw [monadMap_OptionT_wp]; rfl)
+-/
 
 omit [LawfulMonad m] in
 /-- Spec for `monadMap` reflexivity. -/
@@ -140,28 +144,30 @@ theorem Spec.liftWith_StateT
     (f : (∀{β}, StateT σ m β → m (β × σ)) → m α) (post : α → σ → l) :
     Triple (fun s => wp (f (fun x => x.run s)) (fun a => post a s) epost)
       (MonadControl.liftWith (m:=m) f : StateT σ m α) post epost :=
-  Triple.iff.mpr (liftWith_StateT_wp f)
+  Triple.iff.mpr (by intro s; simp [liftWith_StateT_wp f]; apply WPMonad.wp_map'; ext; rfl)
 
 /-- Spec for `liftWith` on `ReaderT`. -/
 theorem Spec.liftWith_ReaderT
     (f : (∀{β}, ReaderT ρ m β → m β) → m α) (post : α → ρ → l) :
     Triple (fun r => wp (f (fun x => x.run r)) (fun a => post a r) epost)
       (MonadControl.liftWith (m:=m) f : ReaderT ρ m α) post epost :=
-  Triple.iff.mpr (by rw [liftWith_ReaderT_wp]; rfl)
+  Triple.iff.mpr (by intro r; simp [liftWith_ReaderT_wp f]; rfl)
 
 /-- Spec for `liftWith` on `ExceptT`. -/
 theorem Spec.liftWith_ExceptT
     (f : (∀{β}, ExceptT ε m β → m (Except ε β)) → m α) (post : α → l) (epost : e × (ε → l)) :
     Triple (wp (f (fun x => x.run)) post epost.1)
       (MonadControl.liftWith (m:=m) f : ExceptT ε m α) post epost :=
-  Triple.iff.mpr (liftWith_ExceptT_wp f)
+  Triple.iff.mpr (by simp [liftWith_ExceptT_wp f]; apply WPMonad.wp_map'; ext; rfl)
 
+/-
 /-- Spec for `liftWith` on `OptionT`. -/
 theorem Spec.liftWith_OptionT
     (f : (∀{β}, OptionT m β → m (Option β)) → m α) (post : α → l) (epost : e × l) :
     Triple (wp (f (fun x => x.run)) post epost.1)
       (MonadControl.liftWith (m:=m) f : OptionT m α) post epost :=
   Triple.iff.mpr (liftWith_OptionT_wp f)
+-/
 
 /-- Spec for `restoreM` on `StateT`. -/
 theorem Spec.restoreM_StateT (x : m (α × σ)) (post : α → σ → l) :
@@ -177,15 +183,17 @@ theorem Spec.restoreM_ReaderT (x : m α) (post : α → ρ → l) :
 
 /-- Spec for `restoreM` on `ExceptT`. -/
 theorem Spec.restoreM_ExceptT (x : m (@Except.{u, u} ε α)) (post : α → l) (epost : e × (ε → l)) :
-    Triple (wp x (fun | .ok a => post a | .error e => epost.2 e) epost.1)
+    Triple (wp x (pushExcept.post post epost) epost.1)
       (MonadControl.restoreM (m:=m) x : ExceptT ε m α) post epost :=
-  Triple.iff.mpr (by rw [restoreM_ExceptT_wp]; rfl)
+  Triple.iff.mpr (by rw [restoreM_ExceptT_wp])
 
+/-
 /-- Spec for `restoreM` on `OptionT`. -/
 theorem Spec.restoreM_OptionT (x : m (Option α)) (post : α → l) (epost : e × l) :
     Triple (wp x (fun (o : Option α) => match o with | some a => post a | none => epost.2) epost.1)
       (MonadControl.restoreM (m:=m) x : OptionT m α) post epost :=
   Triple.iff.mpr (by rw [restoreM_OptionT_wp]; rfl)
+-/
 
 /-! # `MonadControlT` -/
 
@@ -250,9 +258,9 @@ theorem Spec.modifyGet_StateT (f : σ → α × σ) (post : α → σ → l) :
 theorem Spec.run_ExceptT (x : ExceptT ε m α) (post : α → l) (epost : e × (ε → l)) :
     Triple (wp x post epost)
       (x.run : m (@Except.{u, u} ε α))
-      (fun | .ok a => post a | .error e => epost.2 e)
+      (pushExcept.post post epost)
       epost.1 :=
-  Triple.iff.mpr (by rw [← ExceptT_run_wp]; rfl)
+  Triple.iff.mpr (by simp [PartialOrder.rel_refl])
 
 /-- Spec for `throw` on `ExceptT`. -/
 theorem Spec.throw_ExceptT (err : ε) (post : α → l) (epost : e × (ε → l)) :
@@ -298,6 +306,7 @@ theorem Spec.orElse_Except (x : Except ε α) (h : Unit → Except ε α) :
 
 /-! # `OptionT` -/
 
+/-
 /-- Spec for `run` on `OptionT`. -/
 theorem Spec.run_OptionT (x : OptionT m α) (post : α → l) (epost : e × l) :
     Triple (wp x post epost)
@@ -341,6 +350,7 @@ theorem Spec.orElse_Option (x : Option α) (h : Unit → Option α) (post : α �
     Triple (wp x post (wp (h ()) post epost))
       (OrElse.orElse x h : Option α) post epost :=
   Triple.iff.mpr (by rw [orElse_Option_wp]; rfl)
+-/
 
 /-! # `EStateM` -/
 
@@ -395,7 +405,7 @@ omit [LawfulMonad m] in
 theorem Spec.throw_MonadExcept [MonadExceptOf ε m] (err : ε) :
     Triple (wp (MonadExceptOf.throw err : m α) post epost)
       (throw err : m α) post epost :=
-  Triple.iff.mpr (by rw [throw_MonadExcept_wp])
+  Triple.iff.mpr (by simp [throw, PartialOrder.rel_refl])
 
 omit [LawfulMonad m] in
 /-- Spec for `tryCatch` (generic). -/
@@ -423,12 +433,14 @@ theorem Spec.throw_ExceptT_lift [MonadExceptOf ε m] (err : ε) (post : α → l
       (MonadExceptOf.throw (ε:=ε) err : ExceptT ε' m α) post epost :=
   Triple.iff.mpr (by rw [throw_lift_ExceptT_wp]; apply WPMonad.wp_cons; intro r; cases r <;> rfl)
 
+/-
 /-- Spec for `throw` lifted through `OptionT`. -/
 theorem Spec.throw_Option_lift [MonadExceptOf ε m] (err : ε) (post : α → l) (epost : e × l) :
     Triple (wp (MonadExceptOf.throw (ε:=ε) err : m (Option α))
         (fun | some a => post a | none => epost.2) epost.1)
       (MonadExceptOf.throw (ε:=ε) err : OptionT m α) post epost :=
   Triple.iff.mpr (by rw [throw_lift_OptionT_wp]; apply WPMonad.wp_cons; intro r; cases r <;> rfl)
+-/
 
 /-- Spec for `tryCatch` lifted through `ReaderT`. -/
 theorem Spec.tryCatch_ReaderT [MonadExceptOf ε m] (x : ReaderT ρ m α) (h : ε → ReaderT ρ m α)
@@ -454,6 +466,7 @@ theorem Spec.tryCatch_ExceptT_lift [MonadExceptOf ε m] (x : ExceptT ε' m α) (
       (MonadExceptOf.tryCatch (ε:=ε) x h : ExceptT ε' m α) post epost :=
   Triple.iff.mpr (by rw [tryCatch_lift_ExceptT_wp]; apply WPMonad.wp_cons; intro r; cases r <;> rfl)
 
+/-
 /-- Spec for `tryCatch` lifted through `OptionT`. -/
 theorem Spec.tryCatch_OptionT_lift [MonadExceptOf ε m] (x : OptionT m α) (h : ε → OptionT m α)
     (post : α → l) (epost : e × l) :
@@ -461,6 +474,7 @@ theorem Spec.tryCatch_OptionT_lift [MonadExceptOf ε m] (x : OptionT m α) (h : 
         (fun | some a => post a | none => epost.2) epost.1)
       (MonadExceptOf.tryCatch (ε:=ε) x h : OptionT m α) post epost :=
   Triple.iff.mpr (by rw [tryCatch_lift_OptionT_wp]; apply WPMonad.wp_cons; intro r; cases r <;> rfl)
+-/
 
 /-! # `MonadFunctorT` / `MonadControlT` transitivity -/
 

@@ -34,3 +34,6 @@ def ECont.exceptMonotone {t : Type v} {e : Type w} {α : Type u} [PartialOrder e
 instance monadExceptOfECont (t : Type u) (ε : Type v) : MonadExceptOf ε (ECont t (e × (ε → t))) where
   throw e := fun _cont econt => econt.2 e
   tryCatch x handle := fun cont econt => x cont (econt.1, (handle · cont econt))
+
+@[simp] theorem ECont.apply_map {t : Type v} {e : Type w} {α : Type u} [PartialOrder t] (trans : ECont t e α) (f : α → β) (post : β → t) (epost : e) :
+  (f <$> trans) post epost = trans (fun a => post (f a)) epost := rfl
