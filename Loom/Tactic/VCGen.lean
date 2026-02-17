@@ -372,7 +372,7 @@ def loop (n : Nat) : StateM Nat Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
-def Goal (n : Nat) : Prop := ∀ post, Triple post (loop n) (fun _ => post) ()
+def Goal (n : Nat) : Prop := ∀ s post (h : post s), wp (loop n) (fun _ => post) () s
 
 def driver (n : Nat) (check := true) (k : MVarId → MetaM Unit) : MetaM Unit := do
   let some goal ← unfoldDefinition? (mkApp (mkConst ``Goal) (mkNatLit n)) | throwError "UNFOLD FAILED!"
@@ -391,7 +391,7 @@ def driver (n : Nat) (check := true) (k : MVarId → MetaM Unit) : MetaM Unit :=
     IO.println s!"goal_{n}: {ms} ms"
 
 macro "solve" : tactic => `(tactic| {
-  intro post
+  intro s post h
   simp only [loop, step]
   mvcgen' <;> grind
 })
@@ -409,6 +409,8 @@ def runBenchUsingMeta (sizes : List Nat) : MetaM Unit := do
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
+
+#eval runBenchUsingMeta [400]
 
 -- -- set_option trace.profiler true in
 -- example (p : Nat -> Prop) : Triple p (loop 1000) (fun _ => p) () := by
