@@ -288,7 +288,7 @@ theorem monadLift_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
   (fun s => wp x (fun a => post a s) epost) ⊑
     wp (MonadLift.monadLift x : StateT σ m α) post epost := by
   intro s
-  simp only [wp, MonadLift.monadLift, StateT.lift]
+  simp only [wp, MonadLift.monadLift]
   apply PartialOrder.rel_trans; rotate_left; apply WPMonad.wp_bind
   apply WPMonad.wp_cons (m := m); intro a
   simp [WPMonad.wp_pure (m := m), PartialOrder.rel_refl]

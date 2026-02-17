@@ -206,7 +206,7 @@ instance ReaderT.instWPMonad {l : Type u}
 
 @[simp, grind =]
 theorem ReaderT.apply_wp {ρ : Type u} [Monad m] [CompleteLattice l] [WPMonad m l e] (x : ReaderT ρ m α) (post : α → ρ → l) (epost : e) (r : ρ) :
-  (wp x) post epost r = wp (x.run r) (fun a => post a r) epost := rfl
+  (wp x) post epost r = wp (x.run r) (post · r) epost := rfl
 
 /-
 TODO: Same as for pushExcept
@@ -255,17 +255,17 @@ instance EStateM.instWPMonad : WPMonad (EStateM ε σ) (σ → Prop) (ε → σ 
     | .error e s' => epost e s'
   wp_pure_impl x post epost := by
     funext s
-    simp [wp, pure, EStateM.pure]
+    simp [pure, EStateM.pure]
   wp_bind_impl x f post epost := by
     intro s
-    simp only [wp, bind, EStateM.bind]
+    simp only [bind, EStateM.bind]
     cases (x s) <;> exact PartialOrder.rel_refl
   wp_cons_impl x post post' epost h := by
     intro s
     generalize heq : x s = r
     cases r with
-    | ok a s' => simp [wp, heq]; exact h a s'
-    | error e s' => simp [wp, heq]; exact PartialOrder.rel_refl
+    | ok a s' => simp [heq]; exact h a s'
+    | error e s' => simp [heq]; exact PartialOrder.rel_refl
 
 /-!
 # Adequacy lemmas

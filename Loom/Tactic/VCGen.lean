@@ -205,7 +205,7 @@ meta def emitVC (goal : MVarId) : VCGenM Unit := do
   else
     modify fun s => { s with vcs := s.vcs.push goal }
 
-/-- Unfold `⦃P⦄ x ⦃Q⦄` into `P ⊢ₛ wp⟦x⟧ Q`. -/
+/-- Unfold `Triple pre x post epost` into `pre ⊑ wp x post epost`. -/
 meta def unfoldTriple (goal : MVarId) : OptionT SymM MVarId := goal.withContext do
   let type ← goal.getType
   unless type.isAppOf ``Triple do return goal
@@ -272,6 +272,12 @@ end VCGen
 
 section Test
 
+theorem spec_bind_test {m : Type u → Type v} {l e : Type u}
+    [Monad m] [CompleteLattice l] [WPMonad m l e]
+    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
+    Triple (wp x (fun a => wp (f a) post epost) epost) (x >>= f) post epost :=
+  Triple.iff.mpr (WPMonad.wp_bind x f post epost)
+
 /-- Test helper: create a SpecTheorem from a declaration and run tryMkBackwardRuleFromSpec
     with the given monad type expressions. Returns the type of the auxiliary lemma. -/
 def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
@@ -292,7 +298,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
-  let ty ← testBackwardRule ``WPMonad.wp_bind l monadM instWP #[]
+  let ty ← testBackwardRule ``spec_bind_test l monadM instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
 -- Test 2: StateM Nat, l = Nat → Prop, n = 1 excess arg
@@ -306,7 +312,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule ``WPMonad.wp_bind l monadM instWP #[s]
+    let ty ← testBackwardRule ``spec_bind_test l monadM instWP #[s]
     logInfo m!"Test 2 (StateM Nat, n=1): {ty}"
 
 -- Test 3: get for StateM Nat, n = 1 excess arg
@@ -314,8 +320,10 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
 @[lspec] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
-    (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
+    Triple (fun s => post s s) (MonadStateOf.get : StateT σ m σ) post epost := by
+  refine ⟨?_⟩
   rw [WP.get_StateT_wp]
+  exact PartialOrder.rel_refl
 
 #eval show MetaM Unit from do
   let nat := mkConst ``Nat
@@ -332,34 +340,36 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
 @[lspec] theorem spec_set_StateT {m : Type u → Type v} {l e : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
-    (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
+    Triple (fun _ => post ⟨⟩ x) (MonadStateOf.set x : StateT σ m PUnit) post epost := by
+  refine ⟨?_⟩
   rw [WP.set_StateT_wp]
+  exact PartialOrder.rel_refl
 
 -- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
 -- a different head constant from MonadStateOf.get/set used above).
 @[lspec] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
-    (fun s => post s s) ⊑ wp (get : StateT σ m σ) post epost :=
-  spec_get_StateT post epost
+    Triple (fun s => post s s) (get : StateT σ m σ) post epost :=
+  by simpa using (spec_get_StateT (m := m) (l := l) (e := e) (σ := σ) post epost)
 
 @[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
-    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost :=
-  spec_set_StateT x post epost
+    Triple (fun _ => post ⟨⟩ x) (set x : StateT σ m PUnit) post epost :=
+  by simpa using (spec_set_StateT (m := m) (l := l) (e := e) (σ := σ) x post epost)
 
 @[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
     [Monad m] [CompleteLattice l] [WPMonad m l e]
     {α : Type u} (a : α) (post : α → l) (epost : e) :
-    post a ⊑ wp (pure (f := m) a) post epost := by
-  rw [WPMonad.wp_pure]
+    Triple (post a) (pure (f := m) a) post epost := by
+  exact Triple.iff.mpr (by rw [WPMonad.wp_pure])
 
 @[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
     [Monad m] [CompleteLattice l] [WPMonad m l e]
     {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
-    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
-  WPMonad.wp_bind x f post epost
+    Triple (wp x (fun a => wp (f a) post epost) epost) (x >>= f) post epost :=
+  Triple.iff.mpr (WPMonad.wp_bind x f post epost)
 
 def step (v : Nat) : StateM Nat Unit := do
   let s ← get
@@ -411,7 +421,7 @@ set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
 set_option diagnostics true in
-#eval runBenchUsingMeta [800]
+#eval runBenchUsingMeta [1000]
 
 set_option diagnostics true in
 example (p : Nat -> Prop) : p ⊑ wp (loop 300) (fun _ => p) () := by

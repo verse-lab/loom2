@@ -42,6 +42,21 @@ def SpecProof.key : SpecProof → Name
 instance : Hashable SpecProof where
   hash sp := hash sp.key
 
+private def tripleToWpProof? (proof type : Expr) : MetaM (Expr × Expr) := do
+  let type ← whnfR type
+  if type.isAppOf ``Triple then
+    let .const _ lvls := type.getAppFn
+      | return (proof, type)
+    let_expr Triple m l e cl α monad instWP pre x post epost := type
+      | return (proof, type)
+    let tripleIff := mkAppN (mkConst ``Triple.iff lvls)
+      #[m, l, e, cl, monad, instWP, α, x, pre, post, epost]
+    let proof ← mkAppM ``Iff.mp #[tripleIff, proof]
+    let type ← instantiateMVars (← inferType proof)
+    return (proof, type)
+  else
+    return (proof, type)
+
 def SpecProof.instantiate (proof : SpecProof) : MetaM (Array Expr × Array BinderInfo × Expr × Expr) := do
   let prf ← match proof with
     | .global declName => mkConstWithFreshMVarLevels declName
@@ -49,7 +64,9 @@ def SpecProof.instantiate (proof : SpecProof) : MetaM (Array Expr × Array Binde
     | .stx _ _ proof => pure proof
   let type ← instantiateMVars (← inferType prf)
   let (xs, bs, type) ← forallMetaTelescope type
-  return (xs, bs, prf.beta xs, type)
+  let prf := prf.beta xs
+  let (prf, type) ← tripleToWpProof? prf type
+  return (xs, bs, prf, type)
 
 instance : ToMessageData SpecProof where
   toMessageData := fun
@@ -95,15 +112,10 @@ private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM
   let (xs, _, type) ← withSimpGlobalConfig (forallMetaTelescopeReducing type)
   let type ← whnfR type
   let prog ←
-    if type.isAppOfArity ``Triple 11 then
+    if type.isAppOf ``Triple then
       pure (type.getArg! 8)
-    else if type.isAppOfArity ``PartialOrder.rel 4 then do
-      let rhs := type.getArg! 3
-      let_expr wp _m _l _e _monad _cl _wpInst _α prog _post _epost := rhs
-        | throwError "RHS of ⊑ is not a wp application{indentExpr rhs}"
-      pure prog
     else
-      throwError "unexpected kind of spec theorem; expected Triple or ⊑ wp{indentExpr type}"
+      throwError "unexpected kind of spec theorem; expected Triple{indentExpr type}"
   let keys ← DiscrTree.mkPath prog (noIndexAtArgs := false)
   return { keys, prog := (← mkForallFVars xs prog), proof, priority := prio }
 
