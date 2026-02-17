@@ -103,7 +103,12 @@ private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM
         | throwError "RHS of ⊑ is not a wp application{indentExpr rhs}"
       pure prog
     else
-      throwError "unexpected kind of spec theorem; expected Triple or ⊑ wp{indentExpr type}"
+      -- Direct wp application (→ form specs: conclusion is `wp prog post epost s1 ... sn`)
+      type.withApp fun head typeArgs => do
+        let_expr wp _m _l _e _monad _cl _wpInst _α prog _post _epost :=
+          mkAppN head (typeArgs.extract 0 (min typeArgs.size 10))
+          | throwError "unexpected kind of spec theorem; expected Triple, ⊑ wp, or wp application{indentExpr type}"
+        pure prog
   let keys ← DiscrTree.mkPath prog (noIndexAtArgs := false)
   return { keys, prog := (← mkForallFVars xs prog), proof, priority := prio }
 
