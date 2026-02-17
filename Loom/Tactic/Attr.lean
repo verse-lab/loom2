@@ -42,21 +42,6 @@ def SpecProof.key : SpecProof → Name
 instance : Hashable SpecProof where
   hash sp := hash sp.key
 
-private def tripleToWpProof? (proof type : Expr) : MetaM (Expr × Expr) := do
-  let type ← whnfR type
-  if type.isAppOf ``Triple then
-    let .const _ lvls := type.getAppFn
-      | return (proof, type)
-    let_expr Triple m l e cl α monad instWP pre x post epost := type
-      | return (proof, type)
-    let tripleIff := mkAppN (mkConst ``Triple.iff lvls)
-      #[m, l, e, cl, monad, instWP, α, x, pre, post, epost]
-    let proof ← mkAppM ``Iff.mp #[tripleIff, proof]
-    let type ← instantiateMVars (← inferType proof)
-    return (proof, type)
-  else
-    return (proof, type)
-
 def SpecProof.instantiate (proof : SpecProof) : MetaM (Array Expr × Array BinderInfo × Expr × Expr) := do
   let prf ← match proof with
     | .global declName => mkConstWithFreshMVarLevels declName
@@ -64,9 +49,7 @@ def SpecProof.instantiate (proof : SpecProof) : MetaM (Array Expr × Array Binde
     | .stx _ _ proof => pure proof
   let type ← instantiateMVars (← inferType prf)
   let (xs, bs, type) ← forallMetaTelescope type
-  let prf := prf.beta xs
-  let (prf, type) ← tripleToWpProof? prf type
-  return (xs, bs, prf, type)
+  return (xs, bs, prf.beta xs, type)
 
 instance : ToMessageData SpecProof where
   toMessageData := fun
@@ -104,6 +87,34 @@ def SpecTheorems.erase (d : SpecTheorems) (thmId : SpecProof) : SpecTheorems :=
 
 abbrev SpecExtension := SimpleScopedEnvExtension SpecEntry SpecTheorems
 
+private def lowerTripleProofToWpDecl (proof : SpecProof) : MetaM SpecProof := withNewMCtxDepth do
+  let (_xs, _bs, tripleProof, tripleType) ← proof.instantiate
+  let tripleType ← whnfR tripleType
+  let .const _ lvls := tripleType.getAppFn
+    | throwError "unexpected kind of spec theorem; expected Triple{indentExpr tripleType}"
+  let_expr Triple m l e cl α monad instWP pre x post epost := tripleType
+    | throwError "unexpected kind of spec theorem; expected Triple{indentExpr tripleType}"
+  let tripleIff := mkAppN (mkConst ``Triple.iff lvls)
+    #[m, l, e, cl, monad, instWP, α, x, pre, post, epost]
+  let wpProof ← mkAppM ``Iff.mp #[tripleIff, tripleProof]
+  let res ← abstractMVars wpProof
+  let wpType ← instantiateMVars (← inferType res.expr)
+  let wpProof := res.expr
+  unless !(wpType.hasExprMVar || wpType.hasLevelMVar || wpProof.hasExprMVar || wpProof.hasLevelMVar) do
+    throwError "failed to register lowered lspec theorem; unresolved metavariables"
+  let mut lvlState : CollectLevelParams.State := {}
+  lvlState := collectLevelParams lvlState wpType
+  lvlState := collectLevelParams lvlState wpProof
+  let name ← mkFreshUserName (proof.key.appendAfter "_lspec_wp")
+  let decl : Declaration := .thmDecl {
+    name := name
+    levelParams := lvlState.params.toList
+    type := wpType
+    value := wpProof
+  }
+  addAndCompile decl
+  return .global name
+
 private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM SpecTheorem := do
   let type ← instantiateMVars type
   unless (← isProp type) do
@@ -116,6 +127,7 @@ private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM
       pure (type.getArg! 8)
     else
       throwError "unexpected kind of spec theorem; expected Triple{indentExpr type}"
+  let proof ← lowerTripleProofToWpDecl proof
   let keys ← DiscrTree.mkPath prog (noIndexAtArgs := false)
   return { keys, prog := (← mkForallFVars xs prog), proof, priority := prio }
 
