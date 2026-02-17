@@ -13,11 +13,15 @@ variable {m : Type u → Type v}
 The WPMonad typeclass defines weakest precondition semantics for monads.
 -/
 
-class WPMonad (m : Type u → Type v) (l : outParam (Type u)) (e : outParam (Type u)) [Monad m] [CompleteLattice l] where
+class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (e : outParam (Type w)) [Monad m] [CompleteLattice l] where
   wp : m α → ECont l e α
-  wp_pure (x : α) (post : α → l) (epost : e) : wp (pure (f := m) x) post epost = post x
-  wp_bind (x : m α) (f : α → m β) (post : β → l) (epost : e) : wp x (fun x => wp (f x) post epost) epost ⊑ wp (x >>= f) post epost
-  wp_cons (x : m α) (post post' : α → l) (epost : e) (h : post ⊑ post') : wp x post epost ⊑ wp x post' epost
+  wp_pure (x : α) (post : α → l) (epost : e) :
+    /- TODO: put ⊑ here  -/
+    wp (pure (f := m) x) post epost = post x
+  wp_bind (x : m α) (f : α → m β) (post : β → l) (epost : e) :
+    wp x (fun x => wp (f x) post epost) epost ⊑ wp (x >>= f) post epost
+  wp_cons (x : m α) (post post' : α → l) (epost : e) (h : post ⊑ post') :
+    wp x post epost ⊑ wp x post' epost
 
 export WPMonad (wp)
 
@@ -52,11 +56,29 @@ theorem WPMonad.wp_seq [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m 
 # WPMonad instances
 -/
 
-instance Id.instWPMonad : WPMonad Id Prop Unit where
+/-
+  Except ε α --> WPMonad (Except ε) Prop ((ε → Prop) × PUnit)
+
+  Except ε α --> WPMonad (Except ε) Prop (ε → Prop)
+
+  -----
+  Approach 1: have two instances for ExceptT ε m
+    - `WPMonad (ExceptT ε m) l (ε → l)` if we can derive `WPMonad (ExceptT ε m) l Unit`
+    - `WPMonad (ExceptT ε m) l (e × (ε → l))` if we cannot derive `WPMonad (ExceptT ε m) l Unit`
+
+  Approach 2: change `e` to `List` of `{ tp: Type | x : tp }`
+
+
+-/
+
+instance Id.instWPMonad : WPMonad Id.{u} Prop Unit where
   wp x post epost := post x
   wp_pure x post epost := rfl
   wp_bind x f post epost := by simp [bind]; exact PartialOrder.rel_refl
   wp_cons x post post' epost h := by apply h
+
+-- #check Id.instWPMonad
+
 
 instance Option.instWPMonad : WPMonad Option Prop Prop where
   wp x post epost := x.elim epost post
@@ -66,6 +88,7 @@ instance Option.instWPMonad : WPMonad Option Prop Prop where
     | none => exact id
     | some a => exact h a
 
+/- TODO: change the order of `(e × (ε → l))` -/
 instance ExceptT.instWPMonad {l : Type u}
   [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
   WPMonad (ExceptT ε m) l (e × (ε → l)) where

@@ -107,6 +107,169 @@ def mkBackwardRuleFromSpecs (specThms : Array SpecTheorem)
       return (specThm, rule)
   return none
 
+/-! ## VCGen monad and caching -/
+
+structure VCGen.Context where
+  specThms : SpecTheorems
+  -- TODO: entailsConsIntroRule : BackwardRule
+
+structure VCGen.State where
+  /-- Cache mapping spec theorem names × WPMonad instance × excess arg count
+      to their backward rule. Avoids rebuilding the same aux lemma repeatedly. -/
+  specBackwardRuleCache : Std.HashMap (Array Name × Expr × Nat) (SpecTheorem × BackwardRule) := {}
+  /-- Holes of type `Invariant` generated so far. -/
+  invariants : Array MVarId := #[]
+  /-- Verification conditions generated so far. -/
+  vcs : Array MVarId := #[]
+
+abbrev VCGenM := ReaderT VCGen.Context (StateRefT VCGen.State SymM)
+
+namespace VCGen
+
+@[inline] def _root_.Std.HashMap.getDM [Monad m] [BEq α] [Hashable α]
+    (cache : Std.HashMap α β) (key : α) (fallback : m β) : m (β × Std.HashMap α β) := do
+  if let some b := cache.get? key then
+    return (b, cache)
+  let b ← fallback
+  return (b, cache.insert key b)
+
+def SpecTheorem.global? (specThm : SpecTheorem) : Option Name :=
+  match specThm.proof with | .global decl => some decl | _ => none
+
+/-- Cached version of `mkBackwardRuleFromSpecs`. The cache key is
+    `(spec decl names, instWP, excessArgs.size)`. Falls back to the uncached
+    version when any spec theorem is not a global declaration. -/
+def mkBackwardRuleFromSpecsCached (specThms : Array SpecTheorem)
+    (l monadInst instWP : Expr) (excessArgs : Array Expr)
+    : OptionT VCGenM (SpecTheorem × BackwardRule) := do
+    let decls := specThms.filterMap SpecTheorem.global?
+    let s := (← get).specBackwardRuleCache
+    match s[(decls, instWP, excessArgs.size)]? with
+    | some (specThm, rule) => return (specThm, rule)
+    | none =>
+      let some rule ← mkBackwardRuleFromSpecs specThms l monadInst instWP excessArgs
+        | failure
+      let key := (decls, instWP, excessArgs.size)
+      modify ({ · with specBackwardRuleCache := s.insert key rule })
+      return rule
+
+inductive SolveResult where
+  /-- The `T` was not of the form `wp e post epost s₁ ... sₙ`. -/
+  | noProgramFoundInTarget (T : Expr)
+  /-- Don't know how to handle `e` in `wp e post epost s₁ ... sₙ`. -/
+  | noStrategyForProgram (e : Expr)
+  /--
+  Did not find a spec for the `e` in `wp e post epost s₁ ... sₙ`.
+  Candidates were `thms`, but none of them matched the monad.
+  -/
+  | noSpecFoundForProgram (e : Expr) (monad : Expr) (thms : Array SpecTheorem)
+  /-- Successfully discharged the goal. These are the subgoals. -/
+  | goals (subgoals : List MVarId)
+
+
+def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
+  let target ← goal.getType
+  -- Goal should be: @WPMonad.wp m l errTy monadInst cl instWP α e post epost s₁ ... sₙ
+  -- WPMonad.wp has 10 base args; anything beyond that are excess state args
+  target.withApp fun head args => do
+    let_expr wp _m l _errTy monadInst _cl instWP _α e _post _epost :=
+      mkAppN head (args.extract 0 (min args.size 10))
+      | return .noProgramFoundInTarget target
+    let excessArgs := args.extract 10 args.size
+    -- Non-dependent let-expressions: use Sym.Simp.simpLet to preserve maximal sharing
+    -- TODO: is it the best way?
+    if e.isLet then
+      if let .step e' .. ← Simp.SimpM.run' (Simp.simpLet e) then
+        let target' ← share <| mkAppN head (args.set! 7 e')
+        return .goals [← goal.replaceTargetDefEq target']
+      else return .noStrategyForProgram e
+    -- Apply registered specifications
+    let f := e.getAppFn
+    if f.isConst || f.isFVar then
+      let thms ← (← read).specThms.findSpecs e
+      let some (_, rule) ← (mkBackwardRuleFromSpecsCached thms l monadInst instWP excessArgs).run
+        | return .noSpecFoundForProgram e monadInst thms
+      let .goals goals ← rule.apply goal
+        | throwError "Failed to apply rule for {indentExpr e}"
+      return .goals goals
+    return .noStrategyForProgram e
+
+/--
+Called when decomposing the goal further did not succeed; in this case we emit a VC for the goal.
+-/
+meta def emitVC (goal : MVarId) : VCGenM Unit := do
+  let ty ← goal.getType
+  goal.setKind .syntheticOpaque
+  if ty.isAppOf ``Std.Do.Invariant then
+    modify fun s => { s with invariants := s.invariants.push goal }
+  else
+    modify fun s => { s with vcs := s.vcs.push goal }
+
+/-- Unfold `⦃P⦄ x ⦃Q⦄` into `P ⊢ₛ wp⟦x⟧ Q`. -/
+meta def unfoldTriple (goal : MVarId) : OptionT SymM MVarId := goal.withContext do
+  let type ← goal.getType
+  unless type.isAppOf ``Triple do return goal
+  let simpTripleMethod <- mkMethods #[``Triple.iff]
+  let (res, _) ← Simp.SimpM.run (simpGoal (methods := simpTripleMethod) goal)
+  match res with
+  | .goal goal => return goal
+  | .closed => failure
+  | .noProgress => return goal
+
+meta def work (goal : MVarId) : VCGenM Unit := do
+  let goal ← preprocessMVar goal
+  let some goal ← unfoldTriple goal |>.run | return ()
+  let mut worklist := Std.Queue.empty.enqueue goal
+  repeat do
+    let some (goal, worklist') := worklist.dequeue? | break
+    worklist := worklist'
+    -- let some goal ← preprocessGoal goal | continue
+    let res ← solve goal
+    match res with
+    | .noProgramFoundInTarget .. =>
+      emitVC goal
+    | .noSpecFoundForProgram prog _ #[] =>
+      throwError "No spec found for program {prog}."
+    | .noSpecFoundForProgram prog monad thms =>
+      throwError "No spec matching the monad {monad} found for program {prog}. Candidates were {thms.map (·.proof)}."
+    | .noStrategyForProgram prog =>
+      throwError "Did not know how to decompose weakest precondition for {prog}"
+    | .goals subgoals =>
+      worklist := worklist.enqueueAll subgoals
+
+public structure Result where
+  invariants : Array MVarId
+  vcs : Array MVarId
+
+/--
+Generate verification conditions for a goal of the form `Triple pre e s₁ ... sₙ` by repeatedly
+decomposing `e` using registered `@[spec]` theorems.
+Return the VCs and invariant goals.
+-/
+public meta partial def main (goal : MVarId) (ctx : Context) : SymM Result := do
+  let ((), state) ← StateRefT'.run (ReaderT.run (work goal) ctx) {}
+  for h : idx in [:state.invariants.size] do
+    let mv := state.invariants[idx]
+    mv.setTag (Name.mkSimple ("inv" ++ toString (idx + 1)))
+  for h : idx in [:state.vcs.size] do
+    let mv := state.vcs[idx]
+    mv.setTag (Name.mkSimple ("vc" ++ toString (idx + 1)) ++ (← mv.getTag).eraseMacroScopes)
+  return { invariants := state.invariants, vcs := state.vcs }
+
+
+syntax (name := mvcgen') "mvcgen'"
+  (" [" withoutPosition((simpStar <|> simpErase <|> simpLemma),*,?) "] ")? : tactic
+
+@[tactic mvcgen']
+public meta def elabMVCGen' : Tactic := fun _stx => withMainContext do
+  let ctx ← getSpecTheorems
+  let goal ← getMainGoal
+  let { invariants, vcs } ← SymM.run <| VCGen.main goal ⟨ctx⟩
+  replaceMainGoal (invariants ++ vcs).toList
+
+
+end VCGen
+
 section Test
 
 /-- Test helper: create a SpecTheorem from a declaration and run tryMkBackwardRuleFromSpec
@@ -128,7 +291,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
   let e := mkConst ``Unit
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
   let ty ← testBackwardRule ``WPMonad.wp_bind l monadM instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
@@ -141,7 +304,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
   let e := mkConst ``Unit
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``WPMonad.wp_bind l monadM instWP #[s]
     logInfo m!"Test 2 (StateM Nat, n=1): {ty}"
@@ -161,10 +324,55 @@ theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
   let e := mkConst ``Unit
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``spec_get_StateT l monadM instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
+
+/-
+@[spec]
+theorem Spec.MonadState_get {m ps} [Monad m] [WPMonad m ps] {σ} {Q : PostCond σ (.arg σ ps)} :
+    ⦃fun s => Q.fst s s⦄ get (m := StateT σ m) ⦃Q⦄ := by
+  simp only [Triple, WP.get_MonadState, WP.get_StateT, SPred.entails.refl]
+
+@[spec]
+theorem Spec.MonadState_set {m ps} [Monad m] [WPMonad m ps] {σ} {Q : PostCond σ (.arg σ ps)} :
+    ⦃fun s => Q.fst ⟨⟩ s⦄ set s (m := StateT σ m) ⦃Q⦄ := by
+  simp only [Triple, WP.set_MonadState, WP.set_StateT, SPred.entails.refl]
+
+def step (v : Nat) : StateM Nat Unit := do
+  let s ← get
+  set (s + v)
+  let s ← get
+  set (s - v)
+
+def loop (n : Nat) : StateM Nat Unit := do
+  match n with
+  | 0 => pure ()
+  | n+1 => step n; loop n
+
+set_option maxRecDepth 10000
+set_option maxHeartbeats 10000000
+
+-- set_option trace.Elab.Tactic.Do.vcgen true in
+set_option trace.profiler true in
+example : ⦃fun s => ⌜s = 0⌝⦄ loop 50 ⦃⇓_ s => ⌜s = 50⌝⦄ := by
+  simp only [loop, step]
+  mvcgen'
+  -- all_goals grind
+  all_goals sorry
+
+set_option trace.Elab.Tactic.Do.vcgen true in
+example :
+  ⦃⌜True⌝⦄
+  do
+    let s ← get (m := ExceptT String (StateM Nat))
+    if s > 20 then
+      throw "s is too large"
+    set (m := ExceptT String (StateM Nat)) (s + 1)
+  ⦃post⟨fun _r s => ⌜s ≤ 21⌝, fun _err s => ⌜s > 20⌝⟩⦄ := by
+  mvcgen' <;> grind
+-/
 
 end Test
 
