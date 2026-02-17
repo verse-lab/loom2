@@ -237,13 +237,6 @@ instance OptionT.instWPMonad {l : Type u}
 # Type alias instances
 -/
 
--- For StateM, we use PUnit at universe u to match the universe requirements
-instance State.instWPMonad : WPMonad (StateM σ) (σ → Prop) PUnit :=
-  inferInstanceAs (WPMonad (StateT σ Id) (σ → Prop) PUnit)
-
-instance Reader.instWPMonad : WPMonad (ReaderM ρ) (ρ → Prop) PUnit :=
-  inferInstanceAs (WPMonad (ReaderT ρ Id) (ρ → Prop) PUnit)
-
 -- Except is a simple sum type, so error continuation is just ε → Prop
 instance Except.instWPMonad : WPMonad (Except ε) Prop (PUnit × (ε → Prop)) where
   wpImpl x post epost := match x with
