@@ -311,7 +311,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
 
 -- Test 3: get for StateM Nat, n = 1 excess arg
 -- Spec.get_StateT': ∀ s, (fun s => post s s) s → wp get post epost s
-theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
+@[lspec] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
     (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
@@ -329,16 +329,37 @@ theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
     let ty ← testBackwardRule ``spec_get_StateT l monadM instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
 
-/-
-@[spec]
-theorem Spec.MonadState_get {m ps} [Monad m] [WPMonad m ps] {σ} {Q : PostCond σ (.arg σ ps)} :
-    ⦃fun s => Q.fst s s⦄ get (m := StateT σ m) ⦃Q⦄ := by
-  simp only [Triple, WP.get_MonadState, WP.get_StateT, SPred.entails.refl]
+@[lspec] theorem spec_set_StateT {m : Type u → Type v} {l e : Type u}
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
+    (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
+  rw [WP.set_StateT_wp]
 
-@[spec]
-theorem Spec.MonadState_set {m ps} [Monad m] [WPMonad m ps] {σ} {Q : PostCond σ (.arg σ ps)} :
-    ⦃fun s => Q.fst ⟨⟩ s⦄ set s (m := StateT σ m) ⦃Q⦄ := by
-  simp only [Triple, WP.set_MonadState, WP.set_StateT, SPred.entails.refl]
+-- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
+-- a different head constant from MonadStateOf.get/set used above).
+@[lspec] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    {σ : Type u} (post : σ → σ → l) (epost : e) :
+    (fun s => post s s) ⊑ wp (get : StateT σ m σ) post epost :=
+  spec_get_StateT post epost
+
+@[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
+    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost :=
+  spec_set_StateT x post epost
+
+@[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
+    [Monad m] [CompleteLattice l] [WPMonad m l e]
+    {α : Type u} (a : α) (post : α → l) (epost : e) :
+    post a ⊑ wp (pure (f := m) a) post epost := by
+  rw [WPMonad.wp_pure]
+
+@[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
+    [Monad m] [CompleteLattice l] [WPMonad m l e]
+    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
+    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
+  WPMonad.wp_bind x f post epost
 
 def step (v : Nat) : StateM Nat Unit := do
   let s ← get
@@ -351,28 +372,50 @@ def loop (n : Nat) : StateM Nat Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
+def Goal (n : Nat) : Prop := ∀ post, Triple post (loop n) (fun _ => post) ()
+
+def driver (n : Nat) (check := true) (k : MVarId → MetaM Unit) : MetaM Unit := do
+  let some goal ← unfoldDefinition? (mkApp (mkConst ``Goal) (mkNatLit n)) | throwError "UNFOLD FAILED!"
+  let mvar ← mkFreshExprMVar goal
+  let startTime ← IO.monoNanosNow
+  k mvar.mvarId!
+  let endTime ← IO.monoNanosNow
+  let ms := (endTime - startTime).toFloat / 1000000.0
+  if check then
+    let startTime ← IO.monoNanosNow
+    checkWithKernel (← instantiateExprMVars mvar)
+    let endTime ← IO.monoNanosNow
+    let kernelMs := (endTime - startTime).toFloat / 1000000.0
+    IO.println s!"goal_{n}: {ms} ms, kernel: {kernelMs} ms"
+  else
+    IO.println s!"goal_{n}: {ms} ms"
+
+macro "solve" : tactic => `(tactic| {
+  intro post
+  simp only [loop, step]
+  mvcgen' <;> grind
+})
+
+def solveUsingMeta (n : Nat) (check := true) : MetaM Unit := do
+  driver n check fun mvarId => do
+    let ([], _) ← Lean.Elab.runTactic mvarId (← `(tactic| solve)).raw {} {} | throwError "FAILED!"
+
+def runBenchUsingMeta (sizes : List Nat) : MetaM Unit := do
+  IO.println "=== VCGen tests ==="
+  IO.println ""
+  for n in sizes do
+    solveUsingMeta n
+
+
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
--- set_option trace.Elab.Tactic.Do.vcgen true in
-set_option trace.profiler true in
-example : ⦃fun s => ⌜s = 0⌝⦄ loop 50 ⦃⇓_ s => ⌜s = 50⌝⦄ := by
-  simp only [loop, step]
-  mvcgen'
-  -- all_goals grind
-  all_goals sorry
-
-set_option trace.Elab.Tactic.Do.vcgen true in
-example :
-  ⦃⌜True⌝⦄
-  do
-    let s ← get (m := ExceptT String (StateM Nat))
-    if s > 20 then
-      throw "s is too large"
-    set (m := ExceptT String (StateM Nat)) (s + 1)
-  ⦃post⟨fun _r s => ⌜s ≤ 21⌝, fun _err s => ⌜s > 20⌝⟩⦄ := by
-  mvcgen' <;> grind
--/
+-- -- set_option trace.profiler true in
+-- example (p : Nat -> Prop) : Triple p (loop 1000) (fun _ => p) () := by
+--   simp only [Triple.iff, loop, step,]
+--   intro s hs
+--   mvcgen'
+--   all_goals sorry
 
 end Test
 
