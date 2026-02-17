@@ -14,7 +14,7 @@ def loop (n : Nat) : StateM Nat Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
-def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post) () s
+def Goal (n : Nat) : Prop := ∀ post, Triple post (loop n) (fun _ => post) ()
 
 def driver (n : Nat) (check := true) (k : MVarId → MetaM (List MVarId)) : MetaM Unit := do
   let goal :=mkApp (mkConst ``Goal) (mkNatLit n)
@@ -41,10 +41,9 @@ def driver (n : Nat) (check := true) (k : MVarId → MetaM (List MVarId)) : Meta
   else
     IO.println s!"goal_{n}: {solveMs} ms, grind: {grindMs} ms"
 
-macro "solve" : tactic => `(tactic| {
-  intro s post h
-  mvcgen' <;> grind
-})
+macro "solve" : tactic => `(tactic|
+  (intro post
+   mvcgen'))
 
 def solveUsingMeta (n : Nat) (check := true) : MetaM Unit := do
   driver n check fun mvarId => do
@@ -61,11 +60,12 @@ set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
 -- set_option diagnostics true in
-#eval runBenchUsingMeta [1000]
+#eval runBenchUsingMeta [100, 500, 1000]
 
 -- set_option diagnostics true in
--- example (p : Nat -> Prop) : p ⊑ wp (loop 300) (fun _ => p) () := by
---   simp only [loop, step]
---   intro s hs
---   mvcgen'
---   grind
+set_option trace.Elab.Tactic.Do.vcgen true in
+example : Goal 1 := by
+  simp only [Goal, loop, step]
+  solve
+  (intro s post; mvcgen')
+  grind
