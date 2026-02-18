@@ -66,7 +66,7 @@ theorem entails_wp_of_post {x : m α} {pre : l} {post post' : α → l} {epost :
 /-- Hoare triple for `pure`: if `pre ⊑ post a`, then `pure a` satisfies the triple. -/
 theorem pure (a : α) (h : pre ⊑ post a) :
     Triple pre (pure (f := m) a) post epost :=
-  iff.mpr (PartialOrder.rel_trans h (by rw [WPMonad.wp_pure]))
+  iff.mpr (PartialOrder.rel_trans h (WPMonad.wp_pure a post epost))
 
 /-- Hoare triple for `bind`: if `x` establishes an intermediate postcondition `mid`, and for every
 result `a`, `f a` takes `mid a` to the final postcondition `post`, then `x >>= f` takes `pre` to

@@ -25,7 +25,7 @@ I think that would be a worthwhile and reusable refactoring once we upstream.
 
 @[simp]
 theorem pure_wp [Monad m] [CompleteLattice l] [WPMonad m l e] (a : α) :
-  wp (pure (f:=m) a) post epost = post a := by
+  post a ⊑ wp (pure (f:=m) a) post epost := by
   exact WPMonad.wp_pure a post epost
 
 @[simp]
@@ -49,10 +49,12 @@ theorem seq_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (f 
 /-! ## MonadReaderOf simp lemmas -/
 
 @[simp]
-theorem read_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] :
-  wp (MonadReaderOf.read : ReaderT ρ m ρ) post epost = fun r => post r r := by
-  funext r
-  simp [MonadReaderOf.read]
+theorem read_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e]
+    (post : ρ → ρ → l) (epost : e) :
+  (fun r => post r r) ⊑ wp (MonadReaderOf.read : ReaderT ρ m ρ) post epost := by
+  intro r
+  simpa [MonadReaderOf.read] using
+    (WPMonad.wp_pure (m := m) (x := r) (post := fun a => post a r) (epost := epost))
 
 @[simp]
 theorem adapt_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (f : ρ → ρ') (x : ReaderT ρ' m α) :
@@ -62,25 +64,31 @@ theorem adapt_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad 
 /-! ## MonadStateOf simp lemmas -/
 
 @[simp]
-theorem get_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] :
-  wp (MonadStateOf.get : StateT σ m σ) post epost = fun s => post s s := by
-  change wp (get : StateT σ m σ) post epost = fun s => post s s
-  funext s
-  simp
+theorem get_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e]
+    (post : σ → σ → l) (epost : e) :
+  (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
+  intro s
+  simpa [MonadStateOf.get] using
+    (WPMonad.wp_pure (m := m) (x := (s, s))
+      (post := fun x => post x.fst x.snd) (epost := epost))
 
 @[simp]
-theorem set_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : σ) :
-  wp (MonadStateOf.set x : StateT σ m PUnit) post epost = fun _ => post ⟨⟩ x := by
-  change wp (set x : StateT σ m PUnit) post epost = fun _ => post ⟨⟩ x
-  funext s
-  simp
+theorem set_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : σ)
+    (post : PUnit → σ → l) (epost : e) :
+  (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
+  intro s
+  simpa [MonadStateOf.set] using
+    (WPMonad.wp_pure (m := m) (x := (PUnit.unit, x))
+      (post := fun x => post x.fst x.snd) (epost := epost))
 
 @[simp]
-theorem modifyGet_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (f : σ → α × σ) :
-  wp (MonadStateOf.modifyGet f : StateT σ m α) post epost = fun s => post (f s).1 (f s).2 := by
-  change wp (modifyGet f : StateT σ m α) post epost = fun s => post (f s).1 (f s).2
-  funext s
-  simp
+theorem modifyGet_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (f : σ → α × σ)
+    (post : α → σ → l) (epost : e) :
+  (fun s => post (f s).1 (f s).2) ⊑ wp (MonadStateOf.modifyGet f : StateT σ m α) post epost := by
+  intro s
+  simpa [MonadStateOf.modifyGet] using
+    (WPMonad.wp_pure (m := m) (x := f s)
+      (post := fun x => post x.fst x.snd) (epost := epost))
 
 @[simp]
 theorem get_EStateM_wp :
@@ -139,9 +147,10 @@ theorem throw_Except_wp (e : ε) : wp (MonadExceptOf.throw e : Except ε α) pos
 
 @[simp]
 theorem throw_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (err : ε) :
-  wp (MonadExceptOf.throw err : ExceptT ε m α) post epost = epost.2 err := by
-  change wp (throw err : ExceptT ε m α) post epost = epost.2 err
-  simp
+  epost.2 err ⊑ wp (MonadExceptOf.throw err : ExceptT ε m α) post epost := by
+  simpa [MonadExceptOf.throw, pushExcept.post] using
+    (WPMonad.wp_pure (m := m) (x := Except.error err)
+      (post := pushExcept.post post epost) (epost := epost.1))
 
 @[simp]
 theorem throw_EStateM_wp (e : ε) :
@@ -199,7 +208,11 @@ theorem tryCatch_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
   change _ ⊑ wp (tryCatch x h : ExceptT ε m α) _ _
   simp only [ExceptT.apply_wp, ExceptT.run_tryCatch]
   apply PartialOrder.rel_trans; rotate_left; apply WPMonad.wp_bind
-  apply WPMonad.wp_cons; intro r; cases r <;> simp [PartialOrder.rel_refl]
+  apply WPMonad.wp_cons; intro r; cases r with
+  | ok a => simpa [pushExcept.post] using
+      (WPMonad.wp_pure (m := m) (x := Except.ok a)
+        (post := pushExcept.post post epost) (epost := epost.1))
+  | error _ => exact PartialOrder.rel_refl
 
 /-
 @[simp]
@@ -288,10 +301,12 @@ theorem monadLift_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
   (fun s => wp x (fun a => post a s) epost) ⊑
     wp (MonadLift.monadLift x : StateT σ m α) post epost := by
   intro s
-  simp only [wp, MonadLift.monadLift, StateT.lift]
+  simp only [wp, MonadLift.monadLift]
   apply PartialOrder.rel_trans; rotate_left; apply WPMonad.wp_bind
   apply WPMonad.wp_cons (m := m); intro a
-  simp [WPMonad.wp_pure (m := m), PartialOrder.rel_refl]
+  simpa using
+    (WPMonad.wp_pure (m := m) (x := (a, s))
+      (post := fun x => post x.fst x.snd) (epost := epost))
 
 @[simp]
 theorem monadLift_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : m α) :
@@ -451,7 +466,15 @@ theorem restoreM_StateT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMona
   apply PartialOrder.rel_trans; rotate_left; apply monadLift_StateT_wp
   intro s; apply WPMonad.wp_cons; intro s'; simp only
   apply PartialOrder.rel_trans; rotate_left; apply WPMonad.wp_bind
-  simp [set, StateT.set, pure, StateT.pure]; apply PartialOrder.rel_refl
+  simp [set, StateT.set, pure, StateT.pure]
+  apply PartialOrder.rel_trans
+  · simpa using
+      (WPMonad.wp_pure (m := m) (x := (s'.fst, s'.snd))
+        (post := fun x => post x.fst x.snd) (epost := epost))
+  · simpa using
+      (WPMonad.wp_pure (m := m) (x := (PUnit.unit, s'.snd))
+        (post := fun x => wp (pure (s'.fst, x.snd)) (fun x => post x.fst x.snd) epost)
+        (epost := epost))
 
 @[simp]
 theorem restoreM_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : m α) :

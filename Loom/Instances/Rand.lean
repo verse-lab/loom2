@@ -8,35 +8,39 @@ open Lean.Order Loom
 
 instance (priority := high) {σ : Type} {m : Type → Type v} [Monad m] [LawfulMonad m] [WPMonad m Prop e] [Inhabited σ] :
   WPMonad (StateT σ m) Prop e where
-  wp x post epost := ∀ s, WPMonad.wp (m := m) (x s) (post ·.1) epost
-  wp_pure x post epost := by simp [pure, StateT.pure, WPMonad.wp_pure (m := m)]
-  wp_bind x f post epost := by
+  wpImpl x post epost := ∀ s, wp (m := m) (x s) (fun p => post p.1) epost
+  wp_pure_impl x post epost := by
+    intro hx s
+    exact (WPMonad.wp_pure (m := m) (x := (x, s)) (post := fun p => post p.1) (epost := epost)) hx
+  wp_bind_impl x f post epost := by
     intro wph s; apply WPMonad.wp_bind (m := m)
     apply WPMonad.wp_cons (m := m); rotate_left; apply wph
     intro x h; simp_all
-  wp_cons x post post' epost h := by
+  wp_cons_impl x post post' epost h := by
     intro s s'; apply WPMonad.wp_cons (m := m);
     intro x; apply h; solve_by_elim
 
 instance (priority := high) [Monad m] [LawfulMonad m] [WPMonad m Prop e] [Inhabited ρ] :
   WPMonad (ReaderT ρ m) Prop e where
-  wp x post epost := ∀ r, WPMonad.wp (m := m) (x r) (post ·) epost
-  wp_pure x post epost := by simp [pure, ReaderT.pure, WPMonad.wp_pure (m := m)]
-  wp_bind x f post epost := by
+  wpImpl x post epost := ∀ r, wp (m := m) (x r) post epost
+  wp_pure_impl x post epost := by
+    intro hx r
+    exact (WPMonad.wp_pure (m := m) (x := x) (post := post) (epost := epost)) hx
+  wp_bind_impl x f post epost := by
     intro wph r; apply WPMonad.wp_bind (m := m)
     apply WPMonad.wp_cons (m := m); rotate_left; apply wph
     intro x h; simp_all
-  wp_cons x post post' epost h := by
+  wp_cons_impl x post post' epost h := by
     intro r r'; apply WPMonad.wp_cons (m := m);
     intro x; apply h; solve_by_elim
 
 instance (priority := high) : WPMonad (Except ε) Prop PUnit where
-  wp x post epost := match x with
+  wpImpl x post epost := match x with
     | .ok x => post x
     | .error e => False
-  wp_pure x post epost := rfl
-  wp_bind x f post epost := by cases x <;> exact id
-  wp_cons x post post' epost h := by cases x with
+  wp_pure_impl x post epost := PartialOrder.rel_refl
+  wp_bind_impl x f post epost := by cases x <;> exact id
+  wp_cons_impl x post post' epost h := by cases x with
     | ok a => exact h a
     | error e => exact id
 
@@ -56,7 +60,11 @@ theorem Testable.run_wp [Testable p] c m :
   simp [tryCatch, MonadExceptOf.tryCatch, tryCatchThe, Except.tryCatch]
   intro s r; simp
   split
-  { simp [wp]; intro s r; split; solve_by_elim
+  { simp only [wp, WPMonad.wpImpl]
+    intro s r; split; solve_by_elim
     rename_i a _ _ _ _
     rcases a with ⟨⟨⟩, _⟩ <;> try simp_all [Functor.map, StateT.map, pure, StateT.pure, Except.pure, ReaderT.pure] }
-  erw [WPMonad.wp_pure]; simp; solve_by_elim
+  have hgave : wp (pure (TestResult.gaveUp 1) : Gen (TestResult p)) (fun _ => post) PUnit.unit :=
+    (WPMonad.wp_pure (m := Gen) (x := TestResult.gaveUp 1)
+      (post := fun _ => post) (epost := PUnit.unit)) posth
+  simpa [pure, StateT.pure, ReaderT.pure] using hgave

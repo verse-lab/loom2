@@ -17,8 +17,7 @@ class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (e : outParam (Typ
     [Monad m] [CompleteLattice l] extends LawfulMonad m where
   wpImpl : m α → ECont l e α
   wp_pure_impl (x : α) (post : α → l) (epost : e) :
-    /- TODO: put ⊑ here  -/
-    wpImpl (pure (f := m) x) post epost = post x
+    post x ⊑ wpImpl (pure (f := m) x) post epost
   wp_bind_impl (x : m α) (f : α → m β) (post : β → l) (epost : e) :
     wpImpl x (fun x => wpImpl (f x) post epost) epost ⊑ wpImpl (x >>= f) post epost
   wp_cons_impl (x : m α) (post post' : α → l) (epost : e) (h : post ⊑ post') :
@@ -31,7 +30,7 @@ def wp [Monad m] [CompleteLattice l] [WPMonad m l e] {α} (x : m α) (post : α 
     WPMonad.wpImpl x = wp x := rfl
 
 theorem WPMonad.wp_pure [Monad m] [CompleteLattice l] [WPMonad m l e] (x : α) (post : α → l) (epost : e) :
-    wp (pure (f := m) x) post epost = post x := by apply wp_pure_impl
+    post x ⊑ wp (pure (f := m) x) post epost := by apply wp_pure_impl
 
 theorem WPMonad.wp_bind [Monad m] [CompleteLattice l] [WPMonad m l e] (x : m α) (f : α → m β) (post : β → l) (epost : e) :
     wp x (fun x => wp (f x) post epost) epost ⊑ wp (x >>= f) post epost := by apply wp_bind_impl
@@ -51,11 +50,10 @@ theorem WPMonad.wp_map [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m 
   ∀ post epost, wp x (fun a => post (f a)) epost ⊑ wp (f <$> x) post epost := by
   intro post epost
   rw [← bind_pure_comp]
-  have h : (fun a => post (f a)) = (fun a => wp (pure (f := m) (f a)) post epost) := by
-    ext a
-    simp [WPMonad.wp_pure]
-  rw [h]
-  exact WPMonad.wp_bind x (pure ∘ f) post epost
+  apply PartialOrder.rel_trans; rotate_left;
+  exact WPMonad.wp_bind_impl x (pure ∘ f) post epost
+  apply WPMonad.wp_cons; intro a
+  apply WPMonad.wp_pure_impl
 
 theorem WPMonad.wp_map' [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (f : α → β) (x : m α) :
   ∀ post post' epost (_ : post = fun a => post' (f a)), wp x post epost ⊑ wp (f <$> x) post' epost := by
@@ -93,7 +91,7 @@ theorem WPMonad.wp_seq [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m 
 
 instance Id.instWPMonad : WPMonad Id.{u} Prop Unit where
   wpImpl x post epost := post x
-  wp_pure_impl x post epost := rfl
+  wp_pure_impl x post epost := PartialOrder.rel_refl
   wp_bind_impl x f post epost := by simp [bind]; exact PartialOrder.rel_refl
   wp_cons_impl x post post' epost h := by apply h
 
@@ -102,7 +100,7 @@ instance Id.instWPMonad : WPMonad Id.{u} Prop Unit where
 
 instance Option.instWPMonad : WPMonad Option Prop Prop where
   wpImpl x post epost := x.elim epost post
-  wp_pure_impl x post epost := rfl
+  wp_pure_impl x post epost := PartialOrder.rel_refl
   wp_bind_impl x f post epost := by cases x <;> exact id
   wp_cons_impl x post post' epost h := by cases x with
     | none => exact id
@@ -132,14 +130,20 @@ instance ExceptT.instWPMonad {l : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
     WPMonad (ExceptT ε m) l (e × (ε → l)) where
   wpImpl x := pushExcept (wp x.run)
-  wp_pure_impl x post epost := by simp [WPMonad.wp_pure]
+  wp_pure_impl x post epost := by
+    simpa [pushExcept.post] using
+      (WPMonad.wp_pure (m := m) (x := Except.ok x)
+        (post := pushExcept.post post epost) (epost := epost.1))
   wp_bind_impl x f post epost := by
     simp only [apply_pushExcept, ExceptT.run_bind]
     apply PartialOrder.rel_trans _ (WPMonad.wp_bind (m := m) x ..)
     apply WPMonad.wp_cons (m := m)
     intro r; cases r with
     | ok a => exact PartialOrder.rel_refl
-    | error _ => simp [WPMonad.wp_pure (m := m)]; exact PartialOrder.rel_refl
+    | error e => simpa [pushExcept.post] using
+        (WPMonad.wp_pure (m := m) (x := Except.error e)
+          (post := pushExcept.post post epost)
+          (epost := epost.fst))
   wp_cons_impl x post post' epost h := by
     apply WPMonad.wp_cons
     intro r; cases r with
@@ -170,7 +174,11 @@ instance StateT.instWPMonad {l : Type u}
   [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
   WPMonad (StateT σ m) (σ -> l) e where
   wpImpl x := pushArg (wp ∘ x.run)
-  wp_pure_impl x post epost := by ext s; simp [WPMonad.wp_pure]
+  wp_pure_impl x post epost := by
+    intro s
+    simpa [Function.comp, pushArg] using
+      (WPMonad.wp_pure (m := m) (x := (x, s))
+        (post := fun p => post p.1 p.2) (epost := epost))
   wp_bind_impl x f post epost := by
     intro s
     simp only [apply_pushArg, Function.comp_apply, StateT.run_bind]
@@ -189,7 +197,10 @@ instance ReaderT.instWPMonad {l : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
     WPMonad (ReaderT ρ m) (ρ → l) e where
   wpImpl x := pushArg (fun r => (·, r) <$> wp (x.run r))
-  wp_pure_impl x post epost := by ext r; simp [WPMonad.wp_pure]
+  wp_pure_impl x post epost := by
+    intro r
+    simpa [pushArg, ECont.apply_map] using
+      (WPMonad.wp_pure (m := m) (x := x) (post := fun a => post a r) (epost := epost))
   wp_bind_impl x f post epost := by
     intro r
     simp only [apply_pushArg, ECont.apply_map, ReaderT.run_bind]
@@ -242,7 +253,7 @@ instance Except.instWPMonad : WPMonad (Except ε) Prop (PUnit × (ε → Prop)) 
   wpImpl x post epost := match x with
     | .ok a => post a
     | .error e => epost.2 e
-  wp_pure_impl x post epost := rfl
+  wp_pure_impl x post epost := PartialOrder.rel_refl
   wp_bind_impl x f post epost := by cases x <;> exact id
   wp_cons_impl x post post' epost h := by cases x with
     | ok a => exact h a
@@ -254,18 +265,19 @@ instance EStateM.instWPMonad : WPMonad (EStateM ε σ) (σ → Prop) (ε → σ 
     | .ok a s' => post a s'
     | .error e s' => epost e s'
   wp_pure_impl x post epost := by
-    funext s
-    simp [wp, pure, EStateM.pure]
+    intro s
+    simp [pure, EStateM.pure]
+    exact PartialOrder.rel_refl
   wp_bind_impl x f post epost := by
     intro s
-    simp only [wp, bind, EStateM.bind]
+    simp only [bind, EStateM.bind]
     cases (x s) <;> exact PartialOrder.rel_refl
   wp_cons_impl x post post' epost h := by
     intro s
     generalize heq : x s = r
     cases r with
-    | ok a s' => simp [wp, heq]; exact h a s'
-    | error e s' => simp [wp, heq]; exact PartialOrder.rel_refl
+    | ok a s' => simp [heq]; exact h a s'
+    | error e s' => simp [heq]; exact PartialOrder.rel_refl
 
 /-!
 # Adequacy lemmas

@@ -315,7 +315,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
     (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
-  rw [WP.get_StateT_wp]
+  exact WP.get_StateT_wp post epost
 
 #eval show MetaM Unit from do
   let nat := mkConst ``Nat
@@ -333,7 +333,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
     (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
-  rw [WP.set_StateT_wp]
+  exact WP.set_StateT_wp x post epost
 
 -- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
 -- a different head constant from MonadStateOf.get/set used above).
@@ -353,7 +353,7 @@ def testBackwardRule (declName : Name) (l monadInst instWP : Expr)
     [Monad m] [CompleteLattice l] [WPMonad m l e]
     {α : Type u} (a : α) (post : α → l) (epost : e) :
     post a ⊑ wp (pure (f := m) a) post epost := by
-  rw [WPMonad.wp_pure]
+  exact WPMonad.wp_pure a post epost
 
 @[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
     [Monad m] [CompleteLattice l] [WPMonad m l e]
