@@ -17,6 +17,39 @@ section LatticeExtensions
 
 attribute [refl] PartialOrder.rel_refl
 
+instance : PartialOrder Unit where
+  rel _ _ := True
+  rel_refl := trivial
+  rel_trans _ _ := trivial
+  rel_antisymm _ _ := rfl
+
+instance : CompleteLattice Unit where
+  has_sup _ := ⟨(), fun _ => ⟨fun _ _ _ => trivial, fun _ => trivial⟩⟩
+
+instance : PartialOrder PUnit where
+  rel _ _ := True
+  rel_refl := trivial
+  rel_trans _ _ := trivial
+  rel_antisymm _ _ := rfl
+
+instance : CompleteLattice PUnit where
+  has_sup _ := ⟨.unit, fun _ => ⟨fun _ _ _ => trivial, fun _ => trivial⟩⟩
+
+instance [PartialOrder α] [PartialOrder β] : PartialOrder (α × β) where
+  rel a b := a.1 ⊑ b.1 ∧ a.2 ⊑ b.2
+  rel_refl := ⟨PartialOrder.rel_refl, PartialOrder.rel_refl⟩
+  rel_trans ha hb := ⟨PartialOrder.rel_trans ha.1 hb.1, PartialOrder.rel_trans ha.2 hb.2⟩
+  rel_antisymm ha hb := Prod.ext (PartialOrder.rel_antisymm ha.1 hb.1) (PartialOrder.rel_antisymm ha.2 hb.2)
+
+instance [CompleteLattice α] [CompleteLattice β] : CompleteLattice (α × β) where
+  has_sup c :=
+    ⟨(CompleteLattice.sup (fun a => ∃ b, c (a, b)),
+      CompleteLattice.sup (fun b => ∃ a, c (a, b))), fun x => ⟨
+      fun ⟨h1, h2⟩ y hy => ⟨PartialOrder.rel_trans (le_sup _ ⟨y.2, hy⟩) h1,
+                              PartialOrder.rel_trans (le_sup _ ⟨y.1, hy⟩) h2⟩,
+      fun h => ⟨sup_le _ fun a ⟨b, hab⟩ => (h (a, b) hab).1,
+               sup_le _ fun b ⟨a, hab⟩ => (h (a, b) hab).2⟩⟩⟩
+
 variable {α : Type u} [CompleteLattice α]
 
 /-- Top element of a complete lattice (supremum of all elements) -/

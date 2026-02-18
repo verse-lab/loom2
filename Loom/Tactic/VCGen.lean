@@ -24,7 +24,7 @@ def entails.trans [CompleteLattice l] {P Q R : l} (hPQ : P ⊢ Q) (hQR : Q ⊢ R
 def entails.funext [CompleteLattice l] {P Q : α → l} (h : ∀ a, P a ⊢ Q a) : P ⊢ Q :=
   h
 
-def Triple.of_entails_wp [Monad m] [CompleteLattice l] [WPMonad m l e]
+def Triple.of_entails_wp [Monad m] [CompleteLattice l] [WP m l e]
     {pre : l} {x : m α} {post : α → l} {epost : e} (h : pre ⊢ wp x post epost) :
     Triple pre x post epost :=
   Triple.iff.mpr h
@@ -78,7 +78,7 @@ by `unfoldReducible`), so `mkPatternFromType` cannot structurally see the `→`.
 explicitly construct the `→` type via `mkExpectedTypeHint`.
 
 - `l`: the goal's lattice type (e.g. `Nat → Prop`)
-- `instWP`: the `WPMonad` instance for the goal monad; matching against the spec's
+- `instWP`: the `WP` instance for the goal monad; matching against the spec's
   instance transitively unifies `m`, `e`, `cl`, and `monadInst`
 - `excessArgs`: free variables representing state args from `l = σ1 → ... → σn → Prop`;
   fresh metavariables are created for these so that `abstractMVars` can abstract them
@@ -222,7 +222,7 @@ structure VCGen.Context where
   entailsFunextRule : BackwardRule
 
 structure VCGen.State where
-  /-- Cache mapping spec theorem names × WPMonad instance × excess arg count
+  /-- Cache mapping spec theorem names × WP instance × excess arg count
       to their backward rule. Avoids rebuilding the same aux lemma repeatedly. -/
   specBackwardRuleCache : Std.HashMap (Array Name × Expr × Nat) (SpecTheorem × BackwardRule) := {}
   /-- Holes of type `Invariant` generated so far. -/
@@ -298,10 +298,10 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       goal.assign (mkApp2 (mkConst ``PartialOrder.rel_refl ent.constLevels!) l H)
       return .goals []
 
-  -- WPMonad.wp has 10 base args; anything beyond that are excess state args
+  -- WP.wp has 10 base args; anything beyond that are excess state args
   unless head.isConstOf ``wp do return .noProgramFoundInTarget T
   -- `T` is of the form
-  -- `@WPMonad.wp m l err instMonad instCL instWP α prog post epost s₁ ... sₙ`,
+  -- `@WP.wp m l err instMonad instCL instWP α prog post epost s₁ ... sₙ`,
   -- where `prog` is the program.
   -- We call `s₁ ... sₙ` the excess state args; the backward rules need to account for these.
   -- Excess state args are introduced by the spec of `get` (see lambda case above).
@@ -436,8 +436,8 @@ def testBackwardRule (declName : Name) (instWP : Expr)
   let e := mkConst ``Unit
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
-  let ty ← testBackwardRule ``WPMonad.wp_bind instWP #[]
+  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
+  let ty ← testBackwardRule ``WP.wp_bind instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
 -- Test 2: StateM Nat, l = Nat → Prop, n = 1 excess arg
@@ -449,15 +449,15 @@ def testBackwardRule (declName : Name) (instWP : Expr)
   let e := mkConst ``Unit
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule ``WPMonad.wp_bind instWP #[s]
+    let ty ← testBackwardRule ``WP.wp_bind instWP #[s]
     logInfo m!"Test 2 (StateM Nat, n=1): {ty}"
 
 -- Test 3: get for StateM Nat, n = 1 excess arg
 -- Spec.get_StateT': ∀ s, (fun s => post s s) s → wp get post epost s
 @[lspec] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WP m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
     (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
   rw [WP.get_StateT_wp]
@@ -469,13 +469,13 @@ def testBackwardRule (declName : Name) (instWP : Expr)
   let e := mkConst ``Unit
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``spec_get_StateT instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
 
 @[lspec] theorem spec_set_StateT {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WP m l e]
     {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
     (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
   rw [WP.set_StateT_wp]
@@ -483,28 +483,28 @@ def testBackwardRule (declName : Name) (instWP : Expr)
 -- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
 -- a different head constant from MonadStateOf.get/set used above).
 @[lspec] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WP m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
     (fun s => post s s) ⊑ wp (get : StateT σ m σ) post epost :=
   spec_get_StateT post epost
 
 @[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    [CompleteLattice l] [Monad m] [LawfulMonad m] [WP m l e]
     {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
     (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost :=
   spec_set_StateT x post epost
 
 @[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [WPMonad m l e]
+    [Monad m] [CompleteLattice l] [WP m l e]
     {α : Type u} (a : α) (post : α → l) (epost : e) :
     post a ⊑ wp (pure (f := m) a) post epost := by
-  rw [WPMonad.wp_pure]
+  rw [WP.wp_pure]
 
 @[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [WPMonad m l e]
+    [Monad m] [CompleteLattice l] [WP m l e]
     {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
     wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
-  WPMonad.wp_bind x f post epost
+  WP.wp_bind x f post epost
 
 end Test
 

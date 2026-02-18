@@ -12,21 +12,21 @@ Hoare triples form the basis for compositional functional correctness proofs abo
 As usual, `Triple pre x post epost` holds iff the precondition `pre` entails the weakest
 precondition `wp x post epost` of `x : m α` for the postcondition `post` and error
 postcondition `epost`.
-It is thus defined in terms of an instance `WPMonad m l e`.
+It is thus defined in terms of an instance `WP m l e`.
 -/
 
 universe u v
-variable {m : Type u → Type v} {l : Type u} {e : Type u} [CompleteLattice l]
+variable {m : Type u → Type v} {l : Type u} {e : Type u} [CompleteLattice l] [CompleteLattice e]
 
 /-- A Hoare triple for reasoning about monadic programs. A Hoare triple `Triple pre x post epost`
 is a *specification* for `x`: if assertion `pre` holds before `x`, then postcondition `post` holds
 after running `x` (and `epost` handles any errors). -/
-inductive Triple [Monad m] [WPMonad m l e] (pre : l) (x : m α) (post : α → l) (epost : e) : Prop
+inductive Triple [Monad m] [WP m l e] (pre : l) (x : m α) (post : α → l) (epost : e) : Prop
   | intro (hwp : pre ⊑ wp x post epost)
 
 namespace Triple
 
-variable [Monad m] [WPMonad m l e]
+variable [Monad m] [WP m l e]
 
 /-- Unfold a Hoare triple to its definition as a weakest precondition entailment. -/
 theorem iff {x : m α} {pre : l} {post : α → l} {epost : e} :
@@ -40,7 +40,7 @@ theorem iff_conseq {x : m α} {pre : l} {post : α → l} {epost : e} :
     (∀ pre' post', (pre' ⊑ pre) → (post ⊑ post') → pre' ⊑ wp x post' epost) := by
   constructor
   · intro ⟨h⟩ pre' post' hpre hpost
-    exact PartialOrder.rel_trans hpre (PartialOrder.rel_trans h (WPMonad.wp_cons x _ _ epost hpost))
+    exact PartialOrder.rel_trans hpre (PartialOrder.rel_trans h (WP.wp_cons x _ _ epost hpost))
   · intro h
     exact ⟨h _ _ PartialOrder.rel_refl (fun _ => PartialOrder.rel_refl)⟩
 
@@ -66,7 +66,7 @@ theorem entails_wp_of_post {x : m α} {pre : l} {post post' : α → l} {epost :
 /-- Hoare triple for `pure`: if `pre ⊑ post a`, then `pure a` satisfies the triple. -/
 theorem pure (a : α) (h : pre ⊑ post a) :
     Triple pre (pure (f := m) a) post epost :=
-  iff.mpr (PartialOrder.rel_trans h (by rw [WPMonad.wp_pure]))
+  iff.mpr (PartialOrder.rel_trans h (WP.wp_pure a post epost))
 
 /-- Hoare triple for `bind`: if `x` establishes an intermediate postcondition `mid`, and for every
 result `a`, `f a` takes `mid a` to the final postcondition `post`, then `x >>= f` takes `pre` to
@@ -78,9 +78,9 @@ theorem bind (x : m α) (f : α → m β)
     Triple pre (x >>= f) post epost := by
   apply iff.mpr
   apply PartialOrder.rel_trans (iff.mp hx)
-  apply PartialOrder.rel_trans (WPMonad.wp_cons x mid (fun a => wp (f a) post epost) epost
+  apply PartialOrder.rel_trans (WP.wp_cons x mid (fun a => wp (f a) post epost) epost
     (fun a => iff.mp (hf a)))
-  exact WPMonad.wp_bind x f post epost
+  exact WP.wp_bind x f post epost
 
 /-!
 ## Not yet ported: `Triple.and` and `Triple.mp`
@@ -95,8 +95,8 @@ With this axiom, `Triple.and` (combining two triples for the same program into a
 and `Triple.mp` (modus ponens on triples) can be proved following Std/Do/Triple/Basic.lean.
 
 To port them, either:
-1. Add `wp_conj` as an axiom to `WPMonad`, or
-2. Define a subclass `ConjunctiveWPMonad` extending `WPMonad` with the conjunctivity property.
+1. Add `wp_conj` as an axiom to `WP`, or
+2. Define a subclass `ConjunctiveWP` extending `WP` with the conjunctivity property.
 
 In Std/Do, conjunctivity is built into `PredTrans` (every predicate transformer carries a proof
 of `Conjunctive`), so it is always available. In our framework, `wp_cons` (monotonicity) is the
