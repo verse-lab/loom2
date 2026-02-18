@@ -1,4 +1,4 @@
-import Loom.ECont
+import Loom.PredTrans
 
 open Lean.Order
 
@@ -15,7 +15,7 @@ The WPMonad typeclass defines weakest precondition semantics for monads.
 
 class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (e : outParam (Type w))
     [Monad m] [CompleteLattice l] extends LawfulMonad m where
-  wpImpl : m α → ECont l e α
+  wpImpl : m α → PredTrans l e α
   wp_pure_impl (x : α) (post : α → l) (epost : e) :
     post x ⊑ wpImpl (pure (f := m) x) post epost
   wp_bind_impl (x : m α) (f : α → m β) (post : β → l) (epost : e) :
@@ -74,31 +74,13 @@ theorem WPMonad.wp_seq [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m 
 # WPMonad instances
 -/
 
-/-
-  Except ε α --> WPMonad (Except ε) Prop ((ε → Prop) × PUnit)
-
-  Except ε α --> WPMonad (Except ε) Prop (ε → Prop)
-
-  -----
-  Approach 1: have two instances for ExceptT ε m
-    - `WPMonad (ExceptT ε m) l (ε → l)` if we can derive `WPMonad (ExceptT ε m) l Unit`
-    - `WPMonad (ExceptT ε m) l (e × (ε → l))` if we cannot derive `WPMonad (ExceptT ε m) l Unit`
-
-  Approach 2: change `e` to `List` of `{ tp: Type | x : tp }`
-
-
--/
-
 instance Id.instWPMonad : WPMonad Id.{u} Prop Unit where
   wpImpl x post epost := post x
   wp_pure_impl x post epost := PartialOrder.rel_refl
   wp_bind_impl x f post epost := by simp [bind]; exact PartialOrder.rel_refl
   wp_cons_impl x post post' epost h := by apply h
 
--- #check Id.instWPMonad
-
-
-instance Option.instWPMonad : WPMonad Option Prop Prop where
+instance Option.instWPMonad : WPMonad Option.{u} Prop Prop where
   wpImpl x post epost := x.elim epost post
   wp_pure_impl x post epost := PartialOrder.rel_refl
   wp_bind_impl x f post epost := by cases x <;> exact id
@@ -106,23 +88,8 @@ instance Option.instWPMonad : WPMonad Option Prop Prop where
     | none => exact id
     | some a => exact h a
 
-/--
-Adds the ability to make assertions about exceptions of type `ε` to a predicate transformer with
-postcondition shape `ps`, resulting in postcondition shape `.except ε ps`. This is done by
-interpreting `ExceptT ε (PredTrans ps) α` into `PredTrans (.except ε ps) α`.
-
-This can be used for all kinds of exception-like effects, such as early termination, by interpreting
-them as exceptions.
--/
-/- TODO: change the order of `(e × (ε → l))` -/
-def pushExcept {α ε l e} (x : ECont l e (Except ε α)) : ECont l (e × (ε → l)) α :=
-  fun post epost => x (fun | .ok a => post a | .error e => epost.2 e) epost.1
-
-abbrev pushExcept.post {l : Type u} (post : α → l) (epost : e × (ε → l)) : Except ε α → l :=
-  fun | .ok a => post a | .error e => epost.2 e
-
 @[simp, grind =]
-theorem apply_pushExcept {α ε l e} (x : ECont l e (Except ε α)) (post : α → l) (epost : e × (ε → l)) :
+theorem apply_pushExcept {α ε l e} (x : PredTrans l e (Except ε α)) (post : α → l) (epost : e × (ε → l)) :
   (pushExcept x) post epost = x (pushExcept.post post epost) epost.1 := rfl
 
 /- TODO: change the order of `(e × (ε → l))` -/
@@ -154,22 +121,6 @@ instance ExceptT.instWPMonad {l : Type u}
 theorem ExceptT.apply_wp {α ε l e} [Monad m] [CompleteLattice l] [WPMonad m l e] (x : ExceptT ε m α) (post : α → l) (epost : e × (ε → l)) :
   (wp x) post epost = wp x.run (pushExcept.post post epost) epost.1 := rfl
 
-/--
-Adds the ability to make assertions about a state of type `σ` to a predicate transformer with
-postcondition shape `ps`, resulting in postcondition shape `.arg σ ps`. This is done by
-interpreting `StateT σ (PredTrans ps) α` into `PredTrans (.arg σ ps) α`.
-
-This can be used to for all kinds of state-like effects, including reader effects or append-only
-states, by interpreting them as states.
--/
--- Think: modifyGetM
-def pushArg {σ : Type u} (x : σ → ECont l e (α × σ)) : ECont (σ → l) e α :=
-  fun post epost s => x s (fun (a, s) => post a s) epost
-
-@[simp, grind =]
-theorem apply_pushArg {σ : Type u} (x : σ → ECont l e (α × σ)) (post : α → σ → l) (epost : e) (s : σ) :
-  (pushArg x) post epost s = x s (fun (a, s) => post a s) epost := rfl
-
 instance StateT.instWPMonad {l : Type u}
   [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
   WPMonad (StateT σ m) (σ -> l) e where
@@ -199,11 +150,11 @@ instance ReaderT.instWPMonad {l : Type u}
   wpImpl x := pushArg (fun r => (·, r) <$> wp (x.run r))
   wp_pure_impl x post epost := by
     intro r
-    simpa [pushArg, ECont.apply_map] using
+    simpa [pushArg, PredTrans.apply_map] using
       (WPMonad.wp_pure (m := m) (x := x) (post := fun a => post a r) (epost := epost))
   wp_bind_impl x f post epost := by
     intro r
-    simp only [apply_pushArg, ECont.apply_map, ReaderT.run_bind]
+    simp only [apply_pushArg, PredTrans.apply_map, ReaderT.run_bind]
     apply PartialOrder.rel_trans
     · apply WPMonad.wp_cons (m := m)
       intro a

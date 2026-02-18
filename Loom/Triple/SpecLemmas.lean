@@ -218,8 +218,8 @@ theorem Spec.restoreM_refl (x : stM m m α) :
 theorem Spec.read_ReaderT (post : ρ → ρ → l) :
     Triple (fun r => post r r)
       (MonadReaderOf.read : ReaderT ρ m ρ) post epost :=
-  Triple.iff.mpr (by rw [read_ReaderT_wp]; rfl)
-
+  Triple.iff.mpr (by intro r; simpa [MonadReaderOf.read] using
+    (WPMonad.wp_pure (m := m) (x := r) (post := fun a => post a r) (epost := epost)))
 /-- Spec for `withReader` on `ReaderT`. -/
 theorem Spec.withReader_ReaderT (f : ρ → ρ) (x : ReaderT ρ m α) (post : α → ρ → l) :
     Triple (fun r => wp x (fun a _ => post a r) epost (f r))
@@ -238,19 +238,25 @@ theorem Spec.adapt_ReaderT (f : ρ → ρ') (x : ReaderT ρ' m α) (post : α �
 theorem Spec.get_StateT (post : σ → σ → l) :
     Triple (fun s => post s s)
       (MonadStateOf.get : StateT σ m σ) post epost :=
-  Triple.iff.mpr (by rw [get_StateT_wp]; rfl)
+  Triple.iff.mpr (by intro s; simpa [MonadStateOf.get] using
+    (WPMonad.wp_pure (m := m) (x := (s, s))
+      (post := fun x => post x.fst x.snd) (epost := epost)))
 
 /-- Spec for `set` on `StateT`. -/
 theorem Spec.set_StateT (s : σ) (post : PUnit → σ → l) :
     Triple (fun _ => post ⟨⟩ s)
       (MonadStateOf.set s : StateT σ m PUnit) post epost :=
-  Triple.iff.mpr (by rw [set_StateT_wp]; rfl)
+  Triple.iff.mpr (by intro _; simpa [MonadStateOf.set] using
+    (WPMonad.wp_pure (m := m) (x := (PUnit.unit, s))
+      (post := fun x => post x.fst x.snd) (epost := epost)))
 
 /-- Spec for `modifyGet` on `StateT`. -/
 theorem Spec.modifyGet_StateT (f : σ → α × σ) (post : α → σ → l) :
     Triple (fun s => post (f s).1 (f s).2)
       (MonadStateOf.modifyGet f : StateT σ m α) post epost :=
-  Triple.iff.mpr (by rw [modifyGet_StateT_wp]; rfl)
+  Triple.iff.mpr (by intro s; simpa [MonadStateOf.modifyGet] using
+    (WPMonad.wp_pure (m := m) (x := f s)
+      (post := fun x => post x.fst x.snd) (epost := epost)))
 
 /-! # `ExceptT` -/
 
@@ -265,7 +271,10 @@ theorem Spec.run_ExceptT (x : ExceptT ε m α) (post : α → l) (epost : e × (
 /-- Spec for `throw` on `ExceptT`. -/
 theorem Spec.throw_ExceptT (err : ε) (post : α → l) (epost : e × (ε → l)) :
     Triple (epost.2 err) (MonadExceptOf.throw err : ExceptT ε m α) post epost :=
-  Triple.iff.mpr (by rw [throw_ExceptT_wp])
+  Triple.iff.mpr (by simpa [pushExcept.post] using
+    (WPMonad.wp_pure (m := m) (x := Except.error err)
+      (post := pushExcept.post post epost)
+      (epost := epost.fst)))
 
 /-- Spec for `tryCatch` on `ExceptT`. -/
 theorem Spec.tryCatch_ExceptT (x : ExceptT ε m α) (h : ε → ExceptT ε m α) (post : α → l) (epost : e × (ε → l)) :
