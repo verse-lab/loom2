@@ -12,30 +12,30 @@ Hoare triples form the basis for compositional functional correctness proofs abo
 As usual, `Triple pre x post epost` holds iff the precondition `pre` entails the weakest
 precondition `wp x post epost` of `x : m α` for the postcondition `post` and error
 postcondition `epost`.
-It is thus defined in terms of an instance `WPMonad m l e`.
+It is thus defined in terms of an instance `WPMonad m l es`.
 -/
 
-universe u v
-variable {m : Type u → Type v} {l : Type u} {e : Type u} [CompleteLattice l]
+universe u v w x
+variable {m : Type u → Type v} {l : Type w} {es : List (Type x)} [CompleteLattice l]
 
 /-- A Hoare triple for reasoning about monadic programs. A Hoare triple `Triple pre x post epost`
 is a *specification* for `x`: if assertion `pre` holds before `x`, then postcondition `post` holds
 after running `x` (and `epost` handles any errors). -/
-inductive Triple [Monad m] [WPMonad m l e] (pre : l) (x : m α) (post : α → l) (epost : e) : Prop
+inductive Triple [Monad m] [WPMonad m l es] (pre : l) (x : m α) (post : α → l) (epost : EPost es) : Prop
   | intro (hwp : pre ⊑ wp x post epost)
 
 namespace Triple
 
-variable [Monad m] [WPMonad m l e]
+variable [Monad m] [WPMonad m l es]
 
 /-- Unfold a Hoare triple to its definition as a weakest precondition entailment. -/
-theorem iff {x : m α} {pre : l} {post : α → l} {epost : e} :
+theorem iff {x : m α} {pre : l} {post : α → l} {epost : EPost es} :
     Triple pre x post epost ↔ (pre ⊑ wp x post epost) :=
   ⟨fun ⟨h⟩ => h, fun h => ⟨h⟩⟩
 
 /-- The consequence rule: a Hoare triple is equivalent to the ability to strengthen the
 precondition and weaken the postcondition. -/
-theorem iff_conseq {x : m α} {pre : l} {post : α → l} {epost : e} :
+theorem iff_conseq {x : m α} {pre : l} {post : α → l} {epost : EPost es} :
     Triple pre x post epost ↔
     (∀ pre' post', (pre' ⊑ pre) → (post ⊑ post') → pre' ⊑ wp x post' epost) := by
   constructor
@@ -46,19 +46,19 @@ theorem iff_conseq {x : m α} {pre : l} {post : α → l} {epost : e} :
 
 /-- Extract a wp entailment from a triple, strengthening the precondition and weakening the
 postcondition. -/
-theorem entails_wp_of_pre_post {x : m α} {pre pre' : l} {post post' : α → l} {epost : e}
+theorem entails_wp_of_pre_post {x : m α} {pre pre' : l} {post post' : α → l} {epost : EPost es}
     (h : Triple pre' x post' epost) (hpre : pre ⊑ pre') (hpost : post' ⊑ post) :
     pre ⊑ wp x post epost :=
   iff_conseq.mp h _ _ hpre hpost
 
 /-- Extract a wp entailment from a triple, strengthening the precondition. -/
-theorem entails_wp_of_pre {x : m α} {pre pre' : l} {post : α → l} {epost : e}
+theorem entails_wp_of_pre {x : m α} {pre pre' : l} {post : α → l} {epost : EPost es}
     (h : Triple pre' x post epost) (hpre : pre ⊑ pre') :
     pre ⊑ wp x post epost :=
   iff_conseq.mp h _ _ hpre (fun _ => PartialOrder.rel_refl)
 
 /-- Extract a wp entailment from a triple, weakening the postcondition. -/
-theorem entails_wp_of_post {x : m α} {pre : l} {post post' : α → l} {epost : e}
+theorem entails_wp_of_post {x : m α} {pre : l} {post post' : α → l} {epost : EPost es}
     (h : Triple pre x post' epost) (hpost : post' ⊑ post) :
     pre ⊑ wp x post epost :=
   iff_conseq.mp h _ _ PartialOrder.rel_refl hpost

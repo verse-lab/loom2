@@ -14,7 +14,8 @@ def loop (n : Nat) : StateM Nat Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
-def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post) () s
+def Goal (n : Nat) : Prop := ∀ s post (_ : post s),
+  wp (loop n) (fun _ => post) (post⟨⟩ : EPost ([] : List (Type 0))) s
 
 def driver (n : Nat) (check := true) (k : MVarId → MetaM (List MVarId)) : MetaM Unit := do
   let goal :=mkApp (mkConst ``Goal) (mkNatLit n)
@@ -50,21 +51,21 @@ def solveUsingMeta (n : Nat) (check := true) : MetaM Unit := do
   driver n check fun mvarId => do
     Prod.fst <$> Lean.Elab.runTactic mvarId (← `(tactic| (intro s post h; mvcgen'))).raw {} {}
 
-def runBenchUsingMeta (sizes : List Nat) : MetaM Unit := do
+def runBenchUsingMeta (sizes : List Nat) (check := false) : MetaM Unit := do
   IO.println "=== VCGen tests ==="
   IO.println ""
   for n in sizes do
-    solveUsingMeta n
+    solveUsingMeta n check
 
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
 -- set_option diagnostics true in
-#eval runBenchUsingMeta [1000]
+-- #eval runBenchUsingMeta [1000]
 
 -- set_option diagnostics true in
--- example (p : Nat -> Prop) : p ⊑ wp (loop 300) (fun _ => p) () := by
+-- example (p : Nat -> Prop) : p ⊑ wp (loop 300) (fun _ => p) post⟨⟩ := by
 --   simp only [loop, step]
 --   intro s hs
 --   mvcgen'
