@@ -24,9 +24,9 @@ Known issues:
 -/
 
 def step (v : Nat) : M Unit := do
-  let s ← get (σ := Nat)
+  let s ← getThe Nat
   set (s + v)
-  let s ← get (σ := Nat)
+  let s ← getThe Nat
   set (s - v)
 
 def loop (n : Nat) : M Unit := do
@@ -34,11 +34,11 @@ def loop (n : Nat) : M Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
-def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂, post ⟨⟩ s₁ s₂ ⟨⟩ -> wp (loop n) post epost s₁ s₂ ⟨⟩
+def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂, post s₁ s₂ ⟨⟩ -> wp (loop n) (fun _ => post) epost s₁ s₂ ⟨⟩
 
 @[lspec]
 theorem Spec.M_getThe_Nat :
-  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (get (σ := Nat) (m := M)) post epost := by
+  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (getThe (m := M) Nat) post epost := by
   sorry
 
 @[lspec]
@@ -61,20 +61,5 @@ theorem Spec.M_set_Nat (n : Nat) :
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
-#check Loom.spec_get_StateT
-
--- theorem foo : ∀ (post : Nat → String → Nat → PUnit → Prop) (s : String) (s_1 : Nat) (s_2 : PUnit)
---   (epost : (String → String → Nat → PUnit → Prop) × (Nat → Nat → PUnit → Prop) × (PUnit → PUnit → Prop) × PUnit),
---   post s_1 s s_1 s_2 → wp (get (σ := Nat) (m := M)) post epost s s_1 s_2 := by sorry
-
--- example : Goal 1 := by
---   simp only [Goal, loop, step]
---   intro post epost s₁ s₂ h
---   simp only [bind_assoc]
---   apply WPMonad.wp_bind (m := M)
---   mvcgen'
-
-
--- #eval runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂ h; mvcgen')) `(tactic| grind)
---   [100, 500, 1000]
-  -- [1000]
+#eval runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂ h; mvcgen')) `(tactic| grind)
+  [1000]

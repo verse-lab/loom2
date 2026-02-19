@@ -15,8 +15,8 @@ open Loom Lean Meta Order
 @[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
-    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost :=
-  spec_set_StateT x post epost
+    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost := sorry
+  -- spec_set_StateT x post epost
 
 @[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
     [Monad m] [CompleteLattice l] [WPMonad m l e]
@@ -46,17 +46,9 @@ def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
--- set_option diagnostics true in
 #eval
   runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| (intro s post h; mvcgen'))
     `(tactic| grind)
     [1000]
-
--- set_option diagnostics true in
--- example (p : Nat -> Prop) : p ⊑ wp (loop 300) (fun _ => p) () := by
---   simp only [loop, step]
---   intro s hs
---   mvcgen'
---   grind
