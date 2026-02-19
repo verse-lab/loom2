@@ -89,18 +89,18 @@ instance Option.instWPMonad : WPMonad Option.{u} Prop Prop where
     | some a => exact h a
 
 @[simp, grind =]
-theorem apply_pushExcept {α ε l e} (x : PredTrans l e (Except ε α)) (post : α → l) (epost : e × (ε → l)) :
-  (pushExcept x) post epost = x (pushExcept.post post epost) epost.1 := rfl
+theorem apply_pushExcept {α ε l e} (x : PredTrans l e (Except ε α)) (post : α → l) (epost : (ε → l) × e) :
+  (pushExcept x) post epost = x (pushExcept.post post epost) epost.2 := rfl
 
 /- TODO: change the order of `(e × (ε → l))` -/
 instance ExceptT.instWPMonad {l : Type u}
     [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
-    WPMonad (ExceptT ε m) l (e × (ε → l)) where
+    WPMonad (ExceptT ε m) l ((ε → l) × e) where
   wpImpl x := pushExcept (wp x.run)
   wp_pure_impl x post epost := by
     simpa [pushExcept.post] using
       (WPMonad.wp_pure (m := m) (x := Except.ok x)
-        (post := pushExcept.post post epost) (epost := epost.1))
+        (post := pushExcept.post post epost) (epost := epost.2))
   wp_bind_impl x f post epost := by
     simp only [apply_pushExcept, ExceptT.run_bind]
     apply PartialOrder.rel_trans _ (WPMonad.wp_bind (m := m) x ..)
@@ -110,7 +110,7 @@ instance ExceptT.instWPMonad {l : Type u}
     | error e => simpa [pushExcept.post] using
         (WPMonad.wp_pure (m := m) (x := Except.error e)
           (post := pushExcept.post post epost)
-          (epost := epost.fst))
+          (epost := epost.2))
   wp_cons_impl x post post' epost h := by
     apply WPMonad.wp_cons
     intro r; cases r with
@@ -118,8 +118,8 @@ instance ExceptT.instWPMonad {l : Type u}
     | error e => exact PartialOrder.rel_refl
 
 @[simp, grind =]
-theorem ExceptT.apply_wp {α ε l e} [Monad m] [CompleteLattice l] [WPMonad m l e] (x : ExceptT ε m α) (post : α → l) (epost : e × (ε → l)) :
-  (wp x) post epost = wp x.run (pushExcept.post post epost) epost.1 := rfl
+theorem ExceptT.apply_wp {α ε l e} [Monad m] [CompleteLattice l] [WPMonad m l e] (x : ExceptT ε m α) (post : α → l) (epost : (ε → l) × e) :
+  (wp x) post epost = wp x.run (pushExcept.post post epost) epost.2 := rfl
 
 instance StateT.instWPMonad {l : Type u}
   [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :

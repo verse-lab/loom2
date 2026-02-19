@@ -147,10 +147,10 @@ theorem throw_Except_wp (e : ε) : wp (MonadExceptOf.throw e : Except ε α) pos
 
 @[simp]
 theorem throw_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (err : ε) :
-  epost.2 err ⊑ wp (MonadExceptOf.throw err : ExceptT ε m α) post epost := by
+  epost.1 err ⊑ wp (MonadExceptOf.throw err : ExceptT ε m α) post epost := by
   simpa [MonadExceptOf.throw, pushExcept.post] using
     (WPMonad.wp_pure (m := m) (x := Except.error err)
-      (post := pushExcept.post post epost) (epost := epost.1))
+      (post := pushExcept.post post epost) (epost := epost.2))
 
 @[simp]
 theorem throw_EStateM_wp (e : ε) :
@@ -202,7 +202,7 @@ theorem tryCatch_Except_wp (x : Except ε α) (h : ε → Except ε α) :
 
 @[simp]
 theorem tryCatch_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : ExceptT ε m α) (h : ε → ExceptT ε m α) :
-  wp x post (epost.1, fun e => wp (h e) post epost) ⊑
+  wp x post (fun e => wp (h e) post epost, epost.2) ⊑
   wp (MonadExceptOf.tryCatch x h : ExceptT ε m α) post epost
      := by
   change _ ⊑ wp (tryCatch x h : ExceptT ε m α) _ _
@@ -211,7 +211,7 @@ theorem tryCatch_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
   apply WPMonad.wp_cons; intro r; cases r with
   | ok a => simpa [pushExcept.post] using
       (WPMonad.wp_pure (m := m) (x := Except.ok a)
-        (post := pushExcept.post post epost) (epost := epost.1))
+        (post := pushExcept.post post epost) (epost := epost.2))
   | error _ => exact PartialOrder.rel_refl
 
 /-
@@ -315,8 +315,8 @@ theorem monadLift_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMo
   rfl
 
 @[simp]
-theorem monadLift_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : m α) (post : α → l) (epost : e × (ε → l)) :
-  wp x post epost.1 ⊑
+theorem monadLift_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : m α) (post : α → l) (epost : (ε → l) × e) :
+  wp x post epost.2 ⊑
     wp (MonadLift.monadLift x : ExceptT ε m α) post epost := by
   simp only [wp, MonadLift.monadLift, ExceptT.lift, ExceptT.mk]
   apply PartialOrder.rel_trans; rotate_left
@@ -371,9 +371,9 @@ theorem monadMap_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
 
 @[simp]
 theorem monadMap_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e]
-  (f : ∀{β}, m β → m β) {α} (x : ExceptT ε m α) (post : α → l) (epost : e × (ε → l)) :
+  (f : ∀{β}, m β → m β) {α} (x : ExceptT ε m α) (post : α → l) (epost : (ε → l) × e) :
   wp (MonadFunctor.monadMap (m:=m) f x : ExceptT ε m α) post epost =
-    wp (f x.run) (pushExcept.post post epost) epost.1 := by
+    wp (f x.run) (pushExcept.post post epost) epost.2 := by
   simp [MonadFunctor.monadMap, ExceptT.run]
 
 /-
@@ -404,7 +404,7 @@ theorem withTheReader_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [
 
 @[simp]
 theorem adapt_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (f : ε → ε') (x : ExceptT ε m α) :
-  wp x post (epost.1, fun e => epost.2 (f e)) ⊑
+  wp x post (fun e => epost.1 (f e), epost.2) ⊑
     wp (ExceptT.adapt f x : ExceptT ε' m α) post epost := by
   simp only [wp, ExceptT.adapt, ExceptT.mk]
   apply PartialOrder.rel_trans; rotate_left
@@ -443,9 +443,9 @@ theorem liftWith_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
 theorem liftWith_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e]
   (f : (∀{β}, ExceptT ε m β → m (Except ε β)) → m α) :
   wp (MonadControl.liftWith (m:=m) f : ExceptT ε m α) post epost =
-    wp (Except.ok <$> f (fun x => x.run)) (pushExcept.post post epost) epost.1 := by
+    wp (Except.ok <$> f (fun x => x.run)) (pushExcept.post post epost) epost.2 := by
   change wp (liftWith (m:=m) f : ExceptT ε m α) post epost =
-    wp (Except.ok <$> f (fun x => x.run)) (pushExcept.post post epost) epost.1
+    wp (Except.ok <$> f (fun x => x.run)) (pushExcept.post post epost) epost.2
   simp
 
 /-
@@ -486,7 +486,7 @@ theorem restoreM_ReaderT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMon
 @[simp]
 theorem restoreM_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : m (Except ε α)) :
   wp (MonadControl.restoreM (m:=m) x : ExceptT ε m α) post epost =
-    wp x (pushExcept.post post epost) epost.1 := by
+      wp x (pushExcept.post post epost) epost.2 := by
   simp [MonadControl.restoreM, ExceptT.run]
 
 /-
@@ -560,7 +560,7 @@ theorem read_MonadReaderOf_lift_wp [MonadReaderOf ρ m] [MonadLift m n] [Monad m
 @[simp]
 theorem throw_lift_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e'] [MonadExceptOf ε m] (err : ε) :
   wp (MonadExceptOf.throw (ε:=ε) err : ExceptT ε' m α) post epost =
-    wp (MonadExceptOf.throw (ε:=ε) err : m (Except ε' α)) (pushExcept.post post epost) epost.1 := by
+    wp (MonadExceptOf.throw (ε:=ε) err : m (Except ε' α)) (pushExcept.post post epost) epost.2 := by
   rfl
 
 /-
@@ -574,7 +574,7 @@ theorem throw_lift_OptionT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPM
 @[simp]
 theorem tryCatch_lift_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e'] [MonadExceptOf ε m] (x : ExceptT ε' m α) (h : ε → ExceptT ε' m α) :
   wp (MonadExceptOf.tryCatch (ε:=ε) x h : ExceptT ε' m α) post epost =
-    wp (MonadExceptOf.tryCatch (ε:=ε) x h : m (Except ε' α)) (pushExcept.post post epost) epost.1 := by
+    wp (MonadExceptOf.tryCatch (ε:=ε) x h : m (Except ε' α)) (pushExcept.post post epost) epost.2 := by
   rfl
 
 /-
@@ -654,7 +654,7 @@ theorem orElse_Except_wp (x : Except ε α) (h : Unit → Except ε α) :
 
 @[simp]
 theorem orElse_ExceptT_wp [Monad m] [LawfulMonad m] [CompleteLattice l] [WPMonad m l e] (x : ExceptT ε m α) (h : Unit → ExceptT ε m α) :
-  wp x post (epost.1, fun _ => wp (h ()) post epost) ⊑
+  wp x post (fun _ => wp (h ()) post epost, epost.2) ⊑
     wp (OrElse.orElse x h : ExceptT ε m α) post epost := by
   apply tryCatch_ExceptT_wp
 
