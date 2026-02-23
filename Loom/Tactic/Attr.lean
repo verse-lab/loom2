@@ -95,11 +95,11 @@ private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM
   let (xs, _, type) ← withSimpGlobalConfig (forallMetaTelescopeReducing type)
   let type ← whnfR type
   let prog ←
-    if type.isAppOfArity ``Triple 11 then
-      pure (type.getArg! 8)
+    if type.isAppOfArity ``Triple 12 then
+      pure (type.getArg! 9)
     else if type.isAppOfArity ``PartialOrder.rel 4 then do
       let rhs := type.getArg! 3
-      let_expr wp _m _l _e _monad _cl _wpInst _α prog _post _epost := rhs
+      let_expr wp _m _l _e _monad _cl _ce _wpInst _α prog _post _epost := rhs
         | throwError "RHS of ⊑ is not a wp application{indentExpr rhs}"
       pure prog
     else

@@ -14,7 +14,7 @@ def loop (n : Nat) : StateM Nat Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
-def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post) () s
+def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post) EPost.nil.mk s
 
 def driver (n : Nat) (check := true) (k : MVarId → MetaM (List MVarId)) : MetaM Unit := do
   let goal :=mkApp (mkConst ``Goal) (mkNatLit n)
