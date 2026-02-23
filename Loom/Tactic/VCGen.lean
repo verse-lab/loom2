@@ -73,7 +73,9 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
   let_expr PartialOrder.rel l' _cl' pre rhs := specType
     | throwError "target not a partial order ⊑ application {specType}"
-  guard <| ← isDefEqS l l' -- Ensure the spec's lattice type matches the goal's (e.g. both `Nat → Prop`)
+  -- Use isDefEqGuarded (not isDefEqS) because isDefEqS is a lightweight structural check
+  -- that may fail to see through abbreviations like `Unit := PUnit`
+  guard <| ← isDefEqGuarded l l'
   let_expr wp _m' _ _e' _monadInst' _cl' _ce' instWP' _α _prog _post _epost := rhs
     | throwError "target not a wp application {rhs}"
   -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification
@@ -103,7 +105,7 @@ example {m} {σ} {l} {e} [WPMonad m l e] -- These are fixed. The other arguments
 ```
 -/
 meta def mkBackwardRuleForIte
-    (wpHead m l errTy monadInst cl instWP : Expr)
+    (wpHead m l errTy monadInst cl ce instWP : Expr)
     (excessArgs : Array Expr) : SymM BackwardRule := do
   let mTy ← Sym.inferType m
   let some aTy := if mTy.isForall then some mTy.bindingDomain! else none
@@ -126,7 +128,7 @@ meta def mkBackwardRuleForIte
     withLocalDeclD `post (← shareCommon (← mkArrow a l)) fun post => do
     withLocalDeclD `epost errTy fun epost => do
     let goalWithProg (prog : Expr) :=
-      mkAppN (mkAppN wpHead #[m, l, errTy, monadInst, cl, instWP, a, prog, post, epost]) ss
+      mkAppN (mkAppN wpHead #[m, l, errTy, monadInst, cl, ce, instWP, a, prog, post, epost]) ss
     let thenType ← mkArrow c (goalWithProg t)
     withLocalDeclD `hthen (← shareCommon thenType) fun hthen => do
     let elseType ← mkArrow (mkNot c) (goalWithProg e)
@@ -216,13 +218,13 @@ def mkBackwardRuleFromSpecsCached (specThms : Array SpecTheorem)
 
 /-- Cached wrapper for `mkBackwardRuleForIte`. -/
 def mkBackwardRuleForIteCached
-    (wpHead m l errTy monadInst cl instWP : Expr)
+    (wpHead m l errTy monadInst cl ce instWP : Expr)
     (excessArgs : Array Expr) : VCGenM BackwardRule := do
   let s := (← get).splitBackwardRuleCache
   match s[(``ite, instWP, excessArgs.size)]? with
   | some rule => return rule
   | none =>
-    let rule ← mkBackwardRuleForIte wpHead m l errTy monadInst cl instWP excessArgs
+    let rule ← mkBackwardRuleForIte wpHead m l errTy monadInst cl ce instWP excessArgs
     let key := (``ite, instWP, excessArgs.size)
     modify ({ · with splitBackwardRuleCache := s.insert key rule })
     return rule
@@ -246,7 +248,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   -- Goal should be: @WPMonad.wp m l errTy monadInst cl ce instWP α e post epost s₁ ... sₙ
   -- WPMonad.wp has 11 base args; anything beyond that are excess state args
   target.withApp fun head args => do
-    let_expr wp _m l _errTy monadInst _cl _ce instWP _α e _post _epost :=
+    let_expr wp m l errTy monadInst cl ce instWP _α e _post _epost :=
       mkAppN head (args.extract 0 (min args.size 11))
       | return .noProgramFoundInTarget target
     let excessArgs := args.extract 11 args.size
@@ -260,7 +262,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
     -- Apply registered specifications
     let f := e.getAppFn
     if f.isConstOf ``ite || f.isAppOf ``ite then
-      let rule ← mkBackwardRuleForIteCached head m l errTy monadInst cl instWP excessArgs
+      let rule ← mkBackwardRuleForIteCached head m l errTy monadInst cl ce instWP excessArgs
       let .goals goals ← rule.apply goal
         | throwError "Failed to apply split rule for {indentExpr e}"
       return .goals goals
@@ -371,10 +373,10 @@ def testBackwardRule (declName : Name) (l instWP : Expr)
 /-- Test helper: run `mkBackwardRuleForIte` with the given monad/lattice expressions.
     Returns the type of the generated auxiliary lemma. -/
 def testIteBackwardRule
-    (wpHead m l errTy monadInst cl instWP : Expr)
+    (wpHead m l errTy monadInst cl ce instWP : Expr)
     (excessArgs : Array Expr) : MetaM Expr := do
   let rule ← SymM.run do
-    mkBackwardRuleForIte wpHead m l errTy monadInst cl instWP excessArgs
+    mkBackwardRuleForIte wpHead m l errTy monadInst cl ce instWP excessArgs
   inferType rule.expr
 
 -- Test 1: Id monad, l = Prop, n = 0 excess args
@@ -387,7 +389,7 @@ def testIteBackwardRule
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
-  let ty ← testBackwardRule ``WPMonad.wp_bind l monadM instWP #[]
+  let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
 -- Test 2: StateM Nat, l = Nat → Prop, n = 1 excess arg
@@ -426,37 +428,69 @@ def testIteBackwardRule
     let ty ← testBackwardRule ``spec_get_StateT l instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
 
-@[lspec] theorem spec_set_StateT {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
-    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
-    (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
-  exact WP.set_StateT_wp x post epost
+-- Test 4: ite for StateM Nat, n = 1 excess arg
+-- mkBackwardRuleForIte:
+--   ∀ s, (c → wp t post epost s) → (¬c → wp e post epost s) → wp (ite c t e) post epost s
+#eval show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let m ← mkAppM ``StateM #[nat]
+  let l ← mkArrow nat (mkSort 0)
+  let errTy := mkConst ``EPost.nil
+  let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[errTy])
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance
+    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
+  let wpHead := mkConst ``wp [.zero, .zero, .zero]
+  withLocalDeclD `s nat fun s => do
+    let ty ← testIteBackwardRule wpHead m l errTy monadM cl ce instWP #[s]
+    logInfo m!"Test 4 (ite StateM Nat, n=1): {ty}"
 
--- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
--- a different head constant from MonadStateOf.get/set used above).
-@[lspec] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
-    {σ : Type u} (post : σ → σ → l) (epost : e) :
-    (fun s => post s s) ⊑ wp (get : StateT σ m σ) post epost :=
-  spec_get_StateT post epost
+-- Test 5: ite for Id, n = 0 excess args
+#eval show MetaM Unit from do
+  let m := mkConst ``Id [.zero]
+  let l := mkSort 0
+  let errTy := mkConst ``EPost.nil
+  let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[errTy])
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance
+    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
+  let wpHead := mkConst ``wp [.zero, .zero, .zero]
+  let ty ← testIteBackwardRule wpHead m l errTy monadM cl ce instWP #[]
+  logInfo m!"Test 5 (ite Id, n=0): {ty}"
 
-@[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
-    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
-    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost :=
-  spec_set_StateT x post epost
+namespace MTest
+section
+abbrev M := ExceptT String <| ReaderT String <| ExceptT Nat <| StateT Nat <| ExceptT Unit <| StateM Unit
 
-@[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
-    {α : Type u} (a : α) (post : α → l) (epost : e) :
-    post a ⊑ wp (pure (f := m) a) post epost := by
-  exact WPMonad.wp_pure a post epost
+@[local lspec]
+theorem Spec.M_getThe_Nat :
+  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (get (σ := Nat) (m := M)) post epost := by
+  sorry
 
-@[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
-    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
-    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
-  WPMonad.wp_bind x f post epost
+#eval show MetaM Unit from do
+  let string := mkConst ``String
+  let nat := mkConst ``Nat
+  let unit := mkConst ``Unit
+  let m := mkConst ``M
+  let l ← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0)))
+  let e1 ← mkArrow string (← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0))))
+  let e2 ← mkArrow nat (← mkArrow nat (← mkArrow unit (mkSort 0)))
+  let e3 ← mkArrow unit (← mkArrow unit (mkSort 0))
+  let enil := mkConst ``EPost.nil
+  let e34 ← mkAppM ``EPost.cons #[e3, enil]
+  let e234 ← mkAppM ``EPost.cons #[e2, e34]
+  let e ← mkAppM ``EPost.cons #[e1, e234]
+  let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
+  withLocalDeclD `s₁ string fun s₁ => do
+    withLocalDeclD `s₂ nat fun s₂ => do
+      withLocalDeclD `s₃ unit fun s₃ => do
+        let ty ← testBackwardRule ``Spec.M_getThe_Nat l instWP #[s₁, s₂, s₃]
+        logInfo m!"Test 6 (Spec.M_getThe_Nat): {ty}"
 
 -- Test 7: ite for deep M, n = 3 excess args
 #eval show MetaM Unit from do
@@ -468,18 +502,20 @@ def testIteBackwardRule
   let e1 ← mkArrow string (← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0))))
   let e2 ← mkArrow nat (← mkArrow nat (← mkArrow unit (mkSort 0)))
   let e3 ← mkArrow unit (← mkArrow unit (mkSort 0))
-  let e34 ← mkAppM ``Prod #[e3, unit]
-  let e234 ← mkAppM ``Prod #[e2, e34]
-  let errTy ← mkAppM ``Prod #[e1, e234]
+  let enil := mkConst ``EPost.nil
+  let e34 ← mkAppM ``EPost.cons #[e3, enil]
+  let e234 ← mkAppM ``EPost.cons #[e2, e34]
+  let errTy ← mkAppM ``EPost.cons #[e1, e234]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[errTy])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance
-    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl])
+    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
   let wpHead := mkConst ``wp [.zero, .zero, .zero]
   withLocalDeclD `s₁ string fun s₁ => do
     withLocalDeclD `s₂ nat fun s₂ => do
       withLocalDeclD `s₃ unit fun s₃ => do
-        let ty ← testIteBackwardRule wpHead m l errTy monadM cl instWP #[s₁, s₂, s₃]
+        let ty ← testIteBackwardRule wpHead m l errTy monadM cl ce instWP #[s₁, s₂, s₃]
         logInfo m!"Test 7 (ite M, n=3): {ty}"
 
 
