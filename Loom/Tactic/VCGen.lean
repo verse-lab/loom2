@@ -73,12 +73,8 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
   let_expr PartialOrder.rel l' _cl' pre rhs := specType
     | throwError "target not a partial order ⊑ application {specType}"
-  -- Ensure the spec's lattice type matches the goal's (e.g. both `Nat → Prop`)
-  -- Cannot apply `isDefEqS` here because unlike the current goal, for which we
-  -- unfold all reducible constants with `preprocessMVars`, `specType` still might
-  -- contain not-unfolded reducible constants.
-  guard <| ← isDefEqGuarded l l'
-  let_expr wp _m' _ _e' _monadInst' _cl' instWP' _α _prog _post _epost := rhs
+  guard <| ← isDefEqS l l' -- Ensure the spec's lattice type matches the goal's (e.g. both `Nat → Prop`)
+  let_expr wp _m' _ _e' _monadInst' _cl' _ce' instWP' _α _prog _post _epost := rhs
     | throwError "target not a wp application {rhs}"
   -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification
   guard <| ← isDefEqGuarded instWP instWP'
@@ -247,18 +243,18 @@ inductive SolveResult where
 
 def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   let target ← goal.getType
-  -- Goal should be: @WPMonad.wp m l errTy monadInst cl instWP α e post epost s₁ ... sₙ
-  -- WPMonad.wp has 10 base args; anything beyond that are excess state args
+  -- Goal should be: @WPMonad.wp m l errTy monadInst cl ce instWP α e post epost s₁ ... sₙ
+  -- WPMonad.wp has 11 base args; anything beyond that are excess state args
   target.withApp fun head args => do
-    let_expr wp m l errTy monadInst cl instWP _α e _post _epost :=
-      mkAppN head (args.extract 0 (min args.size 10))
+    let_expr wp _m l _errTy monadInst _cl _ce instWP _α e _post _epost :=
+      mkAppN head (args.extract 0 (min args.size 11))
       | return .noProgramFoundInTarget target
-    let excessArgs := args.extract 10 args.size
+    let excessArgs := args.extract 11 args.size
     -- Non-dependent let-expressions: use Sym.Simp.simpLet to preserve maximal sharing
     -- TODO: is it the best way?
     if e.isLet then
       if let .step e' .. ← Simp.SimpM.run' (Simp.simpLet e) then
-        let target' ← share <| mkAppN head (args.set! 7 e')
+        let target' ← share <| mkAppN head (args.set! 8 e')
         return .goals [← goal.replaceTargetDefEq target']
       else return .noStrategyForProgram e
     -- Apply registered specifications
@@ -386,11 +382,12 @@ def testIteBackwardRule
 #eval show MetaM Unit from do
   let m := mkConst ``Id [.zero]
   let l := mkSort 0
-  let e := mkConst ``Unit
+  let e := mkConst ``EPost.nil
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
-  let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[]
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
+  let ty ← testBackwardRule ``WPMonad.wp_bind l monadM instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
 -- Test 2: StateM Nat, l = Nat → Prop, n = 1 excess arg
@@ -399,10 +396,11 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let e := mkConst ``Unit
+  let e := mkConst ``EPost.nil
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[s]
     logInfo m!"Test 2 (StateM Nat, n=1): {ty}"
@@ -410,7 +408,7 @@ def testIteBackwardRule
 -- Test 3: get for StateM Nat, n = 1 excess arg
 -- Spec.get_StateT': ∀ s, (fun s => post s s) s → wp get post epost s
 @[lspec] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
-    [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
     (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
   exact WP.get_StateT_wp post epost
@@ -419,73 +417,46 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let e := mkConst ``Unit
+  let e := mkConst ``EPost.nil
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+  let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``spec_get_StateT l instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
 
--- Test 4: ite for StateM Nat, n = 1 excess arg
--- mkBackwardRuleForIte:
---   ∀ s, (c → wp t post epost s) → (¬c → wp e post epost s) → wp (ite c t e) post epost s
-#eval show MetaM Unit from do
-  let nat := mkConst ``Nat
-  let m ← mkAppM ``StateM #[nat]
-  let l ← mkArrow nat (mkSort 0)
-  let errTy := mkConst ``Unit
-  let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
-  let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance
-    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl])
-  let wpHead := mkConst ``wp [.zero, .zero, .zero]
-  withLocalDeclD `s nat fun s => do
-    let ty ← testIteBackwardRule wpHead m l errTy monadM cl instWP #[s]
-    logInfo m!"Test 4 (ite StateM Nat, n=1): {ty}"
+@[lspec] theorem spec_set_StateT {m : Type u → Type v} {l e : Type u}
+    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
+    (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
+  exact WP.set_StateT_wp x post epost
 
--- Test 5: ite for Id, n = 0 excess args
-#eval show MetaM Unit from do
-  let m := mkConst ``Id [.zero]
-  let l := mkSort 0
-  let errTy := mkConst ``Unit
-  let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
-  let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance
-    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl])
-  let wpHead := mkConst ``wp [.zero, .zero, .zero]
-  let ty ← testIteBackwardRule wpHead m l errTy monadM cl instWP #[]
-  logInfo m!"Test 5 (ite Id, n=0): {ty}"
+-- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
+-- a different head constant from MonadStateOf.get/set used above).
+@[lspec] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
+    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    {σ : Type u} (post : σ → σ → l) (epost : e) :
+    (fun s => post s s) ⊑ wp (get : StateT σ m σ) post epost :=
+  spec_get_StateT post epost
 
-namespace MTest
-section
-abbrev M := ExceptT String <| ReaderT String <| ExceptT Nat <| StateT Nat <| ExceptT Unit <| StateM Unit
+@[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
+    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e]
+    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
+    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost :=
+  spec_set_StateT x post epost
 
-@[local lspec]
-theorem Spec.M_getThe_Nat :
-  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (get (σ := Nat) (m := M)) post epost := by
-  sorry
+@[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
+    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
+    {α : Type u} (a : α) (post : α → l) (epost : e) :
+    post a ⊑ wp (pure (f := m) a) post epost := by
+  exact WPMonad.wp_pure a post epost
 
-#eval show MetaM Unit from do
-  let string := mkConst ``String
-  let nat := mkConst ``Nat
-  let unit := mkConst ``Unit
-  let m := mkConst ``M
-  let l ← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0)))
-  let e1 ← mkArrow string (← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0))))
-  let e2 ← mkArrow nat (← mkArrow nat (← mkArrow unit (mkSort 0)))
-  let e3 ← mkArrow unit (← mkArrow unit (mkSort 0))
-  let e34 ← mkAppM ``Prod #[e3, unit]
-  let e234 ← mkAppM ``Prod #[e2, e34]
-  let e ← mkAppM ``Prod #[e1, e234]
-  let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
-  let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl])
-  withLocalDeclD `s₁ string fun s₁ => do
-    withLocalDeclD `s₂ nat fun s₂ => do
-      withLocalDeclD `s₃ unit fun s₃ => do
-        let ty ← testBackwardRule ``Spec.M_getThe_Nat l instWP #[s₁, s₂, s₃]
-        logInfo m!"Test 6 (Spec.M_getThe_Nat): {ty}"
+@[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
+    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
+    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
+    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
+  WPMonad.wp_bind x f post epost
 
 -- Test 7: ite for deep M, n = 3 excess args
 #eval show MetaM Unit from do

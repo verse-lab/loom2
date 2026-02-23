@@ -1,4 +1,5 @@
 import Loom.LatticeExt
+import Loom.Post
 
 open Lean.Order
 
@@ -10,11 +11,17 @@ universe u v w x
 The continuation monad for weakest precondition transformers.
 -/
 
-abbrev PredTrans (t : Sort u) (e : Type v) (α : Sort w) := (α → t) → e → t
+def PredTrans (t : Type u) (e : Type v) (α : Type w) := (α → t) → e → t
+
+instance [PartialOrder t] : PartialOrder (PredTrans t e α) :=
+  inferInstanceAs (PartialOrder ((α → t) → e → t))
+
+instance [CCPO t] : CCPO (PredTrans t e α) :=
+  inferInstanceAs (CCPO ((α → t) → e → t))
 
 instance instMonadCont (t : Type u) (e : Type v) : Monad (PredTrans t e) where
-  pure x := fun cont _ => cont x
-  bind x f := fun cont epost => x (f · cont epost) epost
+  pure x := fun post _epost => post x
+  bind x f := fun post epost => x (f · post epost) epost
 
 instance instLawfulMonadCont (t : Type u) (e : Type v) : LawfulMonad (PredTrans t e) where
   map_const := rfl
@@ -27,35 +34,33 @@ instance instLawfulMonadCont (t : Type u) (e : Type v) : LawfulMonad (PredTrans 
   pure_bind _ _ := rfl
   bind_assoc _ _ _ := rfl
 
-def PredTrans.monotone {t : Type u} {e : Type v} {α : Type w} [PartialOrder t] (wp : PredTrans t e α) :=
-  ∀ (post post' : α → t), (∀ a, post a ⊑ post' a) → wp post ⊑ wp post'
+def PredTrans.monotone [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α) :=
+  ∀ post post' epost epost', post ⊑ post' → epost ⊑ epost' → pt post epost ⊑ pt post' epost'
 
-def PredTrans.exceptMonotone {t : Type u} {e : Type v} {α : Type w} [PartialOrder t] (wp : PredTrans t e α) :=
-  ∀ (epost epost' : e) (post : α → t), wp post epost ⊑ wp post epost'
+-- instance monadExceptOfPredTrans (t : Type u) (ε : Type v) :
+--     MonadExceptOf ε (PredTrans t ((ε → t) × e)) where
+--   throw e := fun _post epost => epost.1 e
+--   tryCatch x handle := fun post epost => x post ((handle · post epost), epost.2)
 
-instance monadExceptOfPredTrans (t : Type u) (ε : Type v) :
-    MonadExceptOf ε (PredTrans t ((ε → t) × e)) where
-  throw e := fun _post epost => epost.1 e
-  tryCatch x handle := fun post epost => x post ((handle · post epost), epost.2)
+@[simp] theorem PredTrans.apply_map {l : Type u} {e : Type v} {α : Type w} [PartialOrder l]
+    (trans : PredTrans l e α) (f : α → β) (post : β → l) :
+  (f <$> trans) post = trans (post ∘ f) := rfl
 
-@[simp] theorem PredTrans.apply_map {t : Type u} {e : Type v} {α : Type w} [PartialOrder t]
-    (trans : PredTrans t e α) (f : α → β) (post : β → t) (epost : e) :
-  (f <$> trans) post epost = trans (fun a => post (f a)) epost := rfl
-
-abbrev pushExcept.post {α : Type u} {ε : Type v} {l : Type w} {e : Type z}
-    (post : α → l) (epost : (ε → l) × e) : Except ε α → l :=
+@[simp]
+abbrev EPost.cons.pushExcept {α : Type u} {ε : Type v} {l : Type w} {e : Type z}
+    (post : α → l) (epost : EPost.cons (ε → l) e) : Except ε α → l :=
   fun
   | .ok a => post a
-  | .error e => epost.1 e
+  | .error e => epost.head e
 
 /--
 Adds the ability to make assertions about exceptions of type `ε` to a predicate transformer with
 postcondition on exceptions of type `es`, resulting in postcondition on exceptions of type
 `(ε → l) :: es`.
 -/
-def pushExcept {α : Type u} {ε : Type v} {l : Type w} {e : Type z}
-    (x : PredTrans l e (Except ε α)) : PredTrans l ((ε → l) × e) α :=
-  fun post epost => x (pushExcept.post post epost) epost.2
+def PredTrans.pushExcept {α : Type u} {ε : Type v} {l : Type w} {e : Type z}
+    (x : PredTrans l e (Except ε α)) : PredTrans l (EPost.cons (ε → l) e) α :=
+  fun post epost => x (epost.pushExcept post) epost.tail
 
 /--
 Adds the ability to make assertions about a state of type `σ` to a predicate transformer with
