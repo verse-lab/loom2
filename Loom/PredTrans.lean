@@ -64,7 +64,7 @@ def PredTrans.pushExcept {α : Type u} {ε : Type v} {l : Type w} {e : Type z}
 
 instance {ε : Type v} {l : Type w} {e : Type z} :
   MonadLift (PredTrans l e) (PredTrans l (EPost.cons (ε → l) e)) where
-  monadLift x := PredTrans.pushExcept fun post epost => x (post <| .ok ·) epost
+  monadLift x := fun post epost => x post epost.tail
 
 /--
 Adds the ability to make assertions about a state of type `σ` to a predicate transformer with
@@ -86,7 +86,7 @@ theorem apply_pushArg {σ : Type u} {l : Type v} {e : Type w} {α : Type z}
 instance {σ : Type u} {l : Type v} {e : Type w} : MonadLift (PredTrans l e) (PredTrans (σ → l) e) where
   monadLift x := fun post epost s => x (fun a => post a s) epost
 
-instance (priority := high) {ε : Type u} {l : Type u} {e : Type u} : MonadLift.{u, u, u} (PredTrans l e) (PredTrans l (EPost.cons.{u, u} (ε → l) e)) where
+instance (priority := high) {ε : Type u} {l : Type u} {e : Type u} : MonadLift (PredTrans l e) (PredTrans l (EPost.cons (ε → l) e)) where
   monadLift x := fun post epost => x post epost.tail
 
 
@@ -104,17 +104,19 @@ instance {ε : Type u} {l : Type v} {e : Type w} : MonadExceptOf ε (PredTrans l
 
 instance {ε : Type u} {l : Type v} {e : Type w} {σ : Type z}
   [MonadExceptOf ε (PredTrans l e)] : MonadExceptOf ε (PredTrans (σ → l) e) where
-  throw e := pushArg fun _ => throw e
-  tryCatch x handle := pushArg fun s =>
-    tryCatch
+  throw {α} x := fun post epost s => throw (m := PredTrans l e) (α := α) x (post · s) epost
+  tryCatch x handle := fun post epost s =>
+    tryCatch (m := PredTrans l e)
       (fun post epost => x (fun r s => post (r, s)) epost s)
       (fun e post epost => handle e (fun r s => post (r, s)) epost s)
+      (fun rs => post rs.1 rs.2) epost
 
 instance {ε : Type u} {l : Type v} {e : Type w} {ε' : Type u}
   [MonadExceptOf ε (PredTrans l e)] :
   MonadExceptOf ε (PredTrans l (EPost.cons (ε' → l) e)) where
-  throw e := PredTrans.pushExcept <| throw e
-  tryCatch x handle := PredTrans.pushExcept <|
-    tryCatch
-      (fun post epost => x (fun a => post (.ok a)) ⟨fun e => post (.error e), epost⟩)
-      (fun e post epost => handle e (fun r => post (.ok r)) ⟨fun e => post (.error e), epost⟩)
+  throw x := fun post epost => (throw (m := PredTrans l e) x) post epost.tail
+  tryCatch x handle := fun post epost =>
+    tryCatch (m := PredTrans l e)
+      (fun post' epost' => x post' ⟨epost.head, epost'⟩)
+      (fun e post' epost' => handle e post' ⟨epost.head, epost'⟩)
+      post epost.tail
