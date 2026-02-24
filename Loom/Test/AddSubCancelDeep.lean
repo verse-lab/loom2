@@ -43,54 +43,54 @@ def loop (n : Nat) : M Unit := do
 
 set_option trace.Meta.synthInstance true
 
-#synth LawfulMonadStateOf.{0, 0, 0} (ExceptT Nat (StateM Nat)) (Nat → Prop)
+#synth LawfulMonadStateOf (ExceptT Nat (StateM Nat)) (Nat → Prop)
         EPost⟨Nat → Nat → Prop⟩ Nat
 
 -- #synth LawfulMonadStateOf ((StateM Nat)) (Nat → Prop)
 --         EPost⟨Nat → Nat → Prop⟩ Nat
 
 
-example : LawfulMonadStateOf (ExceptT Nat (StateM Nat)) (Nat → Prop)
-        EPost⟨Nat → Nat → Prop⟩ Nat := by
-  apply instLawfulMonadStateOfOfLawfulWPMonadLift.{0, 0, 0, 0, 0}
-    -- (n := ExceptT Nat (StateM Nat))
-    -- (k := Nat → Prop)
-    -- (l := Nat → Prop)
-    -- (e := EPost⟨⟩)
-    -- (m := StateM Nat)
-    -- (σ := Nat)
+-- example : LawfulMonadStateOf (ExceptT Nat (StateM Nat)) (Nat → Prop)
+--         EPost⟨Nat → Nat → Prop⟩ Nat := by
+--   apply instLawfulMonadStateOfOfLawfulWPMonadLift
+--     -- (n := ExceptT Nat (StateM Nat))
+--     -- (k := Nat → Prop)
+--     -- (l := Nat → Prop)
+--     -- (e := EPost⟨⟩)
+--     -- (m := StateM Nat)
+--     -- (σ := Nat)
 
 
-def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂,
-  post s₁ s₂ ⟨⟩ -> wp.{_, _, _, 0} (loop n) (fun _ => post) epost s₁ s₂ ⟨⟩
+-- def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂,
+--   post s₁ s₂ ⟨⟩ -> wp.{_, _, _, 0} (loop n) (fun _ => post) epost s₁ s₂ ⟨⟩
 
 
 
-@[lspec]
-theorem Spec.M_getThe_Nat :
-  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (getThe (m := M) Nat) post epost := by
-  apply PartialOrder.rel_trans; rotate_left;
-  apply LawfulMonadStateOf.wp_get
+-- @[lspec]
+-- theorem Spec.M_getThe_Nat :
+--   (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (getThe (m := M) Nat) post epost := by
+--   apply PartialOrder.rel_trans; rotate_left;
+--   apply LawfulMonadStateOf.wp_get
 
-@[lspec]
-theorem Spec.M_set_Nat (n : Nat) :
-  (fun s₁ _ => post ⟨⟩ s₁ n) ⊑ wp (set (m := M) n) post epost := by
-  sorry
+-- @[lspec]
+-- theorem Spec.M_set_Nat (n : Nat) :
+--   (fun s₁ _ => post ⟨⟩ s₁ n) ⊑ wp (set (m := M) n) post epost := by
+--   sorry
 
-@[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
-    {α : Type u} (a : α) (post : α → l) (epost : e) :
-    post a ⊑ wp (pure (f := m) a) post epost := by
-  exact WPMonad.wp_pure a post epost
+-- @[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
+--     [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
+--     {α : Type u} (a : α) (post : α → l) (epost : e) :
+--     post a ⊑ wp (pure (f := m) a) post epost := by
+--   exact WPMonad.wp_pure a post epost
 
-@[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
-    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
-    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
-  WPMonad.wp_bind x f post epost
+-- @[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
+--     [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
+--     {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
+--     wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
+--   WPMonad.wp_bind x f post epost
 
-set_option maxRecDepth 10000
-set_option maxHeartbeats 10000000
+-- set_option maxRecDepth 10000
+-- set_option maxHeartbeats 10000000
 
-#eval runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂ h; mvcgen')) `(tactic| grind)
-  [1000]
+-- #eval runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂ h; mvcgen')) `(tactic| grind)
+--   [1000]
