@@ -43,13 +43,7 @@ def loop (n : Nat) : M Unit := do
 
 set_option trace.Meta.synthInstance true
 
-#synth MonadLift (PredTrans (String →  Nat → Prop) EPost⟨Nat → Nat → Prop⟩)
-      (PredTrans (String → Nat → Prop) EPost⟨String → String → Nat → Prop, Nat → Nat → Prop⟩)
-
--- set_option pp.all true
-
-#synth MonadLift (PredTrans (Nat → Prop) EPost⟨⟩) (PredTrans (Nat → Prop) EPost⟨Nat → Nat → Prop⟩)
-#synth LawfulMonadStateOf (ExceptT Nat (StateM Nat)) (Nat → Prop)
+#synth LawfulMonadStateOf.{0, 0, 0} (ExceptT Nat (StateM Nat)) (Nat → Prop)
         EPost⟨Nat → Nat → Prop⟩ Nat
 
 -- #synth LawfulMonadStateOf ((StateM Nat)) (Nat → Prop)
