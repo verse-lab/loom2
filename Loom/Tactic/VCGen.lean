@@ -384,11 +384,11 @@ def testIteBackwardRule
 #eval show MetaM Unit from do
   let m := mkConst ``Id [.zero]
   let l := mkSort 0
-  let e := mkConst ``EPost.nil
+  let e := mkConst ``EPost.nil --[.zero]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
   let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
@@ -398,11 +398,11 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let e := mkConst ``EPost.nil
+  let e := mkConst ``EPost.nil --[.zero]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[s]
     logInfo m!"Test 2 (StateM Nat, n=1): {ty}"
@@ -419,11 +419,11 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let e := mkConst ``EPost.nil
+  let e := mkConst ``EPost.nil --[.zero]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule ``spec_get_StateT l instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
@@ -435,13 +435,13 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let errTy := mkConst ``EPost.nil
+  let errTy := mkConst ``EPost.nil --[.zero]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[errTy])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance
-    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
-  let wpHead := mkConst ``wp [.zero, .zero, .zero]
+    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
+  let wpHead := mkConst ``wp [.zero, .zero, .zero, .zero]
   withLocalDeclD `s nat fun s => do
     let ty ← testIteBackwardRule wpHead m l errTy monadM cl ce instWP #[s]
     logInfo m!"Test 4 (ite StateM Nat, n=1): {ty}"
@@ -450,13 +450,13 @@ def testIteBackwardRule
 #eval show MetaM Unit from do
   let m := mkConst ``Id [.zero]
   let l := mkSort 0
-  let errTy := mkConst ``EPost.nil
+  let errTy := mkConst ``EPost.nil --[.zero]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[errTy])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance
-    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
-  let wpHead := mkConst ``wp [.zero, .zero, .zero]
+    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
+  let wpHead := mkConst ``wp [.zero, .zero, .zero, .zero]
   let ty ← testIteBackwardRule wpHead m l errTy monadM cl ce instWP #[]
   logInfo m!"Test 5 (ite Id, n=0): {ty}"
 
@@ -478,14 +478,14 @@ theorem Spec.M_getThe_Nat :
   let e1 ← mkArrow string (← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0))))
   let e2 ← mkArrow nat (← mkArrow nat (← mkArrow unit (mkSort 0)))
   let e3 ← mkArrow unit (← mkArrow unit (mkSort 0))
-  let enil := mkConst ``EPost.nil
+  let enil := mkConst ``EPost.nil --[.zero]
   let e34 ← mkAppM ``EPost.cons #[e3, enil]
   let e234 ← mkAppM ``EPost.cons #[e2, e34]
   let e ← mkAppM ``EPost.cons #[e1, e234]
   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[e])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM, cl, ce])
   withLocalDeclD `s₁ string fun s₁ => do
     withLocalDeclD `s₂ nat fun s₂ => do
       withLocalDeclD `s₃ unit fun s₃ => do
@@ -502,7 +502,7 @@ theorem Spec.M_getThe_Nat :
   let e1 ← mkArrow string (← mkArrow string (← mkArrow nat (← mkArrow unit (mkSort 0))))
   let e2 ← mkArrow nat (← mkArrow nat (← mkArrow unit (mkSort 0)))
   let e3 ← mkArrow unit (← mkArrow unit (mkSort 0))
-  let enil := mkConst ``EPost.nil
+  let enil := mkConst ``EPost.nil --[.zero]
   let e34 ← mkAppM ``EPost.cons #[e3, enil]
   let e234 ← mkAppM ``EPost.cons #[e2, e34]
   let errTy ← mkAppM ``EPost.cons #[e1, e234]
@@ -510,8 +510,8 @@ theorem Spec.M_getThe_Nat :
   let ce ← synthInstance (← mkAppM ``CompleteLattice #[errTy])
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instWP ← synthInstance
-    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
-  let wpHead := mkConst ``wp [.zero, .zero, .zero]
+    (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, cl, ce])
+  let wpHead := mkConst ``wp [.zero, .zero, .zero, .zero]
   withLocalDeclD `s₁ string fun s₁ => do
     withLocalDeclD `s₂ nat fun s₂ => do
       withLocalDeclD `s₃ unit fun s₃ => do

@@ -23,7 +23,7 @@ universe u
 -- def Post.exc : Post l e α → e
 --   | .mk _ exc => exc
 
-inductive EPost.nil where | mk
+inductive EPost.nil : Type where | mk
 
 inductive EPost.cons (eh : Type u) (et : Type v) where
   | mk : eh -> et -> EPost.cons eh et

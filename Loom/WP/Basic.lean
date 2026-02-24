@@ -4,8 +4,8 @@ open Lean.Order
 
 namespace Loom
 
-universe u v
-variable {m : Type u → Type v}
+universe u z
+variable {m : Type u → Type z}
 
 /-!
 # WPMonad typeclass
@@ -13,12 +13,14 @@ variable {m : Type u → Type v}
 The WPMonad typeclass defines weakest precondition semantics for monads.
 -/
 
-class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (e : outParam (Type w))
+class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (e : outParam (Type w'))
     [Monad m] [CompleteLattice l] [CompleteLattice e] extends LawfulMonad m where
   wpTrans : m α → PredTrans l e α
   wp_trans_pure (x : α) : pure x ⊑ wpTrans (pure (f := m) x)
-  wp_trans_bind (x : m α) (f : α → m β) : wpTrans x >>= (wpTrans ∘ f) ⊑ wpTrans (x >>= f)
+  wp_trans_bind (x : m α) (f : α → m β) : wpTrans x >>= (wpTrans <| f ·) ⊑ wpTrans (x >>= f)
   wp_trans_monotone (x : m α) : wpTrans x |>.monotone
+
+export WPMonad (wpTrans)
 
 def wp [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] {α} (x : m α) (post : α → l) (epost : e) : l :=
   WPMonad.wpTrans x post epost
@@ -49,22 +51,22 @@ equality theorems from Std/Do cannot be proven with our current axioms since wp_
 gives one direction (⊑). The reverse direction would require additional axioms.
 -/
 
-theorem WPMonad.wp_map [Monad m] [LawfulMonad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (f : α → β) (x : m α) :
+theorem WPMonad.wp_map [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (f : α → β) (x : m α) :
   ∀ post epost, wp x (fun a => post (f a)) epost ⊑ wp (f <$> x) post epost := by
   intro post epost
   rw [← bind_pure_comp]
   apply PartialOrder.rel_trans; rotate_left;
-  exact WPMonad.wp_trans_bind x (pure ∘ f) post epost
+  exact WPMonad.wp_trans_bind x (pure <| f ·) post epost
   apply WPMonad.wp_cons
   intro a; exact WPMonad.wp_trans_pure (f a) post epost
 
-theorem WPMonad.wp_map' [Monad m] [LawfulMonad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (f : α → β) (x : m α) :
+theorem WPMonad.wp_map' [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (f : α → β) (x : m α) :
   ∀ post post' epost (_ : post = fun a => post' (f a)), wp x post epost ⊑ wp (f <$> x) post' epost := by
   intro post post' epost h
   subst h
   apply wp_map
 
-theorem WPMonad.wp_seq [Monad m] [LawfulMonad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (f : m (α → β)) (x : m α) :
+theorem WPMonad.wp_seq [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (f : m (α → β)) (x : m α) :
   ∀ post epost, wp f (fun g => wp x (fun a => post (g a)) epost) epost ⊑ wp (f <*> x) post epost := by
   intro post epost
   rw [← bind_map]
@@ -95,8 +97,8 @@ theorem apply_pushExcept {α ε l e} (x : PredTrans l e (Except ε α)) (post : 
   (PredTrans.pushExcept x) post epost = x (epost.pushExcept post) epost.tail := rfl
 
 /- TODO: change the order of `(e × (ε → l))` -/
-instance ExceptT.instWPMonad {l : Type u}
-    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e] :
+instance ExceptT.instWPMonad {l : Type v}
+    [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] :
     WPMonad (ExceptT ε m) l (EPost.cons (ε → l) e) where
   wpTrans x := PredTrans.pushExcept (wp x.run)
   wp_trans_pure x := fun post epost =>
@@ -121,10 +123,10 @@ instance ExceptT.instWPMonad {l : Type u}
 theorem ExceptT.apply_wp {α ε l e} [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (x : ExceptT ε m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
   (wp x) post epost = wp x.run (epost.pushExcept post) epost.tail := rfl
 
-instance StateT.instWPMonad {l : Type u}
-  [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e] :
+instance StateT.instWPMonad {e : Type v} {σ : Type u} {l : Type w}
+  [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] :
   WPMonad (StateT σ m) (σ -> l) e where
-  wpTrans x := pushArg (wp ∘ x.run)
+  wpTrans x := pushArg (wp <| x.run ·)
   wp_trans_pure x := fun post epost s =>
     WPMonad.wp_pure (m := m) (x, s) (fun p => post p.1 p.2) epost
   wp_trans_bind x f := fun post epost s => by
@@ -139,8 +141,8 @@ instance StateT.instWPMonad {l : Type u}
 theorem StateT.apply_wp {σ : Type u} [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e] (x : StateT σ m α) (post : α → σ → l) (epost : e) (s : σ) :
   (wp x) post epost s = wp (x.run s) (fun (a, s) => post a s) epost := rfl
 
-instance ReaderT.instWPMonad {l : Type u}
-    [CompleteLattice l] [CompleteLattice e] [Monad m] [LawfulMonad m] [WPMonad m l e] :
+instance ReaderT.instWPMonad {l : Type v}
+    [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] :
     WPMonad (ReaderT ρ m) (ρ → l) e where
   wpTrans x := fun post epost r => wp (x.run r) (fun a => post a r) epost
   wp_trans_pure x := fun post epost r =>
@@ -164,7 +166,7 @@ theorem ReaderT.apply_wp {ρ : Type u} [Monad m] [CompleteLattice l] [CompleteLa
 /-
 TODO: Same as for pushExcept
 instance OptionT.instWPMonad {l : Type u}
-  [CompleteLattice l] [Monad m] [LawfulMonad m] [WPMonad m l e] :
+  [CompleteLattice l] [Monad m] [WPMonad m l e] :
   WPMonad (OptionT m) l (e × l) where
   wpImpl x post epost := WPMonad.wp (m := m) (l := l) (e := e) x.run
     (fun o => match o with | some a => post a | none => epost.2)
@@ -221,13 +223,13 @@ instance EStateM.instWPMonad : WPMonad (EStateM ε σ) (σ → Prop) (ε → σ 
 # Adequacy lemmas
 -/
 
-theorem Id.of_wp_run_eq {α : Type} {x : α} {prog : Id α}
+theorem Id.of_wp_run_eq {α : Type u} {x : α} {prog : Id α}
   (h : Id.run prog = x) (P : α → Prop)
   (hwp : wp prog P EPost.nil.mk) : P x := by
   rw [← h]
   exact hwp
 
-theorem Option.of_wp_eq {α : Type} {x prog : Option α}
+theorem Option.of_wp_eq {α : Type u} {x prog : Option α}
   (h : prog = x) (P : Option α → Prop)
   (hwp : wp prog (fun a => P (some a)) (P none)) : P x := by
   subst h
@@ -235,7 +237,7 @@ theorem Option.of_wp_eq {α : Type} {x prog : Option α}
   | none => exact hwp
   | some a => exact hwp
 
-theorem StateM.of_wp_run_eq {α σ : Type} {x : α × σ} {prog : StateM σ α} {s : σ}
+theorem StateM.of_wp_run_eq  {x : α × σ} {prog : StateM σ α} {s : σ}
   (h : StateT.run prog s = x) (P : α × σ → Prop)
   (hwp : wp prog (fun a s' => P (a, s')) EPost.nil.mk s) : P x := by
   rw [← h]
@@ -270,27 +272,6 @@ theorem EStateM.of_wp_run_eq {ε σ α : Type} {x : EStateM.Result ε σ α} {pr
   cases heq : prog s with
   | ok a s' => simp [heq] at hwp; exact hwp
   | error e s' => simp [heq] at hwp; exact hwp
-
--- #check LawfulMonad
--- #check MonadStateOf
--- #check StateT
-
--- #check (_ : Type) -> Prop
-
--- class LawfulMonadStateOf (σ : Type) {l : Type} {m : Type → Type v} [MonadStateOf σ m] [Monad m] [CompleteLattice l] [WPMonad m l e] where
---   [σlift : MonadLift (PredTrans (σ → Prop) Unit) (PredTrans l e)]
---   wp_get : liftM (n := PredTrans l e) (m := PredTrans (σ → Prop) Unit) (wp (get : StateM σ σ)) ⊑ wp (get : m σ)
---   wp_set (s : σ) : liftM (n := PredTrans l e) (m := PredTrans (σ → Prop) Unit) (wp (set s : StateM σ PUnit)) ⊑ wp (set s : m PUnit)
---   wp_modifyGet (f : σ → α × σ) : liftM (n := PredTrans l e) (m := PredTrans (σ → Prop) Unit) (wp (modifyGet f : StateM σ α)) ⊑ wp (modifyGet f : m α)
-
--- class LawfulMonadReaderOf (ρ : Type) {l : Type} {m : Type → Type v} [MonadReaderOf ρ m] [Monad m] [CompleteLattice l] [WPMonad m l e] where
---   [ρlift : MonadLift (PredTrans (ρ → Prop) Unit) (PredTrans l e)]
---   wp_read : liftM (n := PredTrans l e) (m := PredTrans (ρ → Prop) Unit) (wp (read : ReaderM ρ ρ)) ⊑ wp (read : m ρ)
-
--- class LawfulMonadExceptOf (ε : Type) {l : Type} {m : Type → Type v} [MonadExceptOf ε m] [Monad m] [CompleteLattice l] [WPMonad m l e] where
---   [εlift : MonadLift (PredTrans (ε → Prop) Unit) (PredTrans l e)]
---   -- wp_throw (err : ε) : liftM (n := PredTrans l e) (m := PredTrans (ε → Prop) Unit) (wp (throw err : m (Except ε α))) ⊑ wp (throw err : m (Except ε α))
---   wp_tryCatch (x : m α) (h : PUnit → m α) : liftM (n := PredTrans l e) (m := PredTrans (ε → Prop) Unit) (wp (tryCatch x h : m α)) ⊑ wp (tryCatch x h : m α)
 
 
 end Loom

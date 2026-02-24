@@ -6,6 +6,8 @@ Authors: Sebastian Graf
 import Lean
 import Loom.Tactic.VCGen
 import Loom.Test.Driver
+import Loom.Lawful.State
+import Loom.Lawful.Except
 
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 
@@ -13,7 +15,8 @@ open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 Same benchmark as `vcgen_add_sub_cancel` but using a deep transformer stack.
 -/
 
-abbrev M := ExceptT String <| ReaderT String <| ExceptT Nat <| StateT Nat <| ExceptT Unit <| StateM Unit
+abbrev M' := ReaderT String <| ExceptT Nat <| StateM Nat
+abbrev M := ExceptT String <| M'
 
 /-
 Known issues:
@@ -34,12 +37,46 @@ def loop (n : Nat) : M Unit := do
   | 0 => pure ()
   | n+1 => step n; loop n
 
-def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂, post s₁ s₂ ⟨⟩ -> wp (loop n) (fun _ => post) epost s₁ s₂ ⟨⟩
+-- example : LawfulWPMonadLift (ReaderT String (ExceptT Nat (StateT Nat (ExceptT Unit (StateM Unit))))) (Nat → Unit → Prop)
+--     EPost⟨String → String → Nat → Unit → Prop, Nat → Nat → Unit → Prop, Unit → Unit → Prop⟩ M
+--     (String → Nat → Unit → Prop) EPost⟨String → String → Nat → Unit → Prop, Nat → Nat → Unit → Prop, Unit → Unit → Prop⟩
+
+set_option trace.Meta.synthInstance true
+
+#synth MonadLift (PredTrans (String →  Nat → Prop) EPost⟨Nat → Nat → Prop⟩)
+      (PredTrans (String → Nat → Prop) EPost⟨String → String → Nat → Prop, Nat → Nat → Prop⟩)
+
+-- set_option pp.all true
+
+#synth MonadLift (PredTrans (Nat → Prop) EPost⟨⟩) (PredTrans (Nat → Prop) EPost⟨Nat → Nat → Prop⟩)
+#synth LawfulMonadStateOf (ExceptT Nat (StateM Nat)) (Nat → Prop)
+        EPost⟨Nat → Nat → Prop⟩ Nat
+
+-- #synth LawfulMonadStateOf ((StateM Nat)) (Nat → Prop)
+--         EPost⟨Nat → Nat → Prop⟩ Nat
+
+
+example : LawfulMonadStateOf (ExceptT Nat (StateM Nat)) (Nat → Prop)
+        EPost⟨Nat → Nat → Prop⟩ Nat := by
+  apply instLawfulMonadStateOfOfLawfulWPMonadLift.{0, 0, 0, 0, 0}
+    -- (n := ExceptT Nat (StateM Nat))
+    -- (k := Nat → Prop)
+    -- (l := Nat → Prop)
+    -- (e := EPost⟨⟩)
+    -- (m := StateM Nat)
+    -- (σ := Nat)
+
+
+def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂,
+  post s₁ s₂ ⟨⟩ -> wp.{_, _, _, 0} (loop n) (fun _ => post) epost s₁ s₂ ⟨⟩
+
+
 
 @[lspec]
 theorem Spec.M_getThe_Nat :
   (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (getThe (m := M) Nat) post epost := by
-  sorry
+  apply PartialOrder.rel_trans; rotate_left;
+  apply LawfulMonadStateOf.wp_get
 
 @[lspec]
 theorem Spec.M_set_Nat (n : Nat) :
