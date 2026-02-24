@@ -34,7 +34,7 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
     let ([mvarId], _) ← Lean.Elab.runTactic mvar.mvarId! (← `(tactic| simp only [$unfold,*])).raw {} {}
       | throwError "FAILED!"
     return mvarId
-  -- IO.println s!"time spent unfolding: {_unfoldMs} ms"
+  IO.println s!"time spent unfolding: {_unfoldMs} ms"
   let (mvarIds, ms) ← timeItMs do k mvarId
   let discharge ← discharge
   let dischargePp ← PrettyPrinter.ppTactic discharge

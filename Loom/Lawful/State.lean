@@ -3,7 +3,7 @@ import Loom.Lawful.Lift
 
 open Lean.Order Loom
 
-variable (m : Type u₁ → Type u₂) (l : Type u₁) (e : Type u₁) [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e]
+variable (m : Type u₁ → Type u₂) (l : Type u₁) (e : Type u₁) [Monad m] [WPMonad m l e]
 
 class LawfulMonadStateOf (σ : Type u₁) [WPMonad m l e]
   [MonadStateOf σ m] [MonadStateOf σ (PredTrans l e)] where

@@ -44,6 +44,7 @@ theorem Spec.M_getThe_Nat :
   apply PartialOrder.rel_trans; rotate_left; apply LawfulMonadStateOf.wp_get
   simp [get, getThe, MonadStateOf.get, liftM, monadLift, MonadLift.monadLift]
   rfl
+  -- sorry
 
 @[lspec]
 theorem Spec.M_set_Nat (n : Nat) :
@@ -59,14 +60,16 @@ theorem Spec.M_tryCatchThe (post : α → String → Nat → Unit → Prop) :
   simp [tryCatch, tryCatchThe, MonadExceptOf.tryCatch, -ExceptT.apply_wp]
   rfl
 
-@[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
+@[lspec]
+theorem spec_pure {m : Type u → Type v} {l e : Type u}
+    [Monad m] [WPMonad m l e]
     {α : Type u} (a : α) (post : α → l) (epost : e) :
     post a ⊑ wp (pure (f := m) a) post epost := by
   exact WPMonad.wp_pure a post epost
 
-@[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
-    [Monad m] [CompleteLattice l] [CompleteLattice e] [WPMonad m l e]
+@[lspec]
+theorem spec_bind {m : Type u → Type v} {l e : Type u}
+    [Monad m] [WPMonad m l e]
     {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
     wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
   WPMonad.wp_bind x f post epost

@@ -13,7 +13,7 @@ namespace Loom
 open Lean.Order WP
 
 universe u v
-variable {m : Type u → Type v} {l : Type u} {e : Type u} [CompleteLattice l] [CompleteLattice e]
+variable {m : Type u → Type v} {l : Type u} {e : Type u}
 
 /-! # `Monad` -/
 
@@ -528,7 +528,7 @@ open Lean.Order WP
 
 universe u₁ u₂ v
 
-variable {α : Type u₁} {β : Type (max u₁ u₂)} {m : Type (max u₁ u₂) → Type v} {l : Type (max u₁ u₂)} {e : Type (max u₁ u₂)} [CompleteLattice l] [CompleteLattice e]
+variable {α : Type u₁} {β : Type (max u₁ u₂)} {m : Type (max u₁ u₂) → Type v} {l : Type (max u₁ u₂)} {e : Type (max u₁ u₂)}
 variable [Monad m] [WPMonad m l e]
 
 /--

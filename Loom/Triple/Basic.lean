@@ -16,7 +16,7 @@ It is thus defined in terms of an instance `WPMonad m l e`.
 -/
 
 universe u v
-variable {m : Type u → Type v} {l : Type u} {e : Type u} [CompleteLattice l] [CompleteLattice e]
+variable {m : Type u → Type v} {l : Type u} {e : Type u}
 
 /-- A Hoare triple for reasoning about monadic programs. A Hoare triple `Triple pre x post epost`
 is a *specification* for `x`: if assertion `pre` holds before `x`, then postcondition `post` holds
