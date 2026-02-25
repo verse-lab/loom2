@@ -1,5 +1,7 @@
 import Lean
 import Loom.Test.Driver
+import Loom.Triple.SpecLemmas
+import Loom.Test.Specs
 import Loom.Tactic.VCGen
 
 open Loom Lean Meta Order
@@ -7,7 +9,7 @@ open Loom Lean Meta Order
 -- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
 -- a different head constant from MonadStateOf.get/set used above).
 @[lspec high] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
-    [Monad m] [LawfulMonad m] [WPMonad m l e]
+    [Monad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
     Triple (fun s => post s s) (get : StateT σ m σ) post epost :=
   by simpa using (spec_get_StateT (m := m) (l := l) (e := e) (σ := σ) post epost)
@@ -27,6 +29,8 @@ def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
+
+-- set_option trace.Loom.Tactic.vcgen true
 
 #eval
   runBenchUsingTactic

@@ -1,5 +1,6 @@
 import Lean
 import Loom.Test.Driver
+import Loom.Test.Specs
 import Loom.Tactic.VCGen
 
 open Loom Lean Meta Order

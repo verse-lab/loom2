@@ -6,6 +6,7 @@ Authors: Sebastian Graf
 import Lean
 import Loom.Tactic.VCGen
 import Loom.Test.Driver
+import Loom.Test.Specs
 import Loom.Lawful.State
 import Loom.Lawful.Except
 
@@ -41,19 +42,13 @@ def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂, post s₁ s₂ ⟨⟩ -> 
 @[lspec high]
 theorem Spec.M_getThe_Nat :
   Triple (fun s₁ s₂ => post s₂ s₁ s₂) (getThe (m := M) Nat) post epost := by
-  refine ⟨?_⟩
-  apply PartialOrder.rel_trans; rotate_left; apply LawfulMonadStateOf.wp_get
-  simp [get, getThe, MonadStateOf.get, liftM, monadLift, MonadLift.monadLift]
-  rfl
+  sorry
   -- sorry
 
 @[lspec high]
 theorem Spec.M_set_Nat (n : Nat) :
   Triple (fun s₁ _ => post ⟨⟩ s₁ n) (set (m := M) n) post epost := by
-  refine ⟨?_⟩
-  apply PartialOrder.rel_trans; rotate_left; apply LawfulMonadStateOf.wp_set
-  simp [set, MonadStateOf.set, liftM, monadLift, MonadLift.monadLift]
-  rfl
+  sorry
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000

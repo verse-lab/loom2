@@ -11,6 +11,8 @@ open Loom.Tactic.SpecAttr
 
 namespace Loom
 
+initialize registerTraceClass `Loom.Tactic.vcgen
+
 namespace Loom.Tactic.SpecAttr
 
 /--
@@ -43,6 +45,13 @@ private def getExcessArgTypes (l : Expr) (n : Nat) : MetaM (Array Expr) := do
 def preprocessExpr (e : Expr) : SymM Expr := do
   shareCommon (← unfoldReducible (← instantiateMVars e))
 
+/--
+Check definitional equality without committing metavariable assignments.
+Useful for "can these unify?" probes when matching candidate specs.
+-/
+private def isDefEqNoAssign (a b : Expr) : MetaM Bool := do
+  withoutModifyingState <| isDefEqGuarded a b
+
 
 /--
 TODO:
@@ -67,7 +76,7 @@ explicitly construct the `→` type via `mkExpectedTypeHint`.
   alongside the spec's universally quantified parameters
 -/
 def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
-  (l instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
+  (e l instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
   -- dbg_trace s!"tryMkBackwardRuleFromSpec: instWP = {← ppExpr instWP}"
   -- Instantiate the spec theorem, creating metavars for all universally quantified params
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
@@ -76,10 +85,11 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   -- Use isDefEqGuarded (not isDefEqS) because isDefEqS is a lightweight structural check
   -- that may fail to see through abbreviations like `Unit := PUnit`
   guard <| ← isDefEqGuarded l l'
-  let_expr wp _m' _ _e' _monadInst' instWP' _α _prog _post _epost := rhs
+  let_expr wp _m' _ _ _monadInst' instWP' _α e' _post _epost := rhs
     | throwError "target not a wp application {rhs}"
-  -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification
-  guard <| ← isDefEqGuarded instWP instWP'
+  -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification.
+  -- For e/e' we only probe that unification exists, without committing assignments.
+  guard <| ← isDefEqGuarded instWP instWP' <&&> isDefEqNoAssign e e'
   -- Create fresh metavars for excess state args (abstractMVars will bind them as ∀)
   let ss ← excessArgs.mapM fun arg => do
     mkFreshExprMVar (userName := `s) <| ← Sym.inferType arg
@@ -166,11 +176,11 @@ for `l = σ1 → ... → σn → Prop`, it turns `pre ⊑ wp x post epost` into
 `∀ s1 ... sn, pre s1 ... sn → wp x post epost s1 ... sn`.
 -/
 def mkBackwardRuleFromSpecs (specThms : Array SpecTheorem)
-    (l instWP : Expr) (excessArgs : Array Expr)
+    (e l instWP : Expr) (excessArgs : Array Expr)
     : MetaM (Option (SpecTheorem × BackwardRule)) := SymM.run do
   for specThm in specThms do
     if let some rule ← withNewMCtxDepth
-        (tryMkBackwardRuleFromSpec specThm l instWP excessArgs) then
+        (tryMkBackwardRuleFromSpec specThm e l instWP excessArgs) then
       return (specThm, rule)
   return none
 
@@ -203,14 +213,14 @@ def SpecTheorem.global? (specThm : SpecTheorem) : Option Name :=
     `(spec decl names, instWP, excessArgs.size)`. Falls back to the uncached
     version when any spec theorem is not a global declaration. -/
 def mkBackwardRuleFromSpecsCached (specThms : Array SpecTheorem)
-    (l instWP : Expr) (excessArgs : Array Expr)
+    (e l instWP : Expr) (excessArgs : Array Expr)
     : OptionT VCGenM (SpecTheorem × BackwardRule) := do
     let decls := specThms.filterMap SpecTheorem.global?
     let s := (← get).specBackwardRuleCache
     match s[(decls, instWP, excessArgs.size)]? with
     | some (specThm, rule) => return (specThm, rule)
     | none =>
-      let some rule ← mkBackwardRuleFromSpecs specThms l instWP excessArgs
+      let some rule ← mkBackwardRuleFromSpecs specThms e l instWP excessArgs
         | failure
       let key := (decls, instWP, excessArgs.size)
       modify ({ · with specBackwardRuleCache := s.insert key rule })
@@ -263,15 +273,19 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
     let f := e.getAppFn
     if f.isConstOf ``ite || f.isAppOf ``ite then
       let rule ← mkBackwardRuleForIteCached head m l errTy monadInst instWP excessArgs
+      trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
       let .goals goals ← rule.apply goal
         | throwError "Failed to apply split rule for {indentExpr e}"
       return .goals goals
     if f.isConst || f.isFVar then
+      trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
       let thms ← (← read).specThms.findSpecs e
-      let some (_, rule) ← (mkBackwardRuleFromSpecsCached thms l instWP excessArgs).run
+      trace[Loom.Tactic.vcgen] "Candidates for {e}: {thms.map (·.proof)}"
+      let some (thm, rule) ← (mkBackwardRuleFromSpecsCached thms e l instWP excessArgs).run
         | return .noSpecFoundForProgram e m thms
+      trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
       let .goals goals ← rule.apply goal
-        | throwError "Failed to apply rule for {indentExpr e}"
+        | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
       return .goals goals
     return .noStrategyForProgram e
 
@@ -361,14 +375,24 @@ section Test
 
 /-- Test helper: create a SpecTheorem from a declaration and run tryMkBackwardRuleFromSpec
     with the given monad type expressions. Returns the type of the auxiliary lemma. -/
-def testBackwardRule (declName : Name) (l instWP : Expr)
+def testBackwardRule (declName : Name) (e l instWP : Expr)
     (excessArgs : Array Expr) : MetaM Expr := do
   let specThm ← mkSpecTheoremFromConst declName
   let rule ← SymM.run do
-    tryMkBackwardRuleFromSpec specThm l instWP excessArgs
+    tryMkBackwardRuleFromSpec specThm e l instWP excessArgs
   match rule with
   | some br => inferType br.expr
   | none => throwError "tryMkBackwardRuleFromSpec returned none for {declName}"
+
+/-- Instantiate a spec theorem and extract the program term from `pre ⊑ wp prog post epost`. -/
+def mkProgramFromSpec (declName : Name) : MetaM Expr := do
+  let specThm ← mkSpecTheoremFromConst declName
+  let (_xs, _bs, _specProof, specType) ← specThm.proof.instantiate
+  let_expr PartialOrder.rel _ _ _ rhs := specType
+    | throwError "target not a partial order ⊑ application {specType}"
+  let_expr wp _ _ _ _ _ _ prog _ _ := rhs
+    | throwError "target not a wp application {rhs}"
+  return prog
 
 /-- Test helper: run `mkBackwardRuleForIte` with the given monad/lattice expressions.
     Returns the type of the generated auxiliary lemma. -/
@@ -384,10 +408,11 @@ def testIteBackwardRule
 #eval show MetaM Unit from do
   let m := mkConst ``Id [.zero]
   let l := mkSort 0
-  let e := mkConst ``EPost.nil --[.zero]
+  let errTy := mkConst ``EPost.nil --[.zero]
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM])
-  let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[]
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let prog ← mkProgramFromSpec ``WPMonad.wp_bind
+  let ty ← testBackwardRule ``WPMonad.wp_bind prog l instWP #[]
   logInfo m!"Test 1 (Id, n=0): {ty}"
 
 -- Test 2: StateM Nat, l = Nat → Prop, n = 1 excess arg
@@ -396,11 +421,12 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let e := mkConst ``EPost.nil --[.zero]
+  let errTy := mkConst ``EPost.nil --[.zero]
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let prog ← mkProgramFromSpec ``WPMonad.wp_bind
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule ``WPMonad.wp_bind l instWP #[s]
+    let ty ← testBackwardRule ``WPMonad.wp_bind prog l instWP #[s]
     logInfo m!"Test 2 (StateM Nat, n=1): {ty}"
 
 -- Test 3: get for StateM Nat, n = 1 excess arg
@@ -415,11 +441,12 @@ def testIteBackwardRule
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
-  let e := mkConst ``EPost.nil --[.zero]
+  let errTy := mkConst ``EPost.nil --[.zero]
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let prog ← mkProgramFromSpec ``spec_get_StateT
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule ``spec_get_StateT l instWP #[s]
+    let ty ← testBackwardRule ``spec_get_StateT prog l instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
 
 -- Test 4: ite for StateM Nat, n = 1 excess arg
@@ -471,13 +498,14 @@ theorem Spec.M_getThe_Nat :
   let enil := mkConst ``EPost.nil --[.zero]
   let e34 ← mkAppM ``EPost.cons #[e3, enil]
   let e234 ← mkAppM ``EPost.cons #[e2, e34]
-  let e ← mkAppM ``EPost.cons #[e1, e234]
+  let errTy ← mkAppM ``EPost.cons #[e1, e234]
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, e, monadM])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let prog ← mkProgramFromSpec ``Spec.M_getThe_Nat
   withLocalDeclD `s₁ string fun s₁ => do
     withLocalDeclD `s₂ nat fun s₂ => do
       withLocalDeclD `s₃ unit fun s₃ => do
-        let ty ← testBackwardRule ``Spec.M_getThe_Nat l instWP #[s₁, s₂, s₃]
+        let ty ← testBackwardRule ``Spec.M_getThe_Nat prog l instWP #[s₁, s₂, s₃]
         logInfo m!"Test 6 (Spec.M_getThe_Nat): {ty}"
 
 -- Test 7: ite for deep M, n = 3 excess args

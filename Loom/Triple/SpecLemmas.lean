@@ -276,7 +276,7 @@ theorem Spec.get_StateT (post : σ → σ → l) :
 @[lspec]
 theorem Spec.set_StateT (s : σ) (post : PUnit → σ → l) :
     Triple (fun _ => post ⟨⟩ s)
-      (MonadStateOf.set s : StateT σ m PUnit) post epost :=
+      (set s : StateT σ m PUnit) post epost :=
   Triple.iff.mpr (by intro _; simpa [MonadStateOf.set] using
     (WPMonad.wp_pure (m := m) (x := (PUnit.unit, s))
       (post := fun x => post x.fst x.snd) (epost := epost)))
