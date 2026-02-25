@@ -34,8 +34,8 @@ instance instLawfulMonadCont (t : Type u) (e : Type v) : LawfulMonad (PredTrans 
   pure_bind _ _ := rfl
   bind_assoc _ _ _ := rfl
 
-def PredTrans.monotone [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α) :=
-  ∀ post post' epost epost', post ⊑ post' → epost ⊑ epost' → pt post epost ⊑ pt post' epost'
+def PredTrans.monotone [PartialOrder l] (pt : PredTrans l e α) :=
+  ∀ post post' epost, post ⊑ post' → pt post epost ⊑ pt post' epost
 
 -- instance monadExceptOfPredTrans (t : Type u) (ε : Type v) :
 --     MonadExceptOf ε (PredTrans t ((ε → t) × e)) where

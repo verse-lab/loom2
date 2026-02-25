@@ -45,7 +45,6 @@ theorem Spec.bind (x : m α) (f : α → m β) :
     Triple (wp x (fun a => wp (f a) post epost) epost) (x >>= f) post epost :=
   Spec.bind' x f (Triple.iff.mpr PartialOrder.rel_refl)
 
-variable [LawfulMonad m]
 
 /-- Spec for `map`: if `x` satisfies postcondition `fun a => post (f a)`, then `f <$> x`
 satisfies `post`. -/
@@ -130,7 +129,7 @@ theorem Spec.monadMap_OptionT
   Triple.iff.mpr (by rw [monadMap_OptionT_wp]; rfl)
 -/
 
-omit [LawfulMonad m] in
+
 /-- Spec for `monadMap` reflexivity. -/
 theorem Spec.monadMap_refl (x : m α) :
     Triple (wp (f x : m α) post epost)
@@ -197,7 +196,7 @@ theorem Spec.restoreM_OptionT (x : m (Option α)) (post : α → l) (epost : e �
 
 /-! # `MonadControlT` -/
 
-omit [LawfulMonad m] in
+
 /-- Spec for `liftWith` reflexivity. -/
 theorem Spec.liftWith_refl
     (f : (∀{β}, m β → m β) → m α) :
@@ -205,7 +204,7 @@ theorem Spec.liftWith_refl
       (MonadControlT.liftWith (m:=m) f : m α) post epost :=
   Triple.iff.mpr (by rw [liftWith_refl_wp])
 
-omit [LawfulMonad m] in
+
 /-- Spec for `restoreM` reflexivity. -/
 theorem Spec.restoreM_refl (x : stM m m α) :
     Triple (wp (Pure.pure x : m α) post epost)
@@ -409,14 +408,14 @@ theorem Spec.adaptExcept_EStateM (f : ε → ε') (x : EStateM ε σ α)
 
 /-! # Lifting `MonadExceptOf` -/
 
-omit [LawfulMonad m] in
+
 /-- Spec for `throw` (generic). -/
 theorem Spec.throw_MonadExcept [MonadExceptOf ε m] (err : ε) :
     Triple (wp (MonadExceptOf.throw err : m α) post epost)
       (throw err : m α) post epost :=
   Triple.iff.mpr (by simp [throw, PartialOrder.rel_refl])
 
-omit [LawfulMonad m] in
+
 /-- Spec for `tryCatch` (generic). -/
 theorem Spec.tryCatch_MonadExcept [MonadExceptOf ε m] (x : m α) (h : ε → m α) :
     Triple (wp (MonadExceptOf.tryCatch x h : m α) post epost)
@@ -487,7 +486,7 @@ theorem Spec.tryCatch_OptionT_lift [MonadExceptOf ε m] (x : OptionT m α) (h : 
 
 /-! # `MonadFunctorT` / `MonadControlT` transitivity -/
 
-omit [LawfulMonad m] in
+
 /-- Spec for `monadMap` transitivity: maps through two layers of `MonadFunctorT`. -/
 theorem Spec.monadMap_trans
     {n₁ : Type u → Type v} {n₂ : Type u → Type v}
@@ -498,7 +497,7 @@ theorem Spec.monadMap_trans
       (MonadFunctorT.monadMap (m:=n₂) f x : m α) post epost :=
   Triple.iff.mpr (by rw [monadMap_trans_wp])
 
-omit [LawfulMonad m] in
+
 /-- Spec for `liftWith` transitivity: lifts through two layers of `MonadControlT`. -/
 theorem Spec.liftWith_trans
     {n₁ : Type u → Type v} {n₂ : Type u → Type v}
@@ -508,7 +507,7 @@ theorem Spec.liftWith_trans
       (MonadControlT.liftWith (m:=n₂) f : m α) post epost :=
   Triple.iff.mpr (by rw [liftWith_trans_wp])
 
-omit [LawfulMonad m] in
+
 /-- Spec for `restoreM` transitivity: restores through two layers of `MonadControlT`. -/
 theorem Spec.restoreM_trans
     {n₁ : Type u → Type v} {n₂ : Type u → Type v}
