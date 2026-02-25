@@ -42,6 +42,21 @@ def SpecProof.key : SpecProof → Name
 instance : Hashable SpecProof where
   hash sp := hash sp.key
 
+private def tripleToWpProof? (proof type : Expr) : MetaM (Expr × Expr) := do
+  let type ← whnfR type
+  if type.isAppOfArity ``Triple 10 then
+    let .const _ lvls := type.getAppFn
+      | return (proof, type)
+    let_expr Triple m l e α monad instWP pre x post epost := type
+      | return (proof, type)
+    let tripleIff := mkAppN (mkConst ``Triple.iff lvls)
+      #[m, l, e, monad, instWP, α, x, pre, post, epost]
+    let proof ← mkAppM ``Iff.mp #[tripleIff, proof]
+    let type ← instantiateMVars (← inferType proof)
+    return (proof, type)
+  else
+    return (proof, type)
+
 def SpecProof.instantiate (proof : SpecProof) : MetaM (Array Expr × Array BinderInfo × Expr × Expr) := do
   let prf ← match proof with
     | .global declName => mkConstWithFreshMVarLevels declName
@@ -49,7 +64,9 @@ def SpecProof.instantiate (proof : SpecProof) : MetaM (Array Expr × Array Binde
     | .stx _ _ proof => pure proof
   let type ← instantiateMVars (← inferType prf)
   let (xs, bs, type) ← forallMetaTelescope type
-  return (xs, bs, prf.beta xs, type)
+  let prf := prf.beta xs
+  let (prf, type) ← tripleToWpProof? prf type
+  return (xs, bs, prf, type)
 
 instance : ToMessageData SpecProof where
   toMessageData := fun

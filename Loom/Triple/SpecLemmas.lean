@@ -22,11 +22,13 @@ variable [Monad m] [WPMonad m l e]
 /-- Spec for `pure`: if the precondition entails the postcondition applied to `a`, then `pure a`
 satisfies the triple. -/
 
+@[lspec]
 theorem Spec.pure' (a : α) (h : pre ⊑ post a) :
     Triple pre (Pure.pure (f := m) a) post epost :=
   Triple.pure a h
 
 /-- Canonical spec for `pure`: the weakest precondition for `pure a` is `post a`. -/
+@[lspec]
 theorem Spec.pure (a : α) :
     Triple (post a) (Pure.pure (f := m) a) post epost :=
   Spec.pure' a PartialOrder.rel_refl
@@ -34,6 +36,7 @@ theorem Spec.pure (a : α) :
 /-- Spec for `bind`: if `x` establishes `wp (f a) post epost` for each result `a`, then
 `x >>= f` satisfies the triple. -/
 
+@[lspec]
 theorem Spec.bind' (x : m α) (f : α → m β)
     (h : Triple pre x (fun a => wp (f a) post epost) epost) :
     Triple pre (x >>= f) post epost :=
@@ -41,6 +44,7 @@ theorem Spec.bind' (x : m α) (f : α → m β)
 
 /-- Canonical spec for `bind`: the weakest precondition for `x >>= f` is
 `wp x (fun a => wp (f a) post epost) epost`. -/
+@[lspec]
 theorem Spec.bind (x : m α) (f : α → m β) :
     Triple (wp x (fun a => wp (f a) post epost) epost) (x >>= f) post epost :=
   Spec.bind' x f (Triple.iff.mpr PartialOrder.rel_refl)
@@ -48,6 +52,7 @@ theorem Spec.bind (x : m α) (f : α → m β) :
 
 /-- Spec for `map`: if `x` satisfies postcondition `fun a => post (f a)`, then `f <$> x`
 satisfies `post`. -/
+@[lspec]
 theorem Spec.map' (f : α → β) (x : m α)
     (h : Triple pre x (fun a => post (f a)) epost) :
     Triple pre (f <$> x) post epost :=
@@ -55,18 +60,21 @@ theorem Spec.map' (f : α → β) (x : m α)
 
 /-- Canonical spec for `map`: the weakest precondition for `f <$> x` is
 `wp x (fun a => post (f a)) epost`. -/
+@[lspec]
 theorem Spec.map (f : α → β) (x : m α) :
     Triple (wp x (fun a => post (f a)) epost) (f <$> x) post epost :=
   Spec.map' f x (Triple.iff.mpr PartialOrder.rel_refl)
 
 /-- Spec for `seq`: if `x` establishes `wp y (fun a => post (f a)) epost` for each function `f`,
 then `x <*> y` satisfies `post`. -/
+@[lspec]
 theorem Spec.seq' (x : m (α → β)) (y : m α)
     (h : Triple pre x (fun f => wp y (fun a => post (f a)) epost) epost) :
     Triple pre (x <*> y) post epost :=
   Triple.iff.mpr (PartialOrder.rel_trans (Triple.iff.mp h) (WPMonad.wp_seq x y post epost))
 
 /-- Canonical spec for `seq`. -/
+@[lspec]
 theorem Spec.seq (x : m (α → β)) (y : m α) :
     Triple (wp x (fun f => wp y (fun a => post (f a)) epost) epost) (x <*> y) post epost :=
   Spec.seq' x y (Triple.iff.mpr PartialOrder.rel_refl)
@@ -74,22 +82,26 @@ theorem Spec.seq (x : m (α → β)) (y : m α) :
 /-! # `MonadLift` -/
 
 /-- Spec for `monadLift` into `StateT`. -/
+@[lspec]
 theorem Spec.monadLift_StateT (x : m α) (post : α → σ → l) :
     Triple (fun s => wp x (fun a => post a s) epost) (MonadLift.monadLift x : StateT σ m α) post epost :=
   Triple.iff.mpr (monadLift_StateT_wp x post)
 
 /-- Spec for `monadLift` into `ReaderT`. -/
+@[lspec]
 theorem Spec.monadLift_ReaderT (x : m α) (post : α → ρ → l) :
     Triple (fun r => wp x (fun a => post a r) epost) (MonadLift.monadLift x : ReaderT ρ m α) post epost :=
   Triple.iff.mpr (by rw [monadLift_ReaderT_wp]; rfl)
 
 /-- Spec for `monadLift` into `ExceptT`. -/
+@[lspec]
 theorem Spec.monadLift_ExceptT (x : m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp x post epost.tail) (MonadLift.monadLift x : ExceptT ε m α) post epost :=
   Triple.iff.mpr (monadLift_ExceptT_wp x post epost)
 
 /-
 /-- Spec for `monadLift` into `OptionT`. -/
+@[lspec]
 theorem Spec.monadLift_OptionT (x : m α) (post : α → l) (epost : e × l) :
     Triple (wp x post epost.1) (MonadLift.monadLift x : OptionT m α) post epost :=
   Triple.iff.mpr (monadLift_OptionT_wp x)
@@ -100,6 +112,7 @@ theorem Spec.monadLift_OptionT (x : m α) (post : α → l) (epost : e × l) :
 attribute [refl] PartialOrder.rel_refl
 
 /-- Spec for `monadMap` on `StateT`. -/
+@[lspec]
 theorem Spec.monadMap_StateT
     (f : ∀{β}, m β → m β) {α} (x : StateT σ m α) (post : α → σ → l) :
     Triple (fun s => wp (f (x.run s)) (fun (a, s') => post a s') epost)
@@ -107,6 +120,7 @@ theorem Spec.monadMap_StateT
   Triple.iff.mpr (by rw [monadMap_StateT_wp]; rfl)
 
 /-- Spec for `monadMap` on `ReaderT`. -/
+@[lspec]
 theorem Spec.monadMap_ReaderT
     (f : ∀{β}, m β → m β) {α} (x : ReaderT ρ m α) (post : α → ρ → l) :
     Triple (fun r => wp (f (x.run r)) (fun a => post a r) epost)
@@ -114,6 +128,7 @@ theorem Spec.monadMap_ReaderT
   Triple.iff.mpr (by rw [monadMap_ReaderT_wp]; rfl)
 
 /-- Spec for `monadMap` on `ExceptT`. -/
+@[lspec]
 theorem Spec.monadMap_ExceptT
     (f : ∀{β}, m β → m β) {α} (x : ExceptT ε m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp (f x.run) (epost.pushExcept post) epost.tail)
@@ -122,6 +137,7 @@ theorem Spec.monadMap_ExceptT
 
 /-
 /-- Spec for `monadMap` on `OptionT`. -/
+@[lspec]
 theorem Spec.monadMap_OptionT
     (f : ∀{β}, m β → m β) {α} (x : OptionT m α) (post : α → l) (epost : e × l) :
     Triple (wp (f x.run) (fun o => match o with | some a => post a | none => epost.2) epost.1)
@@ -131,6 +147,7 @@ theorem Spec.monadMap_OptionT
 
 
 /-- Spec for `monadMap` reflexivity. -/
+@[lspec]
 theorem Spec.monadMap_refl (x : m α) :
     Triple (wp (f x : m α) post epost)
       (MonadFunctorT.monadMap f x : m α) post epost :=
@@ -139,6 +156,7 @@ theorem Spec.monadMap_refl (x : m α) :
 /-! # `MonadControl` -/
 
 /-- Spec for `liftWith` on `StateT`. -/
+@[lspec]
 theorem Spec.liftWith_StateT
     (f : (∀{β}, StateT σ m β → m (β × σ)) → m α) (post : α → σ → l) :
     Triple (fun s => wp (f (fun x => x.run s)) (fun a => post a s) epost)
@@ -146,6 +164,7 @@ theorem Spec.liftWith_StateT
   Triple.iff.mpr (by intro s; simp [liftWith_StateT_wp f]; apply WPMonad.wp_map'; ext; rfl)
 
 /-- Spec for `liftWith` on `ReaderT`. -/
+@[lspec]
 theorem Spec.liftWith_ReaderT
     (f : (∀{β}, ReaderT ρ m β → m β) → m α) (post : α → ρ → l) :
     Triple (fun r => wp (f (fun x => x.run r)) (fun a => post a r) epost)
@@ -153,6 +172,7 @@ theorem Spec.liftWith_ReaderT
   Triple.iff.mpr (by intro r; simp [liftWith_ReaderT_wp f]; rfl)
 
 /-- Spec for `liftWith` on `ExceptT`. -/
+@[lspec]
 theorem Spec.liftWith_ExceptT
     (f : (∀{β}, ExceptT ε m β → m (Except ε β)) → m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp (f (fun x => x.run)) post epost.tail)
@@ -161,6 +181,7 @@ theorem Spec.liftWith_ExceptT
 
 /-
 /-- Spec for `liftWith` on `OptionT`. -/
+@[lspec]
 theorem Spec.liftWith_OptionT
     (f : (∀{β}, OptionT m β → m (Option β)) → m α) (post : α → l) (epost : e × l) :
     Triple (wp (f (fun x => x.run)) post epost.1)
@@ -169,18 +190,21 @@ theorem Spec.liftWith_OptionT
 -/
 
 /-- Spec for `restoreM` on `StateT`. -/
+@[lspec]
 theorem Spec.restoreM_StateT (x : m (α × σ)) (post : α → σ → l) :
     Triple (fun _ => wp x (fun (a, s) => post a s) epost)
       (MonadControl.restoreM (m:=m) x : StateT σ m α) post epost :=
   Triple.iff.mpr (restoreM_StateT_wp x)
 
 /-- Spec for `restoreM` on `ReaderT`. -/
+@[lspec]
 theorem Spec.restoreM_ReaderT (x : m α) (post : α → ρ → l) :
     Triple (fun r => wp x (fun a => post a r) epost)
       (MonadControl.restoreM (m:=m) x : ReaderT ρ m α) post epost :=
   Triple.iff.mpr (by rw [restoreM_ReaderT_wp]; rfl)
 
 /-- Spec for `restoreM` on `ExceptT`. -/
+@[lspec]
 theorem Spec.restoreM_ExceptT (x : m (@Except.{u, u} ε α)) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp x (epost.pushExcept post) epost.tail)
       (MonadControl.restoreM (m:=m) x : ExceptT ε m α) post epost :=
@@ -188,6 +212,7 @@ theorem Spec.restoreM_ExceptT (x : m (@Except.{u, u} ε α)) (post : α → l) (
 
 /-
 /-- Spec for `restoreM` on `OptionT`. -/
+@[lspec]
 theorem Spec.restoreM_OptionT (x : m (Option α)) (post : α → l) (epost : e × l) :
     Triple (wp x (fun (o : Option α) => match o with | some a => post a | none => epost.2) epost.1)
       (MonadControl.restoreM (m:=m) x : OptionT m α) post epost :=
@@ -198,6 +223,7 @@ theorem Spec.restoreM_OptionT (x : m (Option α)) (post : α → l) (epost : e �
 
 
 /-- Spec for `liftWith` reflexivity. -/
+@[lspec]
 theorem Spec.liftWith_refl
     (f : (∀{β}, m β → m β) → m α) :
     Triple (wp (f (fun x => x) : m α) post epost)
@@ -206,6 +232,7 @@ theorem Spec.liftWith_refl
 
 
 /-- Spec for `restoreM` reflexivity. -/
+@[lspec]
 theorem Spec.restoreM_refl (x : stM m m α) :
     Triple (wp (Pure.pure x : m α) post epost)
       (MonadControlT.restoreM (m:=m) x : m α) post epost :=
@@ -214,18 +241,21 @@ theorem Spec.restoreM_refl (x : stM m m α) :
 /-! # `ReaderT` -/
 
 /-- Spec for `read` on `ReaderT`. -/
+@[lspec]
 theorem Spec.read_ReaderT (post : ρ → ρ → l) :
     Triple (fun r => post r r)
       (MonadReaderOf.read : ReaderT ρ m ρ) post epost :=
   Triple.iff.mpr (by intro r; simpa [MonadReaderOf.read] using
     (WPMonad.wp_pure (m := m) (x := r) (post := fun a => post a r) (epost := epost)))
 /-- Spec for `withReader` on `ReaderT`. -/
+@[lspec]
 theorem Spec.withReader_ReaderT (f : ρ → ρ) (x : ReaderT ρ m α) (post : α → ρ → l) :
     Triple (fun r => wp x (fun a _ => post a r) epost (f r))
       (MonadWithReaderOf.withReader f x : ReaderT ρ m α) post epost :=
   Triple.iff.mpr (by rw [withReader_ReaderT_wp]; rfl)
 
 /-- Spec for `adapt` on `ReaderT`. -/
+@[lspec]
 theorem Spec.adapt_ReaderT (f : ρ → ρ') (x : ReaderT ρ' m α) (post : α → ρ → l) :
     Triple (fun r => wp x (fun a _ => post a r) epost (f r))
       (ReaderT.adapt f x : ReaderT ρ m α) post epost :=
@@ -234,6 +264,7 @@ theorem Spec.adapt_ReaderT (f : ρ → ρ') (x : ReaderT ρ' m α) (post : α �
 /-! # `StateT` -/
 
 /-- Spec for `get` on `StateT`. -/
+@[lspec]
 theorem Spec.get_StateT (post : σ → σ → l) :
     Triple (fun s => post s s)
       (MonadStateOf.get : StateT σ m σ) post epost :=
@@ -242,6 +273,7 @@ theorem Spec.get_StateT (post : σ → σ → l) :
       (post := fun x => post x.fst x.snd) (epost := epost)))
 
 /-- Spec for `set` on `StateT`. -/
+@[lspec]
 theorem Spec.set_StateT (s : σ) (post : PUnit → σ → l) :
     Triple (fun _ => post ⟨⟩ s)
       (MonadStateOf.set s : StateT σ m PUnit) post epost :=
@@ -250,6 +282,7 @@ theorem Spec.set_StateT (s : σ) (post : PUnit → σ → l) :
       (post := fun x => post x.fst x.snd) (epost := epost)))
 
 /-- Spec for `modifyGet` on `StateT`. -/
+@[lspec]
 theorem Spec.modifyGet_StateT (f : σ → α × σ) (post : α → σ → l) :
     Triple (fun s => post (f s).1 (f s).2)
       (MonadStateOf.modifyGet f : StateT σ m α) post epost :=
@@ -260,6 +293,7 @@ theorem Spec.modifyGet_StateT (f : σ → α × σ) (post : α → σ → l) :
 /-! # `ExceptT` -/
 
 /-- Spec for `run` on `ExceptT`. -/
+@[lspec]
 theorem Spec.run_ExceptT (x : ExceptT ε m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp x post epost)
       (x.run : m (@Except.{u, u} ε α))
@@ -268,6 +302,7 @@ theorem Spec.run_ExceptT (x : ExceptT ε m α) (post : α → l) (epost : EPost.
   Triple.iff.mpr (by simp [PartialOrder.rel_refl])
 
 /-- Spec for `throw` on `ExceptT`. -/
+@[lspec]
 theorem Spec.throw_ExceptT (err : ε) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (epost.head err) (MonadExceptOf.throw err : ExceptT ε m α) post epost :=
   Triple.iff.mpr (by simpa [EPost.cons.pushExcept] using
@@ -276,18 +311,21 @@ theorem Spec.throw_ExceptT (err : ε) (post : α → l) (epost : EPost.cons (ε 
       (epost := epost.tail)))
 
 /-- Spec for `tryCatch` on `ExceptT`. -/
+@[lspec]
 theorem Spec.tryCatch_ExceptT (x : ExceptT ε m α) (h : ε → ExceptT ε m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp x post ⟨fun e => wp (h e) post epost, epost.tail⟩)
       (MonadExceptOf.tryCatch x h : ExceptT ε m α) post epost :=
   Triple.iff.mpr (tryCatch_ExceptT_wp x h)
 
 /-- Spec for `orElse` on `ExceptT`. -/
+@[lspec]
 theorem Spec.orElse_ExceptT (x : ExceptT ε m α) (h : Unit → ExceptT ε m α) (post : α → l) (epost : EPost.cons (ε → l) e) :
     Triple (wp x post ⟨fun _ => wp (h ()) post epost, epost.tail⟩)
       (OrElse.orElse x h : ExceptT ε m α) post epost :=
   Triple.iff.mpr (orElse_ExceptT_wp x h)
 
 /-- Spec for `adapt` on `ExceptT`. -/
+@[lspec]
 theorem Spec.adapt_ExceptT (f : ε → ε') (x : ExceptT ε m α) (post : α → l) (epost : EPost.cons (ε' → l) e) :
     Triple (wp x post ⟨fun e => epost.head (f e), epost.tail⟩)
       (ExceptT.adapt f x : ExceptT ε' m α) post epost :=
@@ -296,17 +334,20 @@ theorem Spec.adapt_ExceptT (f : ε → ε') (x : ExceptT ε m α) (post : α →
 /-! # `Except` -/
 
 /-- Spec for `throw` on `Except`. -/
+@[lspec]
 theorem Spec.throw_Except (err : ε) :
     Triple (epost.head err) (MonadExceptOf.throw err : Except ε α) post epost :=
   Triple.iff.mpr (by rw [throw_Except_wp]; rfl)
 
 /-- Spec for `tryCatch` on `Except`. -/
+@[lspec]
 theorem Spec.tryCatch_Except (x : Except ε α) (h : ε → Except ε α) :
     Triple (wp x post epost⟨fun e => wp (h e) post epost⟩)
       (MonadExceptOf.tryCatch x h : Except ε α) post epost :=
   Triple.iff.mpr (by rw [tryCatch_Except_wp]; rfl)
 
 /-- Spec for `orElse` on `Except`. -/
+@[lspec]
 theorem Spec.orElse_Except (x : Except ε α) (h : Unit → Except ε α) :
     Triple (wp x post epost⟨fun (_ : ε) => wp (h ()) post epost⟩)
       (OrElse.orElse x h : Except ε α) post epost :=
@@ -316,6 +357,7 @@ theorem Spec.orElse_Except (x : Except ε α) (h : Unit → Except ε α) :
 
 /-
 /-- Spec for `run` on `OptionT`. -/
+@[lspec]
 theorem Spec.run_OptionT (x : OptionT m α) (post : α → l) (epost : e × l) :
     Triple (wp x post epost)
       (x.run : m (Option α))
@@ -324,17 +366,20 @@ theorem Spec.run_OptionT (x : OptionT m α) (post : α → l) (epost : e × l) :
   Triple.iff.mpr (by rw [← OptionT_run_wp]; rfl)
 
 /-- Spec for `throw` on `OptionT`. -/
+@[lspec]
 theorem Spec.throw_OptionT (err : PUnit) (post : α → l) (epost : e × l) :
     Triple epost.2 (MonadExceptOf.throw err : OptionT m α) post epost :=
   Triple.iff.mpr (by rw [throw_OptionT_wp])
 
 /-- Spec for `tryCatch` on `OptionT`. -/
+@[lspec]
 theorem Spec.tryCatch_OptionT (x : OptionT m α) (h : PUnit → OptionT m α) (post : α → l) (epost : e × l) :
     Triple (wp x post (epost.1, wp (h ⟨⟩) post epost))
       (MonadExceptOf.tryCatch x h : OptionT m α) post epost :=
   Triple.iff.mpr (tryCatch_OptionT_wp x h)
 
 /-- Spec for `orElse` on `OptionT`. -/
+@[lspec]
 theorem Spec.orElse_OptionT (x : OptionT m α) (h : Unit → OptionT m α) (post : α → l) (epost : e × l) :
     Triple (wp x post (epost.1, wp (h ()) post epost))
       (OrElse.orElse x h : OptionT m α) post epost :=
@@ -343,17 +388,20 @@ theorem Spec.orElse_OptionT (x : OptionT m α) (h : Unit → OptionT m α) (post
 /-! # `Option` -/
 
 /-- Spec for `throw` on `Option`. -/
+@[lspec]
 theorem Spec.throw_Option (err : PUnit) :
     Triple epost (MonadExceptOf.throw err : Option α) post epost :=
   Triple.iff.mpr (by rw [throw_Option_wp]; rfl)
 
 /-- Spec for `tryCatch` on `Option`. -/
+@[lspec]
 theorem Spec.tryCatch_Option (x : Option α) (h : PUnit → Option α) :
     Triple (wp x post (wp (h ⟨⟩) post epost))
       (MonadExceptOf.tryCatch x h : Option α) post epost :=
   Triple.iff.mpr (by rw [tryCatch_Option_wp]; rfl)
 
 /-- Spec for `orElse` on `Option`. -/
+@[lspec]
 theorem Spec.orElse_Option (x : Option α) (h : Unit → Option α) (post : α → Prop) (epost : Prop) :
     Triple (wp x post (wp (h ()) post epost))
       (OrElse.orElse x h : Option α) post epost :=
@@ -363,29 +411,34 @@ theorem Spec.orElse_Option (x : Option α) (h : Unit → Option α) (post : α �
 /-! # `EStateM` -/
 
 /-- Spec for `get` on `EStateM`. -/
+@[lspec]
 theorem Spec.get_EStateM (post : σ → σ → Prop) (epost : ε → σ → Prop) :
     Triple (fun s => post s s)
       (MonadStateOf.get : EStateM ε σ σ) post epost :=
   Triple.iff.mpr (by rw [get_EStateM_wp]; rfl)
 
 /-- Spec for `set` on `EStateM`. -/
+@[lspec]
 theorem Spec.set_EStateM (s : σ) (post : PUnit → σ → Prop) (epost : ε → σ → Prop) :
     Triple (fun _ => post ⟨⟩ s)
       (MonadStateOf.set s : EStateM ε σ PUnit) post epost :=
   Triple.iff.mpr (by rw [set_EStateM_wp]; rfl)
 
 /-- Spec for `modifyGet` on `EStateM`. -/
+@[lspec]
 theorem Spec.modifyGet_EStateM (f : σ → α × σ) (post : α → σ → Prop) (epost : ε → σ → Prop) :
     Triple (fun s => post (f s).1 (f s).2)
       (MonadStateOf.modifyGet f : EStateM ε σ α) post epost :=
   Triple.iff.mpr (by rw [modifyGet_EStateM_wp]; rfl)
 
 /-- Spec for `throw` on `EStateM`. -/
+@[lspec]
 theorem Spec.throw_EStateM (err : ε) (post : α → σ → Prop) (epost : ε → σ → Prop) :
     Triple (epost err) (MonadExceptOf.throw err : EStateM ε σ α) post epost :=
   Triple.iff.mpr (by rw [throw_EStateM_wp]; rfl)
 
 /-- Spec for `tryCatch` on `EStateM`. -/
+@[lspec]
 theorem Spec.tryCatch_EStateM (x : EStateM ε σ α) (h : ε → EStateM ε σ α)
     (post : α → σ → Prop) (epost : ε → σ → Prop) :
     Triple (fun s => wp x post (fun e s' => wp (h e) post epost s') s)
@@ -393,6 +446,7 @@ theorem Spec.tryCatch_EStateM (x : EStateM ε σ α) (h : ε → EStateM ε σ �
   Triple.iff.mpr (by rw [tryCatch_EStateM_wp]; rfl)
 
 /-- Spec for `orElse` on `EStateM`. -/
+@[lspec]
 theorem Spec.orElse_EStateM (x : EStateM ε σ α) (h : Unit → EStateM ε σ α)
     (post : α → σ → Prop) (epost : ε → σ → Prop) :
     Triple (fun s => wp x post (fun _ s' => wp (h ()) post epost s') s)
@@ -400,6 +454,7 @@ theorem Spec.orElse_EStateM (x : EStateM ε σ α) (h : Unit → EStateM ε σ �
   Triple.iff.mpr (by rw [orElse_EStateM_wp]; rfl)
 
 /-- Spec for `adaptExcept` on `EStateM`. -/
+@[lspec]
 theorem Spec.adaptExcept_EStateM (f : ε → ε') (x : EStateM ε σ α)
     (post : α → σ → Prop) (epost : ε' → σ → Prop) :
     Triple (wp x post (fun e => epost (f e)))
@@ -410,6 +465,7 @@ theorem Spec.adaptExcept_EStateM (f : ε → ε') (x : EStateM ε σ α)
 
 
 /-- Spec for `throw` (generic). -/
+@[lspec]
 theorem Spec.throw_MonadExcept [MonadExceptOf ε m] (err : ε) :
     Triple (wp (MonadExceptOf.throw err : m α) post epost)
       (throw err : m α) post epost :=
@@ -417,24 +473,28 @@ theorem Spec.throw_MonadExcept [MonadExceptOf ε m] (err : ε) :
 
 
 /-- Spec for `tryCatch` (generic). -/
+@[lspec]
 theorem Spec.tryCatch_MonadExcept [MonadExceptOf ε m] (x : m α) (h : ε → m α) :
     Triple (wp (MonadExceptOf.tryCatch x h : m α) post epost)
       (tryCatch x h : m α) post epost :=
   Triple.iff.mpr (by rw [tryCatch_MonadExcept_wp])
 
 /-- Spec for `throw` lifted through `ReaderT`. -/
+@[lspec]
 theorem Spec.throw_ReaderT [MonadExceptOf ε m] (err : ε) (post : α → ρ → l) :
     Triple (wp (MonadLift.monadLift (MonadExceptOf.throw (ε:=ε) err : m α) : ReaderT ρ m α) post epost)
       (MonadExceptOf.throw (ε:=ε) err : ReaderT ρ m α) post epost :=
   Triple.iff.mpr (by rw [throw_ReaderT_lift_wp]; rfl)
 
 /-- Spec for `throw` lifted through `StateT`. -/
+@[lspec]
 theorem Spec.throw_StateT [MonadExceptOf ε m] (err : ε) (post : α → σ → l) :
     Triple (wp (MonadLift.monadLift (MonadExceptOf.throw (ε:=ε) err : m α) : StateT σ m α) post epost)
       (MonadExceptOf.throw (ε:=ε) err : StateT σ m α) post epost :=
   Triple.iff.mpr (by rw [throw_StateT_lift_wp]; rfl)
 
 /-- Spec for `throw` lifted through `ExceptT`. -/
+@[lspec]
 theorem Spec.throw_ExceptT_lift [MonadExceptOf ε m] (err : ε) (post : α → l) (epost : EPost.cons (ε' → l) e) :
     Triple (wp (MonadExceptOf.throw (ε:=ε) err : m (@Except.{u, u} ε' α))
         (fun r => match r with | .ok a => post a | .error e => epost.head e) epost.tail)
@@ -443,6 +503,7 @@ theorem Spec.throw_ExceptT_lift [MonadExceptOf ε m] (err : ε) (post : α → l
 
 /-
 /-- Spec for `throw` lifted through `OptionT`. -/
+@[lspec]
 theorem Spec.throw_Option_lift [MonadExceptOf ε m] (err : ε) (post : α → l) (epost : l × e) :
     Triple (wp (MonadExceptOf.throw (ε:=ε) err : m (Option α))
         (fun | some a => post a | none => epost.2) epost.1)
@@ -451,6 +512,7 @@ theorem Spec.throw_Option_lift [MonadExceptOf ε m] (err : ε) (post : α → l)
 -/
 
 /-- Spec for `tryCatch` lifted through `ReaderT`. -/
+@[lspec]
 theorem Spec.tryCatch_ReaderT [MonadExceptOf ε m] (x : ReaderT ρ m α) (h : ε → ReaderT ρ m α)
     (post : α → ρ → l) :
     Triple (fun r => wp (MonadExceptOf.tryCatch (ε:=ε) (x.run r) (fun e => (h e).run r) : m α)
@@ -459,6 +521,7 @@ theorem Spec.tryCatch_ReaderT [MonadExceptOf ε m] (x : ReaderT ρ m α) (h : ε
   Triple.iff.mpr (by rw [tryCatch_ReaderT_lift_wp]; rfl)
 
 /-- Spec for `tryCatch` lifted through `StateT`. -/
+@[lspec]
 theorem Spec.tryCatch_StateT [MonadExceptOf ε m] (x : StateT σ m α) (h : ε → StateT σ m α)
     (post : α → σ → l) :
     Triple (fun s => wp (MonadExceptOf.tryCatch (ε:=ε) (x.run s) (fun e => (h e).run s) : m (α × σ))
@@ -467,6 +530,7 @@ theorem Spec.tryCatch_StateT [MonadExceptOf ε m] (x : StateT σ m α) (h : ε �
   Triple.iff.mpr (by rw [tryCatch_StateT_lift_wp]; rfl)
 
 /-- Spec for `tryCatch` lifted through `ExceptT`. -/
+@[lspec]
 theorem Spec.tryCatch_ExceptT_lift [MonadExceptOf ε m] (x : ExceptT ε' m α) (h : ε → ExceptT ε' m α)
     (post : α → l) (epost : EPost.cons (ε' → l) e) :
     Triple (wp (MonadExceptOf.tryCatch (ε:=ε) x h : m (@Except.{u, u} ε' α))
@@ -476,6 +540,7 @@ theorem Spec.tryCatch_ExceptT_lift [MonadExceptOf ε m] (x : ExceptT ε' m α) (
 
 /-
 /-- Spec for `tryCatch` lifted through `OptionT`. -/
+@[lspec]
 theorem Spec.tryCatch_OptionT_lift [MonadExceptOf ε m] (x : OptionT m α) (h : ε → OptionT m α)
     (post : α → l) (epost : e × l) :
     Triple (wp (MonadExceptOf.tryCatch (ε:=ε) x h : m (Option α))
@@ -488,6 +553,7 @@ theorem Spec.tryCatch_OptionT_lift [MonadExceptOf ε m] (x : OptionT m α) (h : 
 
 
 /-- Spec for `monadMap` transitivity: maps through two layers of `MonadFunctorT`. -/
+@[lspec]
 theorem Spec.monadMap_trans
     {n₁ : Type u → Type v} {n₂ : Type u → Type v}
     [MonadFunctor n₁ m] [MonadFunctorT n₂ n₁]
@@ -499,6 +565,7 @@ theorem Spec.monadMap_trans
 
 
 /-- Spec for `liftWith` transitivity: lifts through two layers of `MonadControlT`. -/
+@[lspec]
 theorem Spec.liftWith_trans
     {n₁ : Type u → Type v} {n₂ : Type u → Type v}
     [MonadControl n₁ m] [MonadControlT n₂ n₁]
@@ -509,6 +576,7 @@ theorem Spec.liftWith_trans
 
 
 /-- Spec for `restoreM` transitivity: restores through two layers of `MonadControlT`. -/
+@[lspec]
 theorem Spec.restoreM_trans
     {n₁ : Type u → Type v} {n₂ : Type u → Type v}
     [MonadControl n₁ m] [MonadControlT n₂ n₁]
@@ -543,6 +611,7 @@ abbrev Invariant {α : Type u₁} (xs : List α) (β : Type u₂)
 abbrev eInvariant (e : Type u) := e
 
 /-- Spec for `forIn'` over a list with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_list
     {xs : List α} {init : β} {f : (a : α) → a ∈ xs → β → m (ForInStep β)}
     (inv : Invariant xs β l)
@@ -586,6 +655,7 @@ theorem Spec.forIn'_list
         apply Triple.pure; rfl
 
 /-- Spec for `forIn'` over a list with a constant invariant. -/
+@[lspec]
 theorem Spec.forIn'_list_const_inv
     {xs : List α} {init : β} {f : (a : α) → a ∈ xs → β → m (ForInStep β)}
     {inv : (β → l)}
@@ -602,6 +672,7 @@ theorem Spec.forIn'_list_const_inv
 
 
 /-- Spec for `forIn` over a list with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_list
     {xs : List α} {init : β} {f : α → β → m (ForInStep β)}
     (inv : Invariant xs β l)
@@ -624,6 +695,7 @@ theorem Spec.forIn_list
 
 
 /-- Spec for `forIn` over a list with a constant invariant. -/
+@[lspec]
 theorem Spec.forIn_list_const_inv
     {xs : List α} {init : β} {f : α → β → m (ForInStep β)}
     {inv : (β → l)}
@@ -638,6 +710,7 @@ theorem Spec.forIn_list_const_inv
   Spec.forIn_list (fun p => inv p.2) eInv (fun _p c _s _h b => step c b)
 
 /-- Spec for `List.foldlM` with a loop invariant. -/
+@[lspec]
 theorem Spec.foldlM_list [LawfulMonad m]
     {xs : List α} {init : β} {f : β → α → m β}
     (inv : Invariant xs β l)
@@ -662,6 +735,7 @@ theorem Spec.foldlM_list [LawfulMonad m]
   apply step <;> assumption
 
 /-- Spec for `List.foldlM` with a constant invariant. -/
+@[lspec]
 theorem Spec.foldlM_list_const_inv [LawfulMonad m]
     {xs : List α} {init : β} {f : β → α → m β}
     {inv : (β → l)}
@@ -676,6 +750,7 @@ theorem Spec.foldlM_list_const_inv [LawfulMonad m]
     Spec.foldlM_list (fun p => inv p.2) eInv (fun _p c _s _h b => step c b)
 
 /-- Spec for `forIn'` over a `Std.Legacy.Range` with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_range {β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e]
     {xs : Std.Legacy.Range} {init : β} {f : (a : Nat) → a ∈ xs → β → m (ForInStep β)}
@@ -698,6 +773,7 @@ theorem Spec.forIn'_range {β : Type u} {m : Type u → Type v} {l : Type u} {e 
   exact Spec.forIn'_list inv eInv (fun c hcur b => step c hcur b)
 
 /-- Spec for `forIn` over a `Std.Legacy.Range` with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_range {β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e]
     {xs : Std.Legacy.Range} {init : β} {f : Nat → β → m (ForInStep β)}
@@ -721,6 +797,7 @@ theorem Spec.forIn_range {β : Type u} {m : Type u → Type v} {l : Type u} {e :
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Rcc` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_rcc {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [DecidableLE α] [UpwardEnumerable α] [Rxc.IsAlwaysFinite α]
@@ -746,6 +823,7 @@ theorem Spec.forIn'_rcc {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Rcc` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_rcc {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [DecidableLE α] [UpwardEnumerable α] [Rxc.IsAlwaysFinite α]
@@ -771,6 +849,7 @@ theorem Spec.forIn_rcc {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Rco` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_rco {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxo.IsAlwaysFinite α]
@@ -796,6 +875,7 @@ theorem Spec.forIn'_rco {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Rco` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_rco {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxo.IsAlwaysFinite α]
@@ -821,6 +901,7 @@ theorem Spec.forIn_rco {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Rci` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_rci {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [UpwardEnumerable α] [Rxi.IsAlwaysFinite α]
@@ -846,6 +927,7 @@ theorem Spec.forIn'_rci {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Rci` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_rci {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [UpwardEnumerable α] [Rxi.IsAlwaysFinite α]
@@ -871,6 +953,7 @@ theorem Spec.forIn_rci {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Roc` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_roc {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [DecidableLE α] [LT α] [UpwardEnumerable α] [Rxc.IsAlwaysFinite α]
@@ -896,6 +979,7 @@ theorem Spec.forIn'_roc {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Roc` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_roc {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LE α] [DecidableLE α] [LT α] [UpwardEnumerable α] [Rxc.IsAlwaysFinite α]
@@ -921,6 +1005,7 @@ theorem Spec.forIn_roc {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Roo` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_roo {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxo.IsAlwaysFinite α]
@@ -946,6 +1031,7 @@ theorem Spec.forIn'_roo {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Roo` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_roo {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxo.IsAlwaysFinite α]
@@ -971,6 +1057,7 @@ theorem Spec.forIn_roo {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Roi` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_roi {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxi.IsAlwaysFinite α]
@@ -996,6 +1083,7 @@ theorem Spec.forIn'_roi {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Roi` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_roi {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxi.IsAlwaysFinite α]
@@ -1021,6 +1109,7 @@ theorem Spec.forIn_roi {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Ric` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_ric {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Least? α] [LE α] [DecidableLE α] [UpwardEnumerable α] [Rxc.IsAlwaysFinite α]
@@ -1046,6 +1135,7 @@ theorem Spec.forIn'_ric {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Ric` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_ric {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Least? α] [LE α] [DecidableLE α] [UpwardEnumerable α] [Rxc.IsAlwaysFinite α]
@@ -1071,6 +1161,7 @@ theorem Spec.forIn_ric {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Rio` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_rio {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Least? α] [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxo.IsAlwaysFinite α]
@@ -1096,6 +1187,7 @@ theorem Spec.forIn'_rio {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Rio` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_rio {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Least? α] [LT α] [DecidableLT α] [UpwardEnumerable α] [Rxo.IsAlwaysFinite α]
@@ -1121,6 +1213,7 @@ theorem Spec.forIn_rio {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.PRange in
 /-- Spec for `forIn'` over a `Rii` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn'_rii {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Least? α] [UpwardEnumerable α] [Rxi.IsAlwaysFinite α]
@@ -1146,6 +1239,7 @@ theorem Spec.forIn'_rii {α β : Type u} {m : Type u → Type v} {l : Type u} {e
 
 open Std Std.PRange in
 /-- Spec for `forIn` over a `Rii` range with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_rii {α β : Type u} {m : Type u → Type v} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Least? α] [UpwardEnumerable α] [Rxi.IsAlwaysFinite α]
@@ -1171,6 +1265,7 @@ theorem Spec.forIn_rii {α β : Type u} {m : Type u → Type v} {l : Type u} {e 
 
 open Std Std.Iterators in
 /-- Spec for `forIn` over a `Slice` with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_slice {δ : Type u} {m : Type u → Type w} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     {γ : Type u'} {α β : Type u}
@@ -1200,6 +1295,7 @@ section Iterators
 open Std Std.Iterators
 
 /-- Spec for `forIn` over an `Iter` with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_iter {α β γ : Type u} {m : Type u → Type w} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Iterator α Id β] [Finite α Id] [IteratorLoop α Id m] [LawfulIteratorLoop α Id m]
@@ -1221,6 +1317,7 @@ theorem Spec.forIn_iter {α β γ : Type u} {m : Type u → Type w} {l : Type u}
   exact Spec.forIn_list inv eInv step
 
 /-- Spec for `forIn` over an `IterM Id` with a loop invariant. -/
+@[lspec]
 theorem Spec.forIn_iterM_id {α β γ : Type u} {m : Type u → Type w} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Iterator α Id β] [Finite α Id] [IteratorLoop α Id m] [LawfulIteratorLoop α Id m]
@@ -1244,6 +1341,7 @@ theorem Spec.forIn_iterM_id {α β γ : Type u} {m : Type u → Type w} {l : Typ
   exact Spec.forIn_list inv eInv step
 
 /-- Spec for `Iter.foldM` with a loop invariant. -/
+@[lspec]
 theorem Spec.foldM_iter {α β γ : Type u} {m : Type u → Type w} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Iterator α Id β] [Finite α Id] [IteratorLoop α Id m] [LawfulIteratorLoop α Id m]
@@ -1263,6 +1361,7 @@ theorem Spec.foldM_iter {α β γ : Type u} {m : Type u → Type w} {l : Type u}
   exact Spec.foldlM_list inv eInv step
 
 /-- Spec for `IterM.foldM` over an `IterM Id` with a loop invariant. -/
+@[lspec]
 theorem Spec.foldM_iterM_id {α β γ : Type u} {m : Type u → Type w} {l : Type u} {e : Type u}
     [CompleteLattice l] [CompleteLattice e] [Monad m] [WPMonad m l e] [LawfulMonad m]
     [Iterator α Id β] [Finite α Id] [IteratorLoop α Id m] [LawfulIteratorLoop α Id m]
@@ -1281,6 +1380,7 @@ theorem Spec.foldM_iterM_id {α β γ : Type u} {m : Type u → Type w} {l : Typ
   rw [← IterM.foldlM_toList]
   exact Spec.foldlM_list inv eInv step
 
+@[lspec]
 theorem Spec.IterM.forIn_filterMapWithPostcondition {α β β₂ γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1299,6 +1399,7 @@ theorem Spec.IterM.forIn_filterMapWithPostcondition {α β β₂ γ : Type w}
     Triple P (forIn (it.filterMapWithPostcondition f) init g) Q eQ := by
   rwa [Std.IterM.forIn_filterMapWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.forIn_filterMapM {α β β₂ γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1318,6 +1419,7 @@ theorem Spec.IterM.forIn_filterMapM {α β β₂ γ : Type w}
     Triple P (forIn (it.filterMapM f) init g) Q eQ := by
   rwa [Std.IterM.forIn_filterMapM]
 
+@[lspec]
 theorem Spec.IterM.forIn_filterMap {α β β₂ γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1334,6 +1436,7 @@ theorem Spec.IterM.forIn_filterMap {α β β₂ γ : Type w}
     Triple P (forIn (it.filterMap f) init g) Q eQ := by
   rwa [Std.IterM.forIn_filterMap]
 
+@[lspec]
 theorem Spec.IterM.forIn_mapWithPostcondition {α β β₂ γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1349,6 +1452,7 @@ theorem Spec.IterM.forIn_mapWithPostcondition {α β β₂ γ : Type w}
     Triple P (forIn (it.mapWithPostcondition f) init g) Q eQ := by
   rwa [Std.IterM.forIn_mapWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.forIn_mapM {α β β₂ γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1365,6 +1469,7 @@ theorem Spec.IterM.forIn_mapM {α β β₂ γ : Type w}
     Triple P (forIn (it.mapM f) init g) Q eQ := by
   rwa [Std.IterM.forIn_mapM]
 
+@[lspec]
 theorem Spec.IterM.forIn_map {α β β₂ γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1377,6 +1482,7 @@ theorem Spec.IterM.forIn_map {α β β₂ γ : Type w}
     Triple P (forIn (it.map f) init g) Q eQ := by
   rwa [Std.IterM.forIn_map]
 
+@[lspec]
 theorem Spec.IterM.forIn_filterWithPostcondition {α β γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1392,6 +1498,7 @@ theorem Spec.IterM.forIn_filterWithPostcondition {α β γ : Type w}
     Triple P (forIn (it.filterWithPostcondition f) init g) Q eQ := by
   rwa [Std.IterM.forIn_filterWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.forIn_filterM {α β γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1408,6 +1515,7 @@ theorem Spec.IterM.forIn_filterM {α β γ : Type w}
     Triple P (forIn (it.filterM f) init g) Q eQ := by
   rwa [Std.IterM.forIn_filterM]
 
+@[lspec]
 theorem Spec.IterM.forIn_filter {α β γ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1420,6 +1528,7 @@ theorem Spec.IterM.forIn_filter {α β γ : Type w}
     Triple P (forIn (it.filter f) init g) Q eQ := by
   rwa [Std.IterM.forIn_filter]
 
+@[lspec]
 theorem Spec.IterM.foldM_filterMapWithPostcondition {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1438,6 +1547,7 @@ theorem Spec.IterM.foldM_filterMapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.filterMapWithPostcondition f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_filterMapWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.foldM_filterMapM {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1458,6 +1568,7 @@ theorem Spec.IterM.foldM_filterMapM {α β γ δ : Type w}
     Triple P ((it.filterMapM f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_filterMapM]
 
+@[lspec]
 theorem Spec.IterM.foldM_mapWithPostcondition {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1474,6 +1585,7 @@ theorem Spec.IterM.foldM_mapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.mapWithPostcondition f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_mapWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.foldM_mapM {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1492,6 +1604,7 @@ theorem Spec.IterM.foldM_mapM {α β γ δ : Type w}
     Triple P ((it.mapM f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_mapM]
 
+@[lspec]
 theorem Spec.IterM.foldM_filterWithPostcondition {α β δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1508,6 +1621,7 @@ theorem Spec.IterM.foldM_filterWithPostcondition {α β δ : Type w}
     Triple P ((it.filterWithPostcondition f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_filterWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.foldM_filterM {α β δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''} {o : Type w → Type w'''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1526,6 +1640,7 @@ theorem Spec.IterM.foldM_filterM {α β δ : Type w}
     Triple P ((it.filterM f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_filterM]
 
+@[lspec]
 theorem Spec.IterM.foldM_filterMap {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1541,6 +1656,7 @@ theorem Spec.IterM.foldM_filterMap {α β γ δ : Type w}
     Triple P ((it.filterMap f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_filterMap]
 
+@[lspec]
 theorem Spec.IterM.foldM_map {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1553,6 +1669,7 @@ theorem Spec.IterM.foldM_map {α β γ δ : Type w}
     Triple P ((it.map f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_map]
 
+@[lspec]
 theorem Spec.IterM.foldM_filter {α β δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1566,6 +1683,7 @@ theorem Spec.IterM.foldM_filter {α β δ : Type w}
     Triple P ((it.filter f).foldM (init := init) g) Q eQ := by
   rwa [Std.IterM.foldM_filter]
 
+@[lspec]
 theorem Spec.IterM.fold_filterMapWithPostcondition {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1582,6 +1700,7 @@ theorem Spec.IterM.fold_filterMapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.filterMapWithPostcondition f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_filterMapWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.fold_filterMapM {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1598,6 +1717,7 @@ theorem Spec.IterM.fold_filterMapM {α β γ δ : Type w}
     Triple P ((it.filterMapM f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_filterMapM]
 
+@[lspec]
 theorem Spec.IterM.fold_mapWithPostcondition {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1612,6 +1732,7 @@ theorem Spec.IterM.fold_mapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.mapWithPostcondition f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_mapWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.fold_mapM {α β γ δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1626,6 +1747,7 @@ theorem Spec.IterM.fold_mapM {α β γ δ : Type w}
     Triple P ((it.mapM f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_mapM]
 
+@[lspec]
 theorem Spec.IterM.fold_filterWithPostcondition {α β δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1640,6 +1762,7 @@ theorem Spec.IterM.fold_filterWithPostcondition {α β δ : Type w}
     Triple P ((it.filterWithPostcondition f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_filterWithPostcondition]
 
+@[lspec]
 theorem Spec.IterM.fold_filterM {α β δ : Type w}
     {m : Type w → Type w'} {n : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1654,6 +1777,7 @@ theorem Spec.IterM.fold_filterM {α β δ : Type w}
     Triple P ((it.filterM f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_filterM]
 
+@[lspec]
 theorem Spec.IterM.fold_filterMap {α β γ δ : Type w}
     {m : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1668,6 +1792,7 @@ theorem Spec.IterM.fold_filterMap {α β γ δ : Type w}
     Triple P ((it.filterMap f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_filterMap]
 
+@[lspec]
 theorem Spec.IterM.fold_map {α β γ δ : Type w}
     {m : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1679,6 +1804,7 @@ theorem Spec.IterM.fold_map {α β γ δ : Type w}
     Triple P ((it.map f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_map]
 
+@[lspec]
 theorem Spec.IterM.fold_filter {α β δ : Type w}
     {m : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1690,6 +1816,7 @@ theorem Spec.IterM.fold_filter {α β δ : Type w}
     Triple P ((it.filter f).fold (init := init) g) Q eQ := by
   rwa [Std.IterM.fold_filter]
 
+@[lspec]
 theorem Spec.Iter.forIn_filterMapWithPostcondition {α β β₂ γ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1706,6 +1833,7 @@ theorem Spec.Iter.forIn_filterMapWithPostcondition {α β β₂ γ : Type w}
     Triple P (forIn (it.filterMapWithPostcondition f) init g) Q eQ := by
   rwa [Std.Iter.forIn_filterMapWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.forIn_filterMapM {α β β₂ γ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1723,6 +1851,7 @@ theorem Spec.Iter.forIn_filterMapM {α β β₂ γ : Type w}
     Triple P (forIn (it.filterMapM f) init g) Q eQ := by
   rwa [Std.Iter.forIn_filterMapM]
 
+@[lspec]
 theorem Spec.Iter.forIn_filterMap {α β β₂ γ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1738,6 +1867,7 @@ theorem Spec.Iter.forIn_filterMap {α β β₂ γ : Type w}
     Triple P (forIn (it.filterMap f) init g) Q eQ := by
   rwa [Std.Iter.forIn_filterMap]
 
+@[lspec]
 theorem Spec.Iter.forIn_mapWithPostcondition {α β β₂ γ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1751,6 +1881,7 @@ theorem Spec.Iter.forIn_mapWithPostcondition {α β β₂ γ : Type w}
     Triple P (forIn (it.mapWithPostcondition f) init g) Q eQ := by
   rwa [Std.Iter.forIn_mapWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.forIn_mapM {α β β₂ γ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1766,6 +1897,7 @@ theorem Spec.Iter.forIn_mapM {α β β₂ γ : Type w}
     Triple P (forIn (it.mapM f) init g) Q eQ := by
   rwa [Std.Iter.forIn_mapM]
 
+@[lspec]
 theorem Spec.Iter.forIn_map {α β β₂ γ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1778,6 +1910,7 @@ theorem Spec.Iter.forIn_map {α β β₂ γ : Type w}
     Triple P (forIn (it.map f) init g) Q eQ := by
   rwa [Std.Iter.forIn_map]
 
+@[lspec]
 theorem Spec.Iter.forIn_filterWithPostcondition {α β γ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1791,6 +1924,7 @@ theorem Spec.Iter.forIn_filterWithPostcondition {α β γ : Type w}
     Triple P (forIn (it.filterWithPostcondition f) init g) Q eQ := by
   rwa [Std.Iter.forIn_filterWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.forIn_filterM {α β γ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1805,6 +1939,7 @@ theorem Spec.Iter.forIn_filterM {α β γ : Type w}
     Triple P (forIn (it.filterM f) init g) Q eQ := by
   rwa [Std.Iter.forIn_filterM]
 
+@[lspec]
 theorem Spec.Iter.forIn_filter {α β γ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1817,6 +1952,7 @@ theorem Spec.Iter.forIn_filter {α β γ : Type w}
     Triple P (forIn (it.filter f) init g) Q eQ := by
   rwa [Std.Iter.forIn_filter]
 
+@[lspec]
 theorem Spec.Iter.foldM_filterMapWithPostcondition {α β γ δ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1833,6 +1969,7 @@ theorem Spec.Iter.foldM_filterMapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.filterMapWithPostcondition f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_filterMapWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.foldM_filterMapM {α β γ δ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1850,6 +1987,7 @@ theorem Spec.Iter.foldM_filterMapM {α β γ δ : Type w}
     Triple P ((it.filterMapM f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_filterMapM]
 
+@[lspec]
 theorem Spec.Iter.foldM_mapWithPostcondition {α β γ δ : Type w}
     {m : Type w → Type w'''} {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1864,6 +2002,7 @@ theorem Spec.Iter.foldM_mapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.mapWithPostcondition f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_mapWithPostcondition (m := m)]
 
+@[lspec]
 theorem Spec.Iter.foldM_mapM {α β γ δ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1879,6 +2018,7 @@ theorem Spec.Iter.foldM_mapM {α β γ δ : Type w}
     Triple P ((it.mapM f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_mapM]
 
+@[lspec]
 theorem Spec.Iter.foldM_filterWithPostcondition {α β δ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1893,6 +2033,7 @@ theorem Spec.Iter.foldM_filterWithPostcondition {α β δ : Type w}
     Triple P ((it.filterWithPostcondition f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_filterWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.foldM_filterM {α β δ : Type w}
     {n : Type w → Type w'} {o : Type w → Type w''}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1908,6 +2049,7 @@ theorem Spec.Iter.foldM_filterM {α β δ : Type w}
     Triple P ((it.filterM f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_filterM]
 
+@[lspec]
 theorem Spec.Iter.foldM_filterMap {α β γ δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1922,6 +2064,7 @@ theorem Spec.Iter.foldM_filterMap {α β γ δ : Type w}
     Triple P ((it.filterMap f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_filterMap]
 
+@[lspec]
 theorem Spec.Iter.foldM_map {α β γ δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1933,6 +2076,7 @@ theorem Spec.Iter.foldM_map {α β γ δ : Type w}
     Triple P ((it.map f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_map]
 
+@[lspec]
 theorem Spec.Iter.foldM_filter {α β δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1944,6 +2088,7 @@ theorem Spec.Iter.foldM_filter {α β δ : Type w}
     Triple P ((it.filter f).foldM (init := init) g) Q eQ := by
   rwa [Std.Iter.foldM_filter]
 
+@[lspec]
 theorem Spec.Iter.fold_filterMapWithPostcondition {α β γ δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1958,6 +2103,7 @@ theorem Spec.Iter.fold_filterMapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.filterMapWithPostcondition f).fold (init := init) g) Q eQ := by
   rwa [Std.Iter.fold_filterMapWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.fold_filterMapM {α β γ δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1972,6 +2118,7 @@ theorem Spec.Iter.fold_filterMapM {α β γ δ : Type w}
     Triple P ((it.filterMapM f).fold (init := init) g) Q eQ := by
   rwa [Std.Iter.fold_filterMapM]
 
+@[lspec]
 theorem Spec.Iter.fold_mapWithPostcondition {α β γ δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1984,6 +2131,7 @@ theorem Spec.Iter.fold_mapWithPostcondition {α β γ δ : Type w}
     Triple P ((it.mapWithPostcondition f).fold (init := init) g) Q eQ := by
   rwa [Std.Iter.fold_mapWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.fold_mapM {α β γ δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -1996,6 +2144,7 @@ theorem Spec.Iter.fold_mapM {α β γ δ : Type w}
     Triple P ((it.mapM f).fold (init := init) g) Q eQ := by
   rwa [Std.Iter.fold_mapM]
 
+@[lspec]
 theorem Spec.Iter.fold_filterWithPostcondition {α β δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -2008,6 +2157,7 @@ theorem Spec.Iter.fold_filterWithPostcondition {α β δ : Type w}
     Triple P ((it.filterWithPostcondition f).fold (init := init) g) Q eQ := by
   rwa [Std.Iter.fold_filterWithPostcondition]
 
+@[lspec]
 theorem Spec.Iter.fold_filterM {α β δ : Type w}
     {n : Type w → Type w'}
     {l : Type w} {e : Type w} [CompleteLattice l] [CompleteLattice e]
@@ -2023,6 +2173,7 @@ theorem Spec.Iter.fold_filterM {α β δ : Type w}
 end Iterators
 
 
+@[lspec]
 theorem Spec.forIn'_array {xs : Array α} {init : β} {f : (a : α) → a ∈ xs → β → m (ForInStep β)}
     (inv : Invariant xs.toList β l)
     (eInv : e)
@@ -2041,6 +2192,7 @@ theorem Spec.forIn'_array {xs : Array α} {init : β} {f : (a : α) → a ∈ xs
       eInv := by
   cases xs; simp; apply Spec.forIn'_list inv eInv step
 
+@[lspec]
 theorem Spec.forIn_array {xs : Array α} {init : β} {f : α → β → m (ForInStep β)}
     (inv : Invariant xs.toList β l)
     (eInv : e)
@@ -2059,6 +2211,7 @@ theorem Spec.forIn_array {xs : Array α} {init : β} {f : α → β → m (ForIn
       eInv := by
   cases xs; simp; apply Spec.forIn_list inv eInv step
 
+@[lspec]
 theorem Spec.foldlM_array [LawfulMonad m]
     {xs : Array α} {init : β} {f : β → α → m β}
     (inv : Invariant xs.toList β l)

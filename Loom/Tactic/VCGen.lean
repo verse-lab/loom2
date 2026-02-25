@@ -405,11 +405,11 @@ def testIteBackwardRule
 
 -- Test 3: get for StateM Nat, n = 1 excess arg
 -- Spec.get_StateT': ∀ s, (fun s => post s s) s → wp get post epost s
-@[lspec] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
+@[lspec high] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}
     [Monad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
-    (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
-  exact WP.get_StateT_wp post epost
+    Triple (fun s => post s s) (MonadStateOf.get : StateT σ m σ) post epost := by
+  exact ⟨WP.get_StateT_wp post epost⟩
 
 #eval show MetaM Unit from do
   let nat := mkConst ``Nat
@@ -454,9 +454,9 @@ namespace MTest
 section
 abbrev M := ExceptT String <| ReaderT String <| ExceptT Nat <| StateT Nat <| ExceptT Unit <| StateM Unit
 
-@[local lspec]
+@[local lspec high]
 theorem Spec.M_getThe_Nat :
-  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (get (σ := Nat) (m := M)) post epost := by
+  Triple (fun s₁ s₂ => post s₂ s₁ s₂) (get (σ := Nat) (m := M)) post epost := by
   sorry
 
 #eval show MetaM Unit from do

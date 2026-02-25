@@ -6,29 +6,11 @@ open Loom Lean Meta Order
 
 -- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
 -- a different head constant from MonadStateOf.get/set used above).
-@[lspec] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
+@[lspec high] theorem spec_get_StateT' {m : Type u → Type v} {l e : Type u}
     [Monad m] [LawfulMonad m] [WPMonad m l e]
     {σ : Type u} (post : σ → σ → l) (epost : e) :
-    (fun s => post s s) ⊑ wp (get : StateT σ m σ) post epost :=
-  spec_get_StateT post epost
-
-@[lspec] theorem spec_set_StateT' {m : Type u → Type v} {l e : Type u}
-    [Monad m] [LawfulMonad m] [WPMonad m l e]
-    {σ : Type u} (x : σ) (post : PUnit → σ → l) (epost : e) :
-    (fun _ => post ⟨⟩ x) ⊑ wp (set x : StateT σ m PUnit) post epost := sorry
-  -- spec_set_StateT x post epost
-
-@[lspec] theorem spec_pure {m : Type u → Type v} {l e : Type u}
-    [Monad m] [WPMonad m l e]
-    {α : Type u} (a : α) (post : α → l) (epost : e) :
-    post a ⊑ wp (pure (f := m) a) post epost := by
-  exact WPMonad.wp_pure a post epost
-
-@[lspec] theorem spec_bind {m : Type u → Type v} {l e : Type u}
-    [Monad m] [WPMonad m l e]
-    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
-    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
-  WPMonad.wp_bind x f post epost
+    Triple (fun s => post s s) (get : StateT σ m σ) post epost :=
+  by simpa using (spec_get_StateT (m := m) (l := l) (e := e) (σ := σ) post epost)
 
 def step (v : Nat) : StateM Nat Unit := do
   let s ← get

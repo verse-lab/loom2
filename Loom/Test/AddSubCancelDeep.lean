@@ -38,41 +38,22 @@ def loop (n : Nat) : M Unit := do
 
 def Goal (n : Nat) : Prop := ∀ post epost s₁ s₂, post s₁ s₂ ⟨⟩ -> wp (loop n) (fun _ => post) epost s₁ s₂ ⟨⟩
 
-@[lspec]
+@[lspec high]
 theorem Spec.M_getThe_Nat :
-  (fun s₁ s₂ => post s₂ s₁ s₂) ⊑ wp (getThe (m := M) Nat) post epost := by
+  Triple (fun s₁ s₂ => post s₂ s₁ s₂) (getThe (m := M) Nat) post epost := by
+  refine ⟨?_⟩
   apply PartialOrder.rel_trans; rotate_left; apply LawfulMonadStateOf.wp_get
   simp [get, getThe, MonadStateOf.get, liftM, monadLift, MonadLift.monadLift]
   rfl
   -- sorry
 
-@[lspec]
+@[lspec high]
 theorem Spec.M_set_Nat (n : Nat) :
-  (fun s₁ _ => post ⟨⟩ s₁ n) ⊑ wp (set (m := M) n) post epost := by
+  Triple (fun s₁ _ => post ⟨⟩ s₁ n) (set (m := M) n) post epost := by
+  refine ⟨?_⟩
   apply PartialOrder.rel_trans; rotate_left; apply LawfulMonadStateOf.wp_set
   simp [set, MonadStateOf.set, liftM, monadLift, MonadLift.monadLift]
   rfl
-
-theorem Spec.M_tryCatchThe (post : α → String → Nat → Unit → Prop) :
-  (fun s => wp x post ⟨epost.1, ⟨fun x => wp (h x) post epost s, epost.2.2⟩⟩ s)
-  ⊑ wp (tryCatchThe Nat x h : M α) post epost := by
-  apply PartialOrder.rel_trans; rotate_left; apply LawfulMonadExceptOf.wp_tryCatch
-  simp [tryCatch, tryCatchThe, MonadExceptOf.tryCatch, -ExceptT.apply_wp]
-  rfl
-
-@[lspec]
-theorem spec_pure {m : Type u → Type v} {l e : Type u}
-    [Monad m] [WPMonad m l e]
-    {α : Type u} (a : α) (post : α → l) (epost : e) :
-    post a ⊑ wp (pure (f := m) a) post epost := by
-  exact WPMonad.wp_pure a post epost
-
-@[lspec]
-theorem spec_bind {m : Type u → Type v} {l e : Type u}
-    [Monad m] [WPMonad m l e]
-    {α β : Type u} (x : m α) (f : α → m β) (post : β → l) (epost : e) :
-    wp x (fun a => wp (f a) post epost) epost ⊑ wp (x >>= f) post epost :=
-  WPMonad.wp_bind x f post epost
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
