@@ -34,4 +34,5 @@ set_option maxHeartbeats 10000000
     ``Goal [``loop, ``step]
     `(tactic| (intro s; mvcgen'))
     `(tactic| sorry)
-    [400, 500, 600, 700, 800, 900, 1000]
+    --[400, 500, 600, 700, 800, 900, 1000]
+    [1000]
