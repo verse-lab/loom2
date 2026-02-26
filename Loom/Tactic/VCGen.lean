@@ -170,6 +170,12 @@ inductive LogicOp where
   -- Temporarily disabled:
   -- | Forall (n : Name)
 
+/-- Map lattice connective declaration names to supported `LogicOp`s. -/
+def _root_.Lean.Name.toLogicOp? : Name → Option LogicOp
+  | ``meet => some .And
+  | ``himp => some .Imp
+  | _ => none
+
 /--
   Interprets a logic operation as a list of proposition expressions.
   For example, `And.mkPropExpr #[a, b]` is `a ∧ b` and `Imp.mkPropExpr #[a, b]` is `a -> b`.
@@ -340,6 +346,9 @@ structure VCGen.State where
   /-- Cache mapping split rule name × WPMonad instance × excess arg count
       to their backward rule. -/
   splitBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
+  /-- Cache mapping logic connective × operand types × excess arg count
+      to their backward rule. -/
+  logicBackwardRuleCache : Std.HashMap (Name × Array Expr × Nat) BackwardRule := {}
   /-- Holes of type `Invariant` generated so far. -/
   invariants : Array MVarId := #[]
   /-- Verification conditions generated so far. -/
@@ -382,9 +391,23 @@ def mkBackwardRuleForIteCached
     modify ({ · with splitBackwardRuleCache := s.insert key rule })
     return rule
 
+/-- Cached wrapper for `LogicOp.mkBackwardRuleForLogic`.
+    The cache key is `(logic connective, operand types, excessArgs.size)`. -/
+def mkBackwardRuleForLogicCached
+    (lop : LogicOp) (as excessArgs : Array Expr) : VCGenM BackwardRule := do
+  let s := (← get).logicBackwardRuleCache
+  let asTypes ← (as.mapM Sym.inferType : SymM (Array Expr))
+  let key := (lop.toApplyLemma, asTypes, excessArgs.size)
+  match s[key]? with
+  | some rule => return rule
+  | none =>
+    let rule ← lop.mkBackwardRuleForLogic as excessArgs
+    modify ({ · with logicBackwardRuleCache := s.insert key rule })
+    return rule
+
 inductive SolveResult where
-  /-- The `T` was not of the form `wp e post epost s₁ ... sₙ`. -/
-  | noProgramFoundInTarget (T : Expr)
+  /-- The target was neither a WP goal nor a supported lattice goal. -/
+  | noProgramAndLatticeFoundInTarget (T : Expr)
   /-- Don't know how to handle `e` in `wp e post epost s₁ ... sₙ`. -/
   | noStrategyForProgram (e : Expr)
   /--
@@ -395,42 +418,83 @@ inductive SolveResult where
   /-- Successfully discharged the goal. These are the subgoals. -/
   | goals (subgoals : List MVarId)
 
+/-- High-level classifier for goals handled by `solve`. -/
+inductive GoalKind where
+  /-- Goal is a WP application. We keep the full `withApp` decomposition. -/
+  | WP (head : Expr) (args : Array Expr)
+  /-- Goal is a lattice connective application (`meet`/`himp`) with optional excess args. -/
+  | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
+  /-- Goal is neither a recognized WP nor a recognized lattice connective. -/
+  | Unknown
+
+/-- Classify a goal target as WP, logic-lattice connective, or unknown. -/
+def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
+  target.withApp fun head args => do
+    -- WP goals are recognized by the first 9 base arguments of `wp`.
+    let wpArgs := args.extract 0 (min args.size 9)
+    let wpExpr := mkAppN head wpArgs
+    if wpExpr.isAppOf ``wp then
+      return .WP head args
+    -- Lattice goals are recognized by connective head name (`meet` / `himp`).
+    let logicArgs := args.extract 0 (min args.size 4)
+    let logicExpr := mkAppN head logicArgs
+    let some lop := logicExpr.getAppFn.constName? >>= Lean.Name.toLogicOp?
+      | return .Unknown
+    let logicExprArgs := logicExpr.getAppArgs
+    if logicExprArgs.size != 4 then
+      return .Unknown
+    let a := logicExprArgs[2]!
+    let b := logicExprArgs[3]!
+    return .Lattice lop #[a, b] (args.extract 4 args.size)
 
 def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   let target ← goal.getType
-  -- Goal should be: @WPMonad.wp m l errTy monadInst instWP α e post epost s₁ ... sₙ
-  -- WPMonad.wp has 9 base args; anything beyond that are excess state args
-  target.withApp fun head args => do
-    let_expr wp m l errTy monadInst instWP _α e _post _epost :=
-      mkAppN head (args.extract 0 (min args.size 9))
-      | return .noProgramFoundInTarget target
-    let excessArgs := args.extract 9 args.size
-    -- Non-dependent let-expressions: use Sym.Simp.simpLet to preserve maximal sharing
-    -- TODO: is it the best way?
-    if e.isLet then
-      if let .step e' .. ← Simp.SimpM.run' (Simp.simpLet e) then
-        let target' ← share <| mkAppN head (args.set! 6 e')
-        return .goals [← goal.replaceTargetDefEq target']
-      else return .noStrategyForProgram e
-    -- Apply registered specifications
-    let f := e.getAppFn
-    if f.isConstOf ``ite || f.isAppOf ``ite then
-      let rule ← mkBackwardRuleForIteCached head m l errTy monadInst instWP excessArgs
-      trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
+  let kind ← classifyGoalKind target
+  match kind with
+  | .Unknown =>
+      return .noProgramAndLatticeFoundInTarget target
+  | .Lattice lop as excessArgs => do
+      trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
+      let rule ← mkBackwardRuleForLogicCached lop as excessArgs
       let .goals goals ← rule.apply goal
-        | throwError "Failed to apply split rule for {indentExpr e}"
-      return .goals goals
-    if f.isConst || f.isFVar then
-      trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
-      let thms ← (← read).specThms.findSpecs e
-      trace[Loom.Tactic.vcgen] "Candidates for {e}: {thms.map (·.proof)}"
-      let some (thm, rule) ← (mkBackwardRuleFromSpecsCached thms e l instWP excessArgs).run
-        | return .noSpecFoundForProgram e m thms
-      trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
-      let .goals goals ← rule.apply goal
-        | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
-      return .goals goals
-    return .noStrategyForProgram e
+        | throwError "Failed to apply logic rule at {indentExpr target}"
+      let mut out := #[]
+      for g in goals do
+        out := out ++ (← lop.postProcessGoal g).toArray
+      return .goals out.toList
+  | .WP head args => do
+      -- Goal should be: @WPMonad.wp m l errTy monadInst instWP α e post epost s₁ ... sₙ
+      -- WPMonad.wp has 9 base args; anything beyond that are excess state args
+      let_expr wp m l errTy monadInst instWP _α e _post _epost :=
+        mkAppN head (args.extract 0 (min args.size 9))
+        | return .noProgramAndLatticeFoundInTarget target
+      let excessArgs := args.extract 9 args.size
+      -- Non-dependent let-expressions: use Sym.Simp.simpLet to preserve maximal sharing
+      -- TODO: is it the best way?
+      if e.isLet then
+        if let .step e' .. ← Simp.SimpM.run' (Simp.simpLet e) then
+          let target' ← share <| mkAppN head (args.set! 6 e')
+          return .goals [← goal.replaceTargetDefEq target']
+        else return .noStrategyForProgram e
+      -- Apply registered specifications
+      let f := e.getAppFn
+      if f.isConstOf ``ite || f.isAppOf ``ite then
+        let rule ← mkBackwardRuleForIteCached head m l errTy monadInst instWP excessArgs
+        trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
+        let .goals goals ← rule.apply goal
+          | throwError "Failed to apply split rule for {indentExpr e}"
+        return .goals goals
+      if f.isConst || f.isFVar then
+        trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
+        let thms ← (← read).specThms.findSpecs e
+        trace[Loom.Tactic.vcgen] "Candidates for {e}: {thms.map (·.proof)}"
+        let some (thm, rule) ← (mkBackwardRuleFromSpecsCached thms e l instWP excessArgs).run
+          | return .noSpecFoundForProgram e m thms
+        trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
+        let .goals goals ← rule.apply goal
+          | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
+        return .goals goals
+      return .noStrategyForProgram e
 
 /--
 Called when decomposing the goal further did not succeed; in this case we emit a VC for the goal.
@@ -470,7 +534,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
     worklist := worklist'
     let res ← solve =<< introsWP goal
     match res with
-    | .noProgramFoundInTarget .. =>
+    | .noProgramAndLatticeFoundInTarget .. =>
       emitVC goal
     | .noSpecFoundForProgram prog _ #[] =>
       throwError "No spec found for program {prog}."
