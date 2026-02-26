@@ -27,10 +27,11 @@ def Goal (n : Nat) : Prop :=
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
+-- set_option trace.Loom.Tactic.vcgen true
 
 #eval
   runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| (intro s; mvcgen'))
     `(tactic| sorry)
-    [200, 250, 300, 350, 400]
+    [400, 500, 600, 700, 800, 900, 1000]

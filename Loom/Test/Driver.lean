@@ -5,7 +5,9 @@ Authors: Sebastian Graf
 -/
 module
 public import Lean.Meta
+import Lean.Meta.InstMVarsNU
 import Lean.Elab
+
 
 open Lean Parser Meta Elab Tactic Sym
 
@@ -15,6 +17,8 @@ def timeItMs (k : MetaM α) : MetaM (α × UInt64) := do
   let endTime ← IO.monoNanosNow
   let ms := (endTime - startTime).toFloat / 1000000.0
   return (a, ms.toUInt64)
+
+#check shareCommonPreDefs
 
 /-- Helper function for executing a tactic `k` for solving `$(goal) n`. -/
 def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyntax `tactic)) (k : MVarId → MetaM (List MVarId)) : MetaM Unit := do
@@ -39,18 +43,20 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
       for mvarId in mvarIds do
         let ([], _) ← Lean.Elab.runTactic mvarId discharge.raw {} {}
           | throwError "{dischargePp} failed to solve {mvarId}"
-  let (expr, instMs) ← timeItMs (instantiateMVars mvar)
+  let (expr, instMs) ← timeItMs (instantiateMVarsNoUpdate mvar)
   -- Emulate the shareCommonPreDefs step before sending the term to the kernel.
   -- If we don't do this, kernel checking time balloons.
-  let expr ← SymM.run (shareCommon expr)
+  -- let (expr, shareMs) ← timeItMs do
+  --   SymM.run (shareCommon expr)
+  trace[Loom.Tactic.vcgen] "expr: {expr}"
   let (_, kernelMs) ← timeItMs (checkWithKernel expr)
   let mut msg := s!"goal_{n}: {ms} ms"
   if let some dischargeMs := dischargeMs? then
     msg := msg ++ s!", {mvarIds.length} VCs by {dischargePp}: {dischargeMs} ms"
   else
     msg := msg ++ s!", {mvarIds.length} VCs"
-  if instMs > 1000 then
-    msg := msg ++ s!", instantiate > 1000ms: {instMs} ms"
+  msg := msg ++ s!", instantiate: {instMs} ms"
+  -- msg := msg ++ s!", shareCommon: {shareMs} ms"
   msg := msg ++ s!", kernel: {kernelMs} ms"
   IO.println msg
 
