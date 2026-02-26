@@ -3,6 +3,7 @@ import Loom.Tactic.Attr
 import Loom.Triple.Basic
 import Loom.Triple.SpecLemmas
 import Loom.WP.SimpLemmas
+import Loom.Frame
 import Lean.Meta
 import Lean.Meta.Match.Rewrite
 
@@ -54,10 +55,6 @@ private def isDefEqNoAssign (a b : Expr) : MetaM Bool := do
 
 
 /--
-TODO:
-  - Transform Triple to ⊑ at @[lspec] level
-  - add abstraction over `post` and `epost`
-
 Try to build a backward rule from a single spec theorem in `⊑` form.
 
 Given a spec `pre ⊑ wp prog post epost` where the lattice type is
@@ -166,6 +163,128 @@ meta def mkBackwardRuleForIte
   let type ← preprocessExpr (← Sym.inferType res.expr)
   let prf ← Meta.mkAuxLemma res.paramNames.toList type res.expr
   mkBackwardRuleFromDecl prf
+
+-- inductive LogicOp where
+--   | And
+--   | Imp
+--   -- Temporarily disabled:
+--   -- | Forall (n : Name)
+
+-- /--
+--   Interprets a logic operation as a list of proposition expressions.
+--   For example, `And.mkPropExpr #[a, b]` is `a ∧ b` and `Imp.mkPropExpr #[a, b]` is `a -> b`.
+-- -/
+-- def LogicOp.mkPropExpr (lop : LogicOp) (as : Array Expr) : Expr :=
+--   match lop with
+--   | .And => mkAnd as[0]! as[1]!
+--   | .Imp => mkForall `_ BinderInfo.default as[0]! as[1]!
+
+-- private def LogicOp.mkLatticeExpr2 (lop : LogicOp) (a b : Expr) : SymM Expr := do
+--   match lop with
+--   | .And => shareCommon (← mkAppM ``meet #[a, b])
+--   | .Imp => shareCommon (← mkAppM ``himp #[a, b])
+
+-- -- Lift an equality `lhs = rhs` to `(lhs args...) = (rhs args...)`.
+-- private def LogicOp.liftEqByArgs (eqPrf : Expr) (args : List Expr) : SymM Expr := do
+--   if args.isEmpty then
+--     return eqPrf
+--   let eqTy ← Sym.inferType eqPrf
+--   let some (_, lhs, _rhs) := eqTy.eq?
+--     | throwError "Expected equality proof, got {indentExpr eqTy}"
+--   let lhsTy ← Sym.inferType lhs
+--   let context ← withLocalDecl `x .default lhsTy fun x => do
+--     let app := mkAppN x args.toArray
+--     mkLambdaFVars #[x] app
+--   Meta.mkCongrArg context eqPrf
+
+-- private partial def LogicOp.mkApplyEq2
+--     (stepThm : Name) (lop : LogicOp)
+--     (a b : Expr) (ss : List Expr) : SymM Expr := do
+--   match ss with
+--   | [] =>
+--     let lhs ← lop.mkLatticeExpr2 a b
+--     Meta.mkEqRefl lhs
+--   | s :: ss' =>
+--     let step ← mkAppM stepThm #[a, b, s]
+--     if ss'.isEmpty then
+--       return step
+--     let stepLift ← LogicOp.liftEqByArgs step ss'
+--     let a' := mkApp a s
+--     let b' := mkApp b s
+--     let rest ← LogicOp.mkApplyEq2 stepThm lop a' b' ss'
+--     mkEqTrans stepLift rest
+
+-- private def LogicOp.mkArgNamesTypes (as : Array Expr) : SymM (Array (Name × Expr)) := do
+--   if as.size == 2 then
+--     return #[(`a, ← Sym.inferType as[0]!), (`b, ← Sym.inferType as[1]!)]
+--   else
+--     throwError "Expected 2 logic arguments, got {as.size}"
+
+-- private def LogicOp.toApplyLemma : LogicOp → Name
+--   | .And => ``meet_fun_apply
+--   | .Imp => ``himp_fun_apply
+
+-- private def LogicOp.toPropLemma : LogicOp → Name
+--   | .And => ``meet_prop_eq_and
+--   | .Imp => ``himp_prop_eq_imp
+
+-- private def LogicOp.mkGoalPremiseEq
+--     (lop : LogicOp) (as' ss : Array Expr) : SymM (Expr × Expr × Expr) := do
+--   let applyLemma := lop.toApplyLemma
+--   let propLemma := lop.toPropLemma
+--   let ssList := ss.toList
+--   let a := as'[0]!
+--   let b := as'[1]!
+--   let lat ← LogicOp.mkLatticeExpr2 lop a b
+--   let goal ← shareCommon (mkAppN lat ss)
+--   let eqFun ← LogicOp.mkApplyEq2 applyLemma lop a b ssList
+--   let aApp := mkAppN a ss
+--   let bApp := mkAppN b ss
+--   let eqProp ← mkAppM propLemma #[aApp, bApp]
+--   let eqTy ← Sym.inferType eqProp
+--   let some (_, _lhsProp, rhsProp) := eqTy.eq?
+--     | throwError "Expected equality from {propLemma}, got {indentExpr eqTy}"
+--   let eq ← mkEqTrans eqFun eqProp
+--   return (goal, rhsProp, eq)
+
+-- /--
+--   Creates a reusable backward rule for a `CompleteLattice` logic expression.
+--   For example, if `lop` is `And`, then it creates a following theorem for fixed Complete Lattice `l` and
+--   its `[CompleteLattice l]` instance expression:
+
+--   ```
+--   -- `l` and `[CompleteLattice l]` are fixed
+--   theorem And_applied_intro (a : l) (b : l) s₁ : σ₁) (s₂ : σ₂) ... (sₙ : σₙ) :
+--     a s₁ ... sₙ ∧ b s₁ ... sₙ ->
+--     (a ⊓ b) s₁ ... sₙ
+--   ```
+-- -/
+-- def LogicOp.mkBackwardRuleForLogic
+--     (lop : LogicOp) (l : Expr) (cl : Expr)
+--     (as : Array Expr) (excessArgs : Array Expr) : SymM BackwardRule := do
+--   let _ := l
+--   let _ := cl
+
+--   let excessArgNamesTypes ← excessArgs.mapM fun arg =>
+--     return (`s, ← Sym.inferType arg)
+
+--   let argNamesTypes ← LogicOp.mkArgNamesTypes as
+
+--   let prf ← withLocalDeclsDND argNamesTypes fun as' => do
+--     withLocalDeclsDND excessArgNamesTypes fun ss => do
+--       let (goal, premise, eqGoalPremise) ← LogicOp.mkGoalPremiseEq lop as' ss
+--       let body ← withLocalDeclD `h premise fun h => do
+--         let eqSymm ← mkEqSymm eqGoalPremise
+--         let prf ← mkEqMP eqSymm h
+--         let prf ← mkExpectedTypeHint prf goal
+--         mkLambdaFVars #[h] prf
+--       let args := as' ++ ss
+--       mkLambdaFVars args body
+
+--   let res ← abstractMVars prf
+--   let type ← preprocessExpr (← Sym.inferType res.expr)
+--   let prf ← Meta.mkAuxLemma res.paramNames.toList type res.expr
+--   mkBackwardRuleFromDecl prf
 
 /--
 Given an array of `SpecTheorem`s (sorted by priority), try to build a backward rule
@@ -403,6 +522,14 @@ def testIteBackwardRule
     mkBackwardRuleForIte wpHead m l errTy monadInst instWP excessArgs
   inferType rule.expr
 
+-- /-- Test helper: run `LogicOp.mkBackwardRuleForLogic` and return the generated rule type. -/
+-- def testLogicBackwardRule
+--     (lop : LogicOp) (l cl : Expr)
+--     (as excessArgs : Array Expr) : MetaM Expr := do
+--   let rule ← SymM.run do
+--     LogicOp.mkBackwardRuleForLogic lop l cl as excessArgs
+--   inferType rule.expr
+
 -- Test 1: Id monad, l = Prop, n = 0 excess args
 -- wp_bind for Id: pre → wp (x >>= f) post ()
 #eval show MetaM Unit from do
@@ -476,6 +603,39 @@ def testIteBackwardRule
   let wpHead := mkConst ``wp [.zero, .zero, .zero, .zero]
   let ty ← testIteBackwardRule wpHead m l errTy monadM instWP #[]
   logInfo m!"Test 5 (ite Id, n=0): {ty}"
+
+-- -- Test 8: logic And on Prop, n = 0 excess args
+-- #eval show MetaM Unit from do
+--   let l := mkSort 0
+--   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+--   withLocalDeclD `a l fun a => do
+--     withLocalDeclD `b l fun b => do
+--       let ty ← testLogicBackwardRule .And l cl #[a, b] #[]
+--       logInfo m!"Test 8 (logic And Prop, n=0): {ty}"
+
+-- -- Test 9: logic And on Nat → Prop, n = 1 excess arg
+-- #eval show MetaM Unit from do
+--   let nat := mkConst ``Nat
+--   let l ← mkArrow nat (mkSort 0)
+--   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+--   withLocalDeclD `a l fun a => do
+--     withLocalDeclD `b l fun b => do
+--       withLocalDeclD `s nat fun s => do
+--         let ty ← testLogicBackwardRule .And l cl #[a, b] #[s]
+--         logInfo m!"Test 9 (logic And Nat→Prop, n=1): {ty}"
+
+-- -- Test 10: logic Imp on Nat → Prop, n = 1 excess arg
+-- #eval show MetaM Unit from do
+--   let nat := mkConst ``Nat
+--   let l ← mkArrow nat (mkSort 0)
+--   let cl ← synthInstance (← mkAppM ``CompleteLattice #[l])
+--   withLocalDeclD `a l fun a => do
+--     withLocalDeclD `b l fun b => do
+--       withLocalDeclD `s nat fun s => do
+--         let ty ← testLogicBackwardRule .Imp l cl #[a, b] #[s]
+--         logInfo m!"Test 10 (logic Imp Nat→Prop, n=1): {ty}"
+
+-- -- Test 11/12 (Forall) are temporarily disabled while LogicOp.Forall is commented out.
 
 namespace MTest
 section

@@ -91,6 +91,24 @@ theorem le_iInf {ι : Type v} (f : ι → α) (x : α) : (∀ i, x ⊑ f i) → 
   rw [← hi]
   exact h i
 
+/-- Pointwise characterization of indexed infimum on function lattices. -/
+@[simp] theorem iInf_fun_apply
+    {ι : Type v} {σ : Type w} {β : Type u} [CompleteLattice β]
+    (f : ι → σ → β) (s : σ) :
+    (iInf f) s = iInf (fun i => f i s) := by
+  apply PartialOrder.rel_antisymm
+  ·
+    apply le_iInf
+    intro i
+    exact (iInf_le f i) s
+  ·
+    let g : σ → β := fun t => iInf (fun i => f i t)
+    have hg : g ⊑ iInf f := by
+      apply le_iInf
+      intro i t
+      exact iInf_le (fun j => f j t) i
+    simpa [g] using hg s
+
 /-- Indexed supremum -/
 noncomputable def iSup {ι : Type v} (f : ι → α) : α := CompleteLattice.sup (fun x => ∃ i, f i = x)
 
@@ -104,6 +122,49 @@ theorem iSup_le {ι : Type v} (f : ι → α) (x : α) : (∀ i, f i ⊑ x) → 
   intro y ⟨i, hi⟩
   rw [← hi]
   exact h i
+
+/-- Pointwise characterization of binary meet on function lattices. -/
+@[simp] theorem meet_fun_apply
+    {σ : Type v} {β : Type w} [CompleteLattice β]
+    (a b : σ → β) (s : σ) :
+    (a ⊓ b) s = a s ⊓ b s := by
+  apply PartialOrder.rel_antisymm
+  · apply le_meet
+    · exact (meet_le_left a b) s
+    · exact (meet_le_right a b) s
+  ·
+    classical
+    let f : σ → β := fun t => if t = s then a t ⊓ b t else latticeBot
+    have hf_left : f ⊑ a := by
+      intro t
+      by_cases h : t = s
+      · simp [f, h, meet_le_left]
+      · simp [f, h, latticeBot_le]
+    have hf_right : f ⊑ b := by
+      intro t
+      by_cases h : t = s
+      · simp [f, h, meet_le_right]
+      · simp [f, h, latticeBot_le]
+    have hf_meet : f ⊑ a ⊓ b := le_meet f a b hf_left hf_right
+    have hs : f s = a s ⊓ b s := by simp [f]
+    exact hs ▸ hf_meet s
+
+/-- Pointwise characterization of binary join on function lattices. -/
+@[simp] theorem join_fun_apply
+    {σ : Type v} {β : Type w} [CompleteLattice β]
+    (a b : σ → β) (s : σ) :
+    (a ⊔ b) s = a s ⊔ b s := by
+  apply PartialOrder.rel_antisymm
+  ·
+    have hfun : a ⊔ b ⊑ fun t => a t ⊔ b t :=
+      join_le a b (fun t => a t ⊔ b t)
+        (fun t => left_le_join (a t) (b t))
+        (fun t => right_le_join (a t) (b t))
+    exact hfun s
+  ·
+    apply join_le
+    · exact (left_le_join a b) s
+    · exact (right_le_join a b) s
 
 -- /-- For function types, the top element evaluates pointwise to top -/
 -- theorem latticeTop_fun_apply {σ : Type u} {α : Type u} [CompleteLattice α] (s : σ) :
@@ -263,3 +324,30 @@ theorem propSup_is_sup (c : Prop → Prop) : is_sup c (propSup c) := by
 
 instance : CompleteLattice Prop where
   has_sup c := ⟨propSup c, propSup_is_sup c⟩
+
+@[simp] theorem iInf_prop_eq_forall {ι : Type u} (f : ι → Prop) :
+    (iInf f : Prop) = (∀ i, f i) := by
+  apply propext
+  constructor
+  · intro hf i
+    exact (iInf_le f i) hf
+  · intro hall
+    exact (le_iInf f (x := ∀ i, f i) (fun i h => h i)) hall
+
+@[simp] theorem meet_prop_eq_and (a b : Prop) : (a ⊓ b : Prop) = (a ∧ b) := by
+  apply propext
+  constructor
+  · intro hab
+    exact ⟨(meet_le_left a b) hab, (meet_le_right a b) hab⟩
+  · intro hab
+    exact (le_meet (a ∧ b) a b (fun h => h.left) (fun h => h.right)) hab
+
+@[simp] theorem join_prop_eq_or (a b : Prop) : (a ⊔ b : Prop) = (a ∨ b) := by
+  apply propext
+  constructor
+  · intro hab
+    exact (join_le a b (a ∨ b) (fun ha => Or.inl ha) (fun hb => Or.inr hb)) hab
+  · intro hab
+    cases hab with
+    | inl ha => exact (left_le_join a b) ha
+    | inr hb => exact (right_le_join a b) hb
