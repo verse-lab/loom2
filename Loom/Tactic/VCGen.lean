@@ -6,6 +6,7 @@ import Loom.WP.SimpLemmas
 import Loom.Frame
 import Lean.Meta
 import Lean.Meta.Match.Rewrite
+import Loom.Tactic.ShareExt
 
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 open Loom.Tactic.SpecAttr
@@ -465,17 +466,21 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   | .WP head args => do
       -- Goal should be: @WPMonad.wp m l errTy monadInst instWP α e post epost s₁ ... sₙ
       -- WPMonad.wp has 9 base args; anything beyond that are excess state args
-      let_expr wp m l errTy monadInst instWP _α e _post _epost :=
+      let_expr wp m l errTy monadInst instWP α e post epost :=
         mkAppN head (args.extract 0 (min args.size 9))
         | return .noProgramAndLatticeFoundInTarget target
       let excessArgs := args.extract 9 args.size
       -- Non-dependent let-expressions: use Sym.Simp.simpLet to preserve maximal sharing
       -- TODO: is it the best way?
-      if e.isLet then
-        if let .step e' .. ← Simp.SimpM.run' (Simp.simpLet e) then
-          let target' ← share <| mkAppN head (args.set! 6 e')
-          return .goals [← goal.replaceTargetDefEq target']
-        else return .noStrategyForProgram e
+      let f := e.getAppFn
+      if let .letE _x _ty val body _nonDep := f then
+        let body' ← Sym.instantiateRevBetaS body #[val]
+        let e' ← mkAppRevS body' e.getAppRevArgs
+        let wp ← mkAppS₉ head m l errTy monadInst instWP α e' post epost
+        let target ← mkAppNS wp excessArgs
+        let goal ← goal.replaceTargetDefEq target
+        return .goals [goal]
+
       -- Apply registered specifications
       let f := e.getAppFn
       if f.isConstOf ``ite || f.isAppOf ``ite then
