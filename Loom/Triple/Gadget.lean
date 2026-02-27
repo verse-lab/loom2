@@ -10,12 +10,12 @@ variable {m : Type u → Type v} {l : Type u} {e : Type u} [Monad m] [WPMonad m 
 
 variable [Monad m] [WPMonad m l e] in
 set_option linter.unusedVariables false in
-def assertGadget (name : Option Name) (as : l) : m PUnit := pure ⟨⟩
+def assertGadget (name : Name) (as : l) : m PUnit := pure ⟨⟩
 
-theorem Spec.assertGadget (as : l) [Frame l] :
-  Triple (m := m) (as ⊓ (as ⇨ post ⟨⟩)) (Loom.assertGadget on as) post epost := by
+theorem Spec.assertGadget (name : Name) (as : l) [Frame l] :
+  Triple (m := m) (as ⊓ ((name : as) ⇨ post ⟨⟩)) (Loom.assertGadget name as) post epost := by
   simpa [Loom.assertGadget] using
-    (Triple.pure (m := m) (pre := as ⊓ (as ⇨ post ⟨⟩)) (post := post) (epost := epost)
+    (Triple.pure (m := m) (pre := as ⊓ himp as (post ⟨⟩)) (post := post) (epost := epost)
       (a := ⟨⟩) (h := himp_sound (a := as) (b := post ⟨⟩)))
 
 end Loom

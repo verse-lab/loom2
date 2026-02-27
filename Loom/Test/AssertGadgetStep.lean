@@ -14,7 +14,7 @@ instance : Frame (Nat → Prop) := by
 def step (n : Nat) : StateM Nat Unit := do
   let x ← get
   set (x + n + 1)
-  assertGadget (name := none) (· > x)
+  assertGadget (name := `hx) (· >= x)
 
 def loop (n : Nat) : StateM Nat Unit := do
   match n with
@@ -26,8 +26,6 @@ def Goal (n : Nat) : Prop :=
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
-
--- set_option trace.Loom.Tactic.vcgen true
 
 #eval
   runBenchUsingTactic

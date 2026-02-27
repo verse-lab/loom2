@@ -4,7 +4,8 @@ universe u v w
 
 open Lean.Order
 
--- namespace VelvetSimple
+def withName (_n : Lean.Name) {α : Sort u} (x : α) : α := x
+theorem withName_elim (n : Lean.Name) (x : Prop) (y : Prop) : ((x) -> y) -> ((withName n x) -> y) := id
 
 /-!
 # Additional Complete Lattice Operations

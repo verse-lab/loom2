@@ -1,3 +1,4 @@
+import Lean
 import Loom.LatticeExt
 
 open Lean.Order
@@ -102,5 +103,10 @@ theorem himp_sound [Frame α] (a b : α) : a ⊓ (a ⇨ b) ⊑ b := by
         simpa [meet_fun_apply, f, h] using htb
     have hs : f s = y := by simp [f]
     exact hs ▸ le_sup (c := fun z : β => ∃ g, a ⊓ g ⊑ b ∧ g s = z) ⟨f, hf, rfl⟩
+
+syntax:60 "(" ident " : " term ")" " ⇨ " term : term
+
+macro_rules
+  | `(($n:ident : $a) ⇨ $b) => `((withName $(Lean.quote n.getId) $a) ⇨ $b)
 
 end Loom

@@ -47,6 +47,37 @@ private def getExcessArgTypes (l : Expr) (n : Nat) : MetaM (Array Expr) := do
 def preprocessExpr (e : Expr) : SymM Expr := do
   shareCommon (← unfoldReducible (← instantiateMVars e))
 
+private def withNameHead? (e : Expr) : Option (Array Expr) :=
+  let e := e.consumeMData
+  if e.isAppOf ``withName then
+    some e.getAppArgs
+  else
+    none
+
+private def evalNameExpr? (e : Expr) : MetaM (Option Name) := do
+  try
+    return some (← Lean.Meta.reduceEval e)
+  catch _ =>
+    return none
+
+/--
+Introduce exactly one binder. If the binder domain is of shape `withName n x`,
+introduce it using name `n`; otherwise fall back to regular `introN 1`.
+-/
+private def intro1WithName (mvarId : MVarId) : SymM IntrosResult := do
+  let type ← mvarId.getType
+  let .forallE info domain tp body := type | return .failed
+  let some args := withNameHead? domain
+    | introN mvarId 1
+  if h : args.size > 2 then
+    let some n ← evalNameExpr? args[0]
+      | return (← introN mvarId 1)
+    let domain <- mkAppNS args[2] (args.drop 3)
+    let type <- share <| Expr.forallE info domain tp body
+    Sym.intros (← mvarId.replaceTargetDefEq type) #[n]
+  else
+    introN mvarId 1
+
 /--
 Check definitional equality without committing metavariable assignments.
 Useful for "can these unify?" probes when matching candidate specs.
@@ -177,17 +208,7 @@ def _root_.Lean.Name.toLogicOp? : Name → Option LogicOp
   | ``himp => some .Imp
   | _ => none
 
-/--
-  Interprets a logic operation as a list of proposition expressions.
-  For example, `And.mkPropExpr #[a, b]` is `a ∧ b` and `Imp.mkPropExpr #[a, b]` is `a -> b`.
--/
-def LogicOp.mkPropExpr (lop : LogicOp) (as : Array Expr) : Expr :=
-  match lop with
-  | .And => mkAnd as[0]! as[1]!
-  | .Imp => mkForall `_ BinderInfo.default as[0]! as[1]!
-
-private def LogicOp.mkLatticeExpr (lop : LogicOp) (as : Array Expr) : MetaM Expr := do
-  match lop with
+private def LogicOp.mkLatticeExpr (as : Array Expr) : LogicOp → MetaM Expr
   | .And => mkAppM ``meet as
   | .Imp => mkAppM ``himp as
 
@@ -303,7 +324,7 @@ def LogicOp.mkBackwardRuleForLogic (lop : LogicOp) (as : Array Expr) (excessArgs
 /--
 Post-process a goal produced by `LogicOp.mkBackwardRuleForLogic`.
 - `.And`: split `a ∧ b` into two subgoals using `And.intro`.
-- `.Imp`: introduce the implication premise using `Sym.introN`.
+- `.Imp`: introduce one binder; if its domain is `withName n x`, use name `n`.
 -/
 def LogicOp.postProcessGoal (lop : LogicOp) (goal : MVarId) : SymM (List MVarId) := do
   match lop with
@@ -313,7 +334,7 @@ def LogicOp.postProcessGoal (lop : LogicOp) (goal : MVarId) : SymM (List MVarId)
       | throwError "Failed to apply And.intro to goal {goal.name}"
     return goals
   | .Imp => do
-    let IntrosResult.goal _ goal ← Sym.introN goal 1
+    let IntrosResult.goal _ goal ← intro1WithName goal
       | throwError "Failed to intro implication premise at goal {goal.name}"
     return [goal]
 
@@ -408,7 +429,7 @@ def mkBackwardRuleForLogicCached
 
 inductive SolveResult where
   /-- The target was neither a WP goal nor a supported lattice goal. -/
-  | noProgramAndLatticeFoundInTarget (T : Expr)
+  | noProgramOrLatticeFoundInTarget (T : Expr)
   /-- Don't know how to handle `e` in `wp e post epost s₁ ... sₙ`. -/
   | noStrategyForProgram (e : Expr)
   /--
@@ -431,29 +452,24 @@ inductive GoalKind where
 /-- Classify a goal target as WP, logic-lattice connective, or unknown. -/
 def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
   target.withApp fun head args => do
-    -- WP goals are recognized by the first 9 base arguments of `wp`.
-    let wpArgs := args.extract 0 (min args.size 9)
-    let wpExpr := mkAppN head wpArgs
-    if wpExpr.isAppOf ``wp then
-      return .WP head args
-    -- Lattice goals are recognized by connective head name (`meet` / `himp`).
-    let logicArgs := args.extract 0 (min args.size 4)
-    let logicExpr := mkAppN head logicArgs
-    let some lop := logicExpr.getAppFn.constName? >>= Lean.Name.toLogicOp?
-      | return .Unknown
-    let logicExprArgs := logicExpr.getAppArgs
-    if logicExprArgs.size != 4 then
-      return .Unknown
-    let a := logicExprArgs[2]!
-    let b := logicExprArgs[3]!
-    return .Lattice lop #[a, b] (args.extract 4 args.size)
+    match_expr head with
+    | wp => return .WP head args
+    | meet =>
+      let excessArgs := args.drop 4
+      let as := args.extract 2 4
+      return .Lattice .And as excessArgs
+    | himp =>
+      let excessArgs := args.drop 4
+      let as := args.extract 2 4
+      return .Lattice .Imp as excessArgs
+    | _ => return .Unknown
 
 def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   let target ← goal.getType
   let kind ← classifyGoalKind target
   match kind with
   | .Unknown =>
-      return .noProgramAndLatticeFoundInTarget target
+      return .noProgramOrLatticeFoundInTarget target
   | .Lattice lop as excessArgs => do
       trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
       let rule ← mkBackwardRuleForLogicCached lop as excessArgs
@@ -468,7 +484,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       -- WPMonad.wp has 9 base args; anything beyond that are excess state args
       let_expr wp m l errTy monadInst instWP α e post epost :=
         mkAppN head (args.extract 0 (min args.size 9))
-        | return .noProgramAndLatticeFoundInTarget target
+        | return .noProgramOrLatticeFoundInTarget target
       let excessArgs := args.extract 9 args.size
       -- Non-dependent let-expressions: use Sym.Simp.simpLet to preserve maximal sharing
       -- TODO: is it the best way?
@@ -539,7 +555,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
     worklist := worklist'
     let res ← solve =<< introsWP goal
     match res with
-    | .noProgramAndLatticeFoundInTarget .. =>
+    | .noProgramOrLatticeFoundInTarget .. =>
       emitVC goal
     | .noSpecFoundForProgram prog _ #[] =>
       throwError "No spec found for program {prog}."
