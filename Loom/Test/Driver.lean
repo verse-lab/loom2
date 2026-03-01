@@ -20,6 +20,13 @@ def timeItMs (k : MetaM α) : MetaM (α × UInt64) := do
 
 #check shareCommonPreDefs
 
+def checkWithKernel' (e : Expr) : MetaM Unit := do
+  -- let e ← instantiateExprMVars e
+  match Kernel.check (← getEnv) (← getLCtx) e with
+  | .ok .. => return ()
+  | .error ex => throwError "kernel type checker failed at{indentExpr e}\nwith error message\n{ex.toMessageData (← getOptions)}"
+
+
 /-- Helper function for executing a tactic `k` for solving `$(goal) n`. -/
 def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyntax `tactic)) (k : MVarId → MetaM (List MVarId)) : MetaM Unit := do
   let mvar ← mkFreshExprMVar (mkApp (mkConst goal) (mkNatLit n))
@@ -35,6 +42,7 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
     | .closed => throwError "Simp closed goal {mvarId}"
   IO.println s!"time spent unfolding: {_unfoldMs} ms"
   let (mvarIds, ms) ← timeItMs do k mvarId
+  trace[Loom.Tactic.vcgen] "mvarIds: {← mvarIds.mapM (·.getType)}"
   let discharge ← discharge
   let dischargePp ← PrettyPrinter.ppTactic discharge
   let dischargeMs? ← OptionT.run <| do
@@ -43,11 +51,13 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
       for mvarId in mvarIds do
         let ([], _) ← Lean.Elab.runTactic mvarId discharge.raw {} {}
           | throwError "{dischargePp} failed to solve {mvarId}"
-  let (expr, instMs) ← timeItMs (instantiateMVarsNoUpdate mvar)
+  let (expr, instMs) ← timeItMs (instantiateMVars mvar)
+  -- let (expr', _) ← timeItMs (instantiateMVars mvar)
+  -- dbg_trace s!"Eq? {expr == expr'}"
   -- Emulate the shareCommonPreDefs step before sending the term to the kernel.
   -- If we don't do this, kernel checking time balloons.
-  -- let (expr, shareMs) ← timeItMs do
-  --   SymM.run (shareCommon expr)
+  let (expr, shareMs) ← timeItMs do
+    SymM.run (shareCommon expr)
   trace[Loom.Tactic.vcgen] "expr: {expr}"
   let (_, kernelMs) ← timeItMs (checkWithKernel expr)
   let mut msg := s!"goal_{n}: {ms} ms"
@@ -56,7 +66,7 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
   else
     msg := msg ++ s!", {mvarIds.length} VCs"
   msg := msg ++ s!", instantiate: {instMs} ms"
-  -- msg := msg ++ s!", shareCommon: {shareMs} ms"
+  msg := msg ++ s!", shareCommon: {shareMs} ms"
   msg := msg ++ s!", kernel: {kernelMs} ms"
   IO.println msg
 
