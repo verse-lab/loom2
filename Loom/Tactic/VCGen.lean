@@ -65,18 +65,18 @@ Introduce exactly one binder. If the binder domain is of shape `withName n x`,
 introduce it using name `n`; otherwise fall back to regular `introN 1`.
 -/
 private def intro1WithName (mvarId : MVarId) : SymM IntrosResult := do
-  -- let target ← mvarId.getType
-  -- let .forallE binderName domain body binderInfo := target
-  --   | return .failed
-  -- let some args := withNameHead? domain
-  --   | introN mvarId 1
-  -- if h : args.size > 2 then
-  --   let some n ← evalNameExpr? args[0]
-  --     | return (← introN mvarId 1)
-  --   let domain := mkAppN args[2] (args.extract 3 args.size)
-  --   let target := Expr.forallE binderName domain body binderInfo
-  --   Sym.intros (← mvarId.replaceTargetDefEq target) #[n]
-  -- else
+  let target ← mvarId.getType
+  let .forallE binderName domain body binderInfo := target
+    | return .failed
+  let some args := withNameHead? domain
+    | introN mvarId 1
+  if h : args.size > 2 then
+    let some n ← evalNameExpr? args[0]
+      | return (← introN mvarId 1)
+    let domain := mkAppN args[2] (args.extract 3 args.size)
+    let target := Expr.forallE binderName domain body binderInfo
+    Sym.intros (← mvarId.replaceTargetDefEq target) #[n]
+  else
     intros mvarId #[`s]
 
 /--
