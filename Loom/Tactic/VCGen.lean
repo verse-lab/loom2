@@ -85,6 +85,93 @@ Useful for "can these unify?" probes when matching candidate specs.
 private def isDefEqNoAssign (a b : Expr) : MetaM Bool := do
   withoutModifyingState <| isDefEqGuarded a b
 
+/-- Rebuild a fully-applied `wp` application with replaced `post`/`epost` arguments. -/
+private def mkWpWithPostEPost (rhs post epost : Expr) : MetaM Expr := do
+  unless rhs.isAppOfArity ``wp 9 do
+    throwError "target not a wp application {rhs}"
+  return rhs.getAppArgs.take 7
+    |>.push post
+    |>.push epost
+    |> mkAppN rhs.getAppFn
+
+/-- Build the explicit pointwise implication premise used to weaken a concrete `post`. -/
+private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes : Array Expr) : SymM Expr := do
+  let .forallE _ α _ _ := postTy
+    | throwError "expected a postcondition function, got {indentExpr postTy}"
+  withLocalDeclD `a α fun a => do
+  withLocalDeclsDND (ssTypes.map (`s, ·)) fun ss' => do
+    let lhs := mkAppN (mkApp postSpec a) ss'
+    let rhs := mkAppN (mkApp postTarget a) ss'
+    mkForallFVars (#[a] ++ ss') (← mkArrow lhs rhs)
+
+/--
+Turn a spec proof `pre ⊑ wp prog post epost` into an explicit implication-shaped proof term.
+
+If `post` and/or `epost` are concrete (not top-level metavariables), fresh target metavariables
+are introduced and the proof is generalized using `WPMonad.wp_cons`, `WPMonad.wp_econs`,
+or `WPMonad.wp_cons_econs`.
+-/
+private def mkSpecBackwardProof
+    (pre rhs specProof : Expr) (ss ssTypes : Array Expr) : SymM Expr := do
+  let_expr wp _m _l _e _monadInst _instWP _α prog postSpec epostSpec := rhs
+    | throwError "target not a wp application {rhs}"
+  let preApplied := mkAppN pre ss
+  let specApplied := mkAppN specProof ss
+  let postAbstract := postSpec.consumeMData.isMVar
+  let epostAbstract := epostSpec.consumeMData.isMVar
+  match postAbstract, epostAbstract with
+  | true, true =>
+      let proofType ← mkArrow preApplied (mkAppN rhs ss)
+      mkExpectedTypeHint (mkAppN specProof ss) proofType
+  | false, true =>
+    let postTy ← Sym.inferType postSpec
+    let postTarget ← mkFreshExprMVar (userName := `post) postTy
+    let hpostTy ← mkPostPointwisePremise postSpec postTarget postTy ssTypes
+    withLocalDeclD `hpost hpostTy fun hpost => do
+      withLocalDeclD `hpre preApplied fun hpre => do
+        let base := mkApp specApplied hpre
+        let hpostRelTy ← mkAppM ``PartialOrder.rel #[postSpec, postTarget]
+        let hpostRel ← mkExpectedTypeHint hpost hpostRelTy
+        let mono ← mkAppM ``WPMonad.wp_cons #[prog, postSpec, postTarget, epostSpec, hpostRel]
+        let body := mkApp (mkAppN mono ss) base
+        mkLambdaFVars #[hpost, hpre] body
+  | true, false =>
+    let epostTarget ← mkFreshExprMVar (userName := `epost) (← Sym.inferType epostSpec)
+    let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostTarget]
+    withLocalDeclD `hepost hepostTy fun hepost => do
+      withLocalDeclD `hpre preApplied fun hpre => do
+        let base := mkApp specApplied hpre
+        let mono ← mkAppM ``WPMonad.wp_econs #[prog, postSpec, epostSpec, epostTarget, hepost]
+        let body := mkApp (mkAppN mono ss) base
+        mkLambdaFVars #[hepost, hpre] body
+  | false, false =>
+    let postTy ← Sym.inferType postSpec
+    let postTarget ← mkFreshExprMVar (userName := `post) postTy
+    let epostTarget ← mkFreshExprMVar (userName := `epost) (← Sym.inferType epostSpec)
+    let hpostTy ← mkPostPointwisePremise postSpec postTarget postTy ss
+    let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostTarget]
+    withLocalDeclD `hpost hpostTy fun hpost => do
+      withLocalDeclD `hepost hepostTy fun hepost => do
+        withLocalDeclD `hpre preApplied fun hpre => do
+          let base := mkApp specApplied hpre
+          let hpostRelTy ← mkAppM ``PartialOrder.rel #[postSpec, postTarget]
+          let hpostRel ← mkExpectedTypeHint hpost hpostRelTy
+          let mono ← mkAppM ``WPMonad.wp_cons_econs
+            #[prog, postSpec, postTarget, epostSpec, epostTarget, hpostRel, hepost]
+          let body := mkApp (mkAppN mono ss) base
+          mkLambdaFVars #[hpost, hepost, hpre] body
+
+
+/-
+  -- Create fresh metavars for excess state args (abstractMVars will bind them as ∀)
+  let ss ← excessArgs.mapM fun arg => do
+    mkFreshExprMVar (userName := `s) <| ← Sym.inferType arg
+  -- Build: pre s1 ... sn → wp prog post epost s1 ... sn
+  -- Using mkExpectedTypeHint because PartialOrder.rel is a projection that
+  -- unfoldReducible/mkPatternFromType cannot see through structurally
+  let proofType ← mkArrow (mkAppN pre ss) (mkAppN rhs ss)
+  let spec ← mkExpectedTypeHint (mkAppN specProof ss) proofType
+-/
 
 /--
 Try to build a backward rule from a single spec theorem in `⊑` form.
@@ -95,7 +182,8 @@ Given a spec `pre ⊑ wp prog post epost` where the lattice type is
 
 This conversion is necessary because `PartialOrder.rel` is a projection (not unfolded
 by `unfoldReducible`), so `mkPatternFromType` cannot structurally see the `→`. We
-explicitly construct the `→` type via `mkExpectedTypeHint`.
+explicitly construct an implication-shaped proof term, adding `wp_cons`/`wp_econs`
+premises when the spec uses concrete `post`/`epost`.
 
 - `l`: the goal's lattice type (e.g. `Nat → Prop`)
 - `instWP`: the `WPMonad` instance for the goal monad; matching against the spec's
@@ -119,17 +207,20 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification.
   -- For e/e' we only probe that unification exists, without committing assignments.
   guard <| ← isDefEqGuarded instWP instWP' <&&> isDefEqNoAssign e e'
-  -- Create fresh metavars for excess state args (abstractMVars will bind them as ∀)
-  let ss ← excessArgs.mapM fun arg => do
-    mkFreshExprMVar (userName := `s) <| ← Sym.inferType arg
-  -- Build: pre s1 ... sn → wp prog post epost s1 ... sn
-  -- Using mkExpectedTypeHint because PartialOrder.rel is a projection that
-  -- unfoldReducible/mkPatternFromType cannot see through structurally
-  let proofType ← mkArrow (mkAppN pre ss) (mkAppN rhs ss)
-  let spec ← mkExpectedTypeHint (mkAppN specProof ss) proofType
+  -- Use local excess-state binders so explicit post premises can be re-lifted to `⊑`.
+  let mut ss := #[]
+  let mut ssTypes := #[]
+  for arg in excessArgs do
+    let ty ← Sym.inferType arg
+    ssTypes := ssTypes.push ty
+    ss := ss.push <| ← mkFreshExprMVar (userName := `s) ty
+  -- let ss ← excessArgs.mapM fun arg => do
+  --   let ty ← Sym.inferType arg
+  --   return (ty, ← mkFreshExprMVar (userName := `s) ty)
+  let spec ← mkSpecBackwardProof pre rhs specProof ss ssTypes
   -- Abstract all remaining metavars (spec params + excess args) into an aux lemma
   let res ← abstractMVars spec
-  let type ← preprocessExpr (← Sym.inferType res.expr)
+  let type ← preprocessExpr (← Meta.inferType res.expr)
   let spec ← Meta.mkAuxLemma res.paramNames.toList type res.expr
   mkBackwardRuleFromDecl spec
 
@@ -622,6 +713,61 @@ def mkProgramFromSpec (declName : Name) : MetaM Expr := do
     | throwError "target not a wp application {rhs}"
   return prog
 
+/-- Test helper: run `mkSpecBackwardProof` directly and return the proof type plus source data. -/
+def testSpecBackwardProofType (declName : Name)
+    (excessArgTypes : Array Expr) : MetaM (Expr × Expr × Expr) := do
+  let specThm ← mkSpecTheoremFromConst declName
+  let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
+  let_expr PartialOrder.rel _ _ pre rhs := specType
+    | throwError "target not a partial order ⊑ application {specType}"
+  let excessArgNamesTypes := excessArgTypes.map fun ty => (`s, ty)
+  let spec ← withLocalDeclsDND excessArgNamesTypes fun ss => do
+    let spec ← SymM.run <| mkSpecBackwardProof pre rhs specProof ss excessArgTypes
+    mkLambdaFVars ss spec
+  let ty ← instantiateMVars (← inferType spec)
+  return (ty, pre, rhs)
+
+private def assertExprDefEq (got expected : Expr) (ctx : String) : MetaM Unit := do
+  unless (← isDefEqGuarded got expected) do
+    throwError "{ctx}\nexpected:{indentExpr expected}\ngot:{indentExpr got}"
+
+private def assertRelPremise (premTy expectedLhs : Expr) (ctx : String) : MetaM Expr := do
+  let_expr PartialOrder.rel _ _ lhs rhs := premTy
+    | throwError "{ctx}\nexpected relation premise, got:{indentExpr premTy}"
+  assertExprDefEq lhs expectedLhs s!"{ctx}\nrelation lhs mismatch"
+  unless rhs.consumeMData.isMVar do
+    throwError "{ctx}\nexpected relation rhs to be a top-level metavariable, got:{indentExpr rhs}"
+  return rhs
+
+private def assertPostPremise
+    (premTy postSpec : Expr) (excessArgTypes : Array Expr) (ctx : String) : MetaM Expr := do
+  forallBoundedTelescope premTy (some (1 + excessArgTypes.size)) fun xs body => do
+    unless xs.size == 1 + excessArgTypes.size do
+      throwError "{ctx}\nexpected {1 + excessArgTypes.size} explicit binders, got {xs.size}"
+    let x := xs[0]!
+    let ss := xs.extract 1 xs.size
+    for h : i in [:excessArgTypes.size] do
+      let ty ← inferType ss[i]!
+      assertExprDefEq ty excessArgTypes[i]
+        s!"{ctx}\nexcess binder {i} type mismatch"
+    let some (lhs, rhs) := body.arrow?
+      | throwError "{ctx}\nexpected implication premise, got:{indentExpr body}"
+    assertExprDefEq lhs (mkAppN (mkApp postSpec x) ss) s!"{ctx}\npost premise lhs mismatch"
+    let rhsHead := rhs.getAppFn
+    let rhsArgs := rhs.getAppArgs
+    unless rhsHead.consumeMData.isMVar do
+      throwError "{ctx}\nexpected post premise rhs head to be a top-level metavariable, got:{indentExpr rhs}"
+    let expectedSuffixSize := ss.size + 1
+    unless rhsArgs.size >= expectedSuffixSize do
+      throwError "{ctx}\nexpected at least {expectedSuffixSize} rhs arguments, got {rhsArgs.size}"
+    let suffixStart := rhsArgs.size - expectedSuffixSize
+    assertExprDefEq rhsArgs[suffixStart]! x s!"{ctx}\nresult argument mismatch"
+    for h : i in [:ss.size] do
+      assertExprDefEq rhsArgs[suffixStart + i + 1]!
+        ss[i]
+        s!"{ctx}\nexcess argument {i} mismatch"
+    return mkAppN rhsHead (rhsArgs.extract 0 suffixStart)
+
 /-- Test helper: run `mkBackwardRuleForIte` with the given monad/lattice expressions.
     Returns the type of the generated auxiliary lemma. -/
 def testIteBackwardRule
@@ -640,7 +786,7 @@ def testLogicBackwardRule
 
 -- Test 1: Id monad, l = Prop, n = 0 excess args
 -- wp_bind for Id: pre → wp (x >>= f) post ()
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let m := mkConst ``Id [.zero]
   let l := mkSort 0
   let errTy := mkConst ``EPost.nil --[.zero]
@@ -652,7 +798,7 @@ def testLogicBackwardRule
 
 -- Test 2: StateM Nat, l = Nat → Prop, n = 1 excess arg
 -- wp_bind for StateM Nat: ∀ s, pre s → wp (x >>= f) post () s
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
@@ -672,7 +818,7 @@ def testLogicBackwardRule
     Triple (fun s => post s s) (MonadStateOf.get : StateT σ m σ) post epost := by
   exact ⟨WP.get_StateT_wp post epost⟩
 
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
@@ -684,10 +830,82 @@ def testLogicBackwardRule
     let ty ← testBackwardRule ``spec_get_StateT prog l instWP #[s]
     logInfo m!"Test 3 (get StateM Nat, n=1): {ty}"
 
+@[local lspec high]
+theorem spec_set_concretePost_test (epost : EPost.nil) :
+    wp (set (m := StateM Nat) 7) (fun _ _ => True) epost ⊑
+      wp (set (m := StateM Nat) 7) (fun _ _ => True) epost := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let (ty, pre, rhs) ← testSpecBackwardProofType ``spec_set_concretePost_test #[nat]
+  let_expr wp _ _ _ _ _ _ _ postSpec epostSpec := rhs
+    | throwError "Test A: target not a wp application {rhs}"
+  let ty ← whnfD ty
+  let .forallE _ sTy body _ := ty
+    | throwError "Test A: expected an excess-arg binder, got {ty}"
+  withLocalDeclD `s sTy fun s => do
+    let body := body.instantiate1 s
+    let preApplied := mkAppN pre #[s]
+    let some (hpostTy, body) := body.arrow?
+      | throwError "Test A: expected post premise"
+    let some (hpreTy, body) := body.arrow?
+      | throwError "Test A: expected pre premise"
+    let postTarget ← assertPostPremise hpostTy postSpec #[nat] "Test A"
+    assertExprDefEq hpreTy preApplied "Test A: pre premise mismatch"
+    let expectedWp ← mkWpWithPostEPost rhs postTarget epostSpec
+    let expectedBody := mkAppN expectedWp #[s]
+    assertExprDefEq body expectedBody "Test A: conclusion mismatch"
+
+@[local lspec high]
+theorem spec_throw_concreteEPost_test (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw "boom" : Except String PUnit) post epost⟨fun _ => True⟩ ⊑
+      wp (MonadExceptOf.throw "boom" : Except String PUnit) post epost⟨fun _ => True⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let (ty, pre, rhs) ← testSpecBackwardProofType ``spec_throw_concreteEPost_test #[]
+  let_expr wp _ _ _ _ _ _ _ postSpec epostSpec := rhs
+    | throwError "Test B: target not a wp application {rhs}"
+  let preApplied := mkAppN pre #[]
+  let some (hepostTy, body) := ty.arrow?
+    | throwError "Test B: expected epost premise"
+  let some (hpreTy, body) := body.arrow?
+    | throwError "Test B: expected pre premise"
+  let epostTarget ← assertRelPremise hepostTy epostSpec "Test B"
+  assertExprDefEq hpreTy preApplied "Test B: pre premise mismatch"
+  let expectedWp ← mkWpWithPostEPost rhs postSpec epostTarget
+  let expectedBody := mkAppN expectedWp #[]
+  assertExprDefEq body expectedBody "Test B: conclusion mismatch"
+
+@[local lspec high]
+theorem spec_throw_concretePostEPost_test :
+    wp (MonadExceptOf.throw "boom" : Except String PUnit) (fun _ => True) epost⟨fun _ => True⟩ ⊑
+      wp (MonadExceptOf.throw "boom" : Except String PUnit) (fun _ => True) epost⟨fun _ => True⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let (ty, pre, rhs) ← testSpecBackwardProofType ``spec_throw_concretePostEPost_test #[]
+  let_expr wp _ _ _ _ _ _ _ postSpec epostSpec := rhs
+    | throwError "Test C: target not a wp application {rhs}"
+  let preApplied := mkAppN pre #[]
+  let some (hpostTy, body) := ty.arrow?
+    | throwError "Test C: expected post premise"
+  let some (hepostTy, body) := body.arrow?
+    | throwError "Test C: expected epost premise"
+  let some (hpreTy, body) := body.arrow?
+    | throwError "Test C: expected pre premise"
+  let postTarget ← assertPostPremise hpostTy postSpec #[] "Test C"
+  let epostTarget ← assertRelPremise hepostTy epostSpec "Test C"
+  assertExprDefEq hpreTy preApplied "Test C: pre premise mismatch"
+  let expectedWp ← mkWpWithPostEPost rhs postTarget epostTarget
+  let expectedBody := mkAppN expectedWp #[]
+  assertExprDefEq body expectedBody "Test C: conclusion mismatch"
+
 -- Test 4: ite for StateM Nat, n = 1 excess arg
 -- mkBackwardRuleForIte:
 --   ∀ s, (c → wp t post epost s) → (¬c → wp e post epost s) → wp (ite c t e) post epost s
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
@@ -701,7 +919,7 @@ def testLogicBackwardRule
     logInfo m!"Test 4 (ite StateM Nat, n=1): {ty}"
 
 -- Test 5: ite for Id, n = 0 excess args
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let m := mkConst ``Id [.zero]
   let l := mkSort 0
   let errTy := mkConst ``EPost.nil --[.zero]
@@ -713,7 +931,7 @@ def testLogicBackwardRule
   logInfo m!"Test 5 (ite Id, n=0): {ty}"
 
 -- Test 8: logic And on Prop, n = 0 excess args
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let l := mkSort 0
   withLocalDeclD `a l fun a => do
     withLocalDeclD `b l fun b => do
@@ -721,7 +939,7 @@ def testLogicBackwardRule
       logInfo m!"Test 8 (logic And Prop, n=0): {ty}"
 
 -- Test 9: logic And on Nat → Prop, n = 1 excess arg
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let nat := mkConst ``Nat
   let l ← mkArrow nat (mkSort 0)
   withLocalDeclD `a l fun a => do
@@ -731,7 +949,7 @@ def testLogicBackwardRule
         logInfo m!"Test 9 (logic And Nat→Prop, n=1): {ty}"
 
 -- Test 10: logic Imp on Nat → Prop, n = 1 excess arg
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let nat := mkConst ``Nat
   let l ← mkArrow nat (mkSort 0)
   withLocalDeclD `a l fun a => do
@@ -751,7 +969,7 @@ theorem Spec.M_getThe_Nat :
   Triple (fun s₁ s₂ => post s₂ s₁ s₂) (get (σ := Nat) (m := M)) post epost := by
   sorry
 
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let string := mkConst ``String
   let nat := mkConst ``Nat
   let unit := mkConst ``Unit
@@ -774,7 +992,7 @@ theorem Spec.M_getThe_Nat :
         logInfo m!"Test 6 (Spec.M_getThe_Nat): {ty}"
 
 -- Test 7: ite for deep M, n = 3 excess args
-#eval show MetaM Unit from do
+#eval! show MetaM Unit from do
   let string := mkConst ``String
   let nat := mkConst ``Nat
   let unit := mkConst ``Unit

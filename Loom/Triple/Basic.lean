@@ -24,6 +24,8 @@ after running `x` (and `epost` handles any errors). -/
 inductive Triple [Monad m] [WPMonad m l e] (pre : l) (x : m α) (post : α → l) (epost : e) : Prop
   | intro (hwp : pre ⊑ wp x post epost)
 
+notation:60 "⦃ " pre " ⦄ " x " ⦃ " post " ⦄" => Triple pre x post ⊥
+notation:60 "⦃ " pre " ⦄ " x " ⦃ " v ", " post " ⦄" => Triple pre x (fun v => post) ⊥
 namespace Triple
 
 variable [Monad m] [WPMonad m l e]

@@ -43,7 +43,7 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
       for mvarId in mvarIds do
         let ([], _) ← Lean.Elab.runTactic mvarId discharge.raw {} {}
           | throwError "{dischargePp} failed to solve {mvarId}"
-  let (expr, instMs) ← timeItMs (instantiateMVarsNoUpdate mvar)
+  let (expr, instMs) ← timeItMs (instantiateMVarsNoUpdateLean mvar)
   -- Emulate the shareCommonPreDefs step before sending the term to the kernel.
   -- If we don't do this, kernel checking time balloons.
   -- let (expr, shareMs) ← timeItMs do
