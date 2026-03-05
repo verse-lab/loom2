@@ -130,6 +130,8 @@ private def mkSpecBackwardProof
   let hpre ← mkFreshExprMVar (userName := `pre) preApplied
   /- proof of `pre s₁ ... sₙ ⊑ wp prog post epost s₁ ... sₙ` -/
   let mut specApplied := mkAppN specProof <| ss.push hpre
+
+  /- abstract concrete `post` if it is not already abstract -/
   unless postAbstract.isMVar do
     /- `α → σ₁ → ... → σₙ → Prop`: type of `post` -/
     let postTy ← Sym.inferType postSpec
@@ -143,6 +145,8 @@ private def mkSpecBackwardProof
        This proof depends on both `?postImpl` and `?pre` -/
     let mono ← mkAppM ``WPMonad.wp_cons #[prog, postSpec, postAbstract, epostSpec, hpost]
     specApplied := mkAppN mono <| ss.push specApplied
+
+  /- abstract concrete `epost` if it is not already abstract -/
   unless epostAbstract.isMVar do
     /- `EPost⟨t₁, t₂, ..., tₙ⟩`: type of `epost` -/
     let epostTy ← Sym.inferType epostSpec
@@ -157,72 +161,6 @@ private def mkSpecBackwardProof
     let mono ← mkAppM ``WPMonad.wp_econs #[prog, postAbstract, epostSpec, epostAbstract, hepost]
     specApplied := mkAppN mono <| ss.push specApplied
   abstractMVars specApplied
-
-  -- match postAbstract?, epostAbstract? with
-  -- | true, true => -- both `post` and `epost` are abstract
-  --   abstractMVars specApplied
-  -- | false, true => -- `post` is concrete expression, `epost` is abstract
-  --   /- `α → σ₁ → ... → σₙ → Prop`: type of `post` -/
-  --   let postTy ← Sym.inferType postSpec
-  --   /- mvar `?post` for new abstract `post` -/
-  --   let postTarget ← mkFreshExprMVar (userName := `post) postTy
-  --   /- premise type`∀ s₁ ... sₙ, post s₁ ... sₙ -> ?post s₁ ... sₙ` for a abstracted concrete `post` -/
-  --   let hpostTy ← mkPostPointwisePremise postSpec postTarget postTy ssTypes
-  --   /- mvar `?postImpl` for the proof of the premise -/
-  --   let hpost ← mkFreshExprMVar (userName := `postImpl) hpostTy
-  --   /- get the proof of `wp prog ?post epost s₁ ... sₙ`, where `post` is abstracted.
-  --      This proof depends on both `?postImpl` and `?pre` -/
-  --   let mono ← mkAppM ``WPMonad.wp_cons #[prog, postSpec, postTarget, epostSpec, hpost]
-  --   /- `(∀ s₁ ... sₙ, post s₁ ... sₙ -> P s₁ ... sₙ) -> wp prog P epost s₁ ... sₙ` -/
-  --   abstractMVars <| mkApp (mkAppN mono ss) specApplied
-  -- | true, false => -- `post` is abstract, `epost` is concrete
-  --   /- `EPost⟨t₁, t₂, ..., tₙ⟩`: type of `epost` -/
-  --   let epostTy ← Sym.inferType epostSpec
-  --   /- mvar `?epost` for new abstract `epost` -/
-  --   let epostTarget ← mkFreshExprMVar (userName := `epost) epostTy
-  --   /- premise type `epost ⊑ ?epost` for a abstracted concrete `epost` -/
-  --   let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostTarget]
-  --   /- mvar `?epostImpl` for the proof of the premise -/
-  --   let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
-  --   /- get the proof of `wp prog post ?epost`, where `epost` is abstracted.
-  --      This proof depends on both `?epostImpl` and `?pre` -/
-  --   let mono ← mkAppM ``WPMonad.wp_econs #[prog, postSpec, epostSpec, epostTarget, hepost]
-  --   /- `(epost ⊑ ?epost) -> wp prog post ?epost epost` -/
-  --   abstractMVars <| mkApp (mkAppN mono ss) specApplied
-  -- | false, false => -- `post` and `epost` are concrete
-  --   /- `α → σ₁ → ... → σₙ → Prop`: type of `post` -/
-  --   let postTy ← Sym.inferType postSpec
-  --   /- mvar `?post` for new abstract `post` -/
-  --   let postTarget ← mkFreshExprMVar (userName := `post) postTy
-  --   /- premise type`∀ s₁ ... sₙ, post s₁ ... sₙ -> ?post s₁ ... sₙ` for a abstracted concrete `post` -/
-  --   let hpostTy ← mkPostPointwisePremise postSpec postTarget postTy ssTypes
-  --   /- mvar `?postImpl` for the proof of the premise -/
-  --   let hpost ← mkFreshExprMVar (userName := `postImpl) hpostTy
-  --  /- `EPost⟨t₁, t₂, ..., tₙ⟩`: type of `epost` -/
-  --   let epostTy ← Sym.inferType epostSpec
-  --   /- mvar `?epost` for new abstract `epost` -/
-  --   let epostTarget ← mkFreshExprMVar (userName := `epost) epostTy
-  --   /- premise type `epost ⊑ ?epost` for a abstracted concrete `epost` -/
-  --   let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostTarget]
-  --   /- mvar `?epostImpl` for the proof of the premise -/
-  --   let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
-  --   /- get the proof of `wp prog ?post ?epost epost`, where `post` and `epost` are abstracted.
-  --     This proof depends on both `?postImpl`, `?epostImpl` and `?pre` -/
-  --   let mono ← mkAppM ``WPMonad.wp_cons_econs #[prog, postSpec, postTarget, epostSpec, epostTarget, hpost, hepost]
-  --   /- `wp prog ?post ?epost epost` -/
-  --   abstractMVars <| mkApp (mkAppN mono ss) specApplied
-
-
-/-
-  -- Create fresh metavars for excess state args (abstractMVars will bind them as ∀)
-  let ss ← excessArgs.mapM fun arg => do
-    mkFreshExprMVar (userName := `s) <| ← Sym.inferType arg
-  -- Build: pre s1 ... sn → wp prog post epost s1 ... sn
-  -- Using mkExpectedTypeHint because PartialOrder.rel is a projection that
-  -- unfoldReducible/mkPatternFromType cannot see through structurally
-  let proofType ← mkArrow (mkAppN pre ss) (mkAppN rhs ss)
-  let spec ← mkExpectedTypeHint (mkAppN specProof ss) proofType
--/
 
 /--
 Try to build a backward rule from a single spec theorem in `⊑` form.
