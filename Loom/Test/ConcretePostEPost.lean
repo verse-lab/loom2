@@ -13,7 +13,7 @@ def concreteGet : StateM Nat Nat := get
 
 @[lspec high]
 theorem spec_concreteGet :
-    Triple (fun s => s = s) concreteGet (fun x s => x = s) ⟨⟩ := by
+    ⦃ fun s => s = s ⦄ concreteGet ⦃ x, fun s => x = s ⦄ := by
   simpa [concreteGet] using
     (Spec.get_StateT
       (m := Id) (l := Prop) (e := EPost.nil)
@@ -34,9 +34,14 @@ def Goal (n : Nat) : Prop :=
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
+example : Goal 2 := by
+  intro s
+  simp only [loop, step]
+  mvcgen'
+
 #eval
   runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| (intro s; mvcgen'))
     `(tactic| sorry)
-    [100]
+    [1000]

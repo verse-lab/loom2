@@ -564,6 +564,8 @@ inductive SolveResult where
 
 /-- High-level classifier for goals handled by `solve`. -/
 inductive GoalKind where
+  /-- Goal is `True`; it can be discharged immediately by `True.intro`. -/
+  | TrivialTrue
   /-- Goal is a WP application. We keep the full `withApp` decomposition. -/
   | WP (head : Expr) (args : Array Expr)
   /-- Goal is a lattice connective application (`meet`/`himp`) with optional excess args. -/
@@ -575,6 +577,7 @@ inductive GoalKind where
 def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
   target.withApp fun head args => do
     match_expr head with
+    | True => return .TrivialTrue
     | wp => return .WP head args
     | meet =>
       let excessArgs := args.drop 4
@@ -590,6 +593,9 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   let target ← goal.getType
   let kind ← classifyGoalKind target
   match kind with
+  | .TrivialTrue => do
+      goal.assign (mkConst ``True.intro)
+      return .goals []
   | .Unknown =>
       return .noProgramOrLatticeFoundInTarget target
   | .Lattice lop as excessArgs => do
