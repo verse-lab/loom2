@@ -99,11 +99,58 @@ private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes 
   let .forallE _ α _ _ := postTy
     | throwError "expected a postcondition function, got {indentExpr postTy}"
   withLocalDeclD `a α fun a => do
-  let ssNamesTypes := ssTypes.map (`s, ·)
-  withLocalDeclsDND ssNamesTypes fun ss' => do
-    let lhs := postSpec.betaRev <| ss'.reverse.push a
-    let rhs := mkAppN (mkApp postTarget a) ss'
-    mkForallFVars (#[a] ++ ss') (← mkArrow lhs rhs)
+    let ssNamesTypes := ssTypes.map (`s, ·)
+    withLocalDeclsDND ssNamesTypes fun ss' => do
+      let lhs := postSpec.betaRev <| ss'.reverse.push a
+      let rhs := mkAppN (mkApp postTarget a) ss'
+      mkForallFVars (#[a] ++ ss') (← mkArrow lhs rhs)
+
+/-- If `e` is explicitly `EPost.cons.mk head tail`, return `(head, tail)`. -/
+private def decomposeEPostConsMk? (e : Expr) : Option (Expr × Expr) :=
+  e.consumeMData.withApp fun fn args => do
+    guard $ fn.isConstOf ``EPost.cons.mk && args.size >= 2
+    return (args[args.size - 2]!, args[args.size - 1]!)
+
+/--
+Expand a relation fully pointwise: recurse through all function binders and produce
+implication at `Prop` leaves, falling back to `PartialOrder.rel` at non-`Prop` leaves.
+-/
+private partial def mkFullyPointwiseRelPremise (lhs rhs : Expr) : SymM Expr := do
+  let lhsTy ← whnfD (← Sym.inferType lhs)
+  match lhsTy with
+  | .forallE _ xTy _ _ =>
+    withLocalDeclD `x xTy fun x => do
+      let body ← mkFullyPointwiseRelPremise (lhs.beta #[x]) (mkApp rhs x)
+      mkForallFVars #[x] body
+  | _ =>
+    if (← isProp lhsTy) then
+      mkArrow lhs rhs
+    else
+      mkAppM ``PartialOrder.rel #[lhs, rhs]
+
+/--
+Build the epost-side premise by recursively splitting `EPost.cons` into conjunctions.
+If either side is explicitly `EPost.cons.mk head tail`, extract head/tail directly on that side.
+-/
+private partial def mkEPostPointwisePremise (epostSpec epostTarget : Expr) : SymM Expr := do
+  let epostTy ← whnfD (← Sym.inferType epostSpec)
+  if epostTy.isAppOfArity ``EPost.cons 2 then
+    let (specHead, specTail) ←
+      match decomposeEPostConsMk? epostSpec with
+      | some parts => pure parts
+      | none => do
+        let head ← mkAppM ``EPost.cons.head #[epostSpec]
+        let tail ← mkAppM ``EPost.cons.tail #[epostSpec]
+        pure (head, tail)
+    let targetHead ← mkAppM ``EPost.cons.head #[epostTarget]
+    let targetTail ← mkAppM ``EPost.cons.tail #[epostTarget]
+    let headPrem ← mkFullyPointwiseRelPremise specHead targetHead
+    let tailPrem ← mkEPostPointwisePremise specTail targetTail
+    mkAppM ``meet #[headPrem, tailPrem]
+  else if epostTy.isConstOf ``EPost.nil then
+    pure (mkConst ``True)
+  else
+    mkFullyPointwiseRelPremise epostSpec epostTarget
 
 /--
 Turn a spec proof `pre ⊑ wp prog post epost` into an explicit implication-shaped proof term.
@@ -152,8 +199,8 @@ private def mkSpecBackwardProof
     let epostTy ← Sym.inferType epostSpec
     /- mvar `epostAbstract` for new abstract `epost` -/
     epostAbstract ← mkFreshExprMVar (userName := `epost) epostTy
-    /- premise type `epost ⊑ ?epost` for a abstracted concrete `epost` -/
-    let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostAbstract]
+    /- expanded premise type for abstracting concrete `epost` -/
+    let hepostTy ← mkEPostPointwisePremise epostSpec epostAbstract
     /- mvar `?epostImpl` for the proof of the premise -/
     let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
     /- get the proof of `wp prog postAbstract ?epost epost`, where `epost` is abstracted.
@@ -754,6 +801,56 @@ private def assertPostPremise
         s!"{ctx}\nexcess argument {i} mismatch"
     return mkAppN rhsHead (rhsArgs.extract 0 suffixStart)
 
+/-- Return true if `needle` occurs as a subexpression (up to defeq probing). -/
+private partial def containsSubexprDefEq (needle e : Expr) : MetaM Bool := do
+  if (← isDefEqNoAssign needle e) then
+    return true
+  let e := e.consumeMData
+  match e with
+  | .forallE _ d b _ => return (← containsSubexprDefEq needle d) || (← containsSubexprDefEq needle b)
+  | .lam _ d b _ => return (← containsSubexprDefEq needle d) || (← containsSubexprDefEq needle b)
+  | .letE _ t v b _ =>
+    return (← containsSubexprDefEq needle t) || (← containsSubexprDefEq needle v) || (← containsSubexprDefEq needle b)
+  | .app f a => return (← containsSubexprDefEq needle f) || (← containsSubexprDefEq needle a)
+  | .proj _ _ b => containsSubexprDefEq needle b
+  | .mdata _ b => containsSubexprDefEq needle b
+  | _ => return false
+
+/--
+Return true iff `e` contains an application of projection `projName` to an argument
+definitionally equal to `arg`.
+-/
+private partial def containsProjOnArg (projName : Name) (arg e : Expr) : MetaM Bool := do
+  let e := e.consumeMData
+  e.withApp fun fn args => do
+    if fn.consumeMData.isConstOf projName && args.size > 0 then
+      if (← isDefEqNoAssign args[args.size - 1]! arg) then
+        return true
+    match e with
+    | .forallE _ d b _ => return (← containsProjOnArg projName arg d) || (← containsProjOnArg projName arg b)
+    | .lam _ d b _ => return (← containsProjOnArg projName arg d) || (← containsProjOnArg projName arg b)
+    | .letE _ t v b _ =>
+      return (← containsProjOnArg projName arg t) || (← containsProjOnArg projName arg v) || (← containsProjOnArg projName arg b)
+    | .app f a => return (← containsProjOnArg projName arg f) || (← containsProjOnArg projName arg a)
+    | .proj _ _ b => containsProjOnArg projName arg b
+    | .mdata _ b => containsProjOnArg projName arg b
+    | _ => return false
+
+/-- Flatten nested conjunctions (`And` or `meet`) into leaves. -/
+private partial def flattenConj (e : Expr) : Array Expr :=
+  let e := e.consumeMData
+  if e.isAppOfArity ``And 2 then
+    let args := e.getAppArgs
+    flattenConj args[0]! ++ flattenConj args[1]!
+  else if e.isAppOfArity ``meet 4 then
+    let args := e.getAppArgs
+    flattenConj args[2]! ++ flattenConj args[3]!
+  else
+    #[e]
+
+private def countNonTrueAndLeaves (e : Expr) : Nat :=
+  (flattenConj e).foldl (fun n leaf => if leaf.consumeMData.isConstOf ``True then n else n + 1) 0
+
 private def parseWpAppliedPostEPost (e : Expr) : MetaM (Expr × Expr × Array Expr) := do
   e.withApp fun head args => do
     unless args.size >= 9 do
@@ -895,25 +992,28 @@ theorem spec_throw_concreteEPost_test (post : PUnit → Prop) :
       | throwError "Test B: target not a wp application {rhs}"
     let preApplied := mkAppN pre #[]
     forallTelescope ty fun xs concl => do
-      let mut epostTarget? : Option Expr := none
+      let mut epostPremTy? : Option Expr := none
       let mut preSeen := false
       for x in xs do
         let xTy ← instantiateMVars (← inferType x)
         if (← isDefEqGuarded xTy preApplied) then
           preSeen := true
-        else
-          try
-            let epostTarget ← assertRelPremise xTy epostSpec "Test B"
-            epostTarget? := some epostTarget
-          catch _ =>
-            pure ()
+        else if (← isProp xTy) then
+          epostPremTy? := some xTy
       unless preSeen do
         throwError "Test B: did not find pre premise among binders"
-      let some epostTarget := epostTarget?
+      let some epostPremTy := epostPremTy?
         | throwError "Test B: did not find epost premise among binders"
+      unless !(epostPremTy.consumeMData.isAppOfArity ``PartialOrder.rel 2) do
+        throwError "Test B: epost premise is still a single `PartialOrder.rel` premise:\n{indentExpr epostPremTy}"
+      unless !(← containsProjOnArg ``EPost.cons.head epostSpec epostPremTy) do
+        throwError "Test B: found forbidden `EPost.cons.head epostSpec` projection in premise:\n{indentExpr epostPremTy}"
+      unless !(← containsProjOnArg ``EPost.cons.tail epostSpec epostPremTy) do
+        throwError "Test B: found forbidden `EPost.cons.tail epostSpec` projection in premise:\n{indentExpr epostPremTy}"
+      unless countNonTrueAndLeaves epostPremTy >= 1 do
+        throwError "Test B: expected at least one non-trivial conjunct, got:\n{indentExpr epostPremTy}"
       let (postConc, epostConc, ss') ← parseWpAppliedPostEPost concl
-      assertExprDefEq epostConc epostTarget "Test B: epost target mismatch"
-      let expectedWp ← mkWpWithPostEPost rhs postConc epostTarget
+      let expectedWp ← mkWpWithPostEPost rhs postConc epostConc
       let expectedBody := mkAppN expectedWp ss'
       assertExprDefEq concl expectedBody "Test B: conclusion mismatch"
   catch ex =>
@@ -937,7 +1037,7 @@ theorem spec_throw_concretePostEPost_test :
     let preApplied := mkAppN pre #[]
     forallTelescope ty fun xs concl => do
       let mut postTarget? : Option Expr := none
-      let mut epostTarget? : Option Expr := none
+      let mut epostPremTy? : Option Expr := none
       let mut preSeen := false
       for x in xs do
         let xTy ← instantiateMVars (← inferType x)
@@ -948,27 +1048,77 @@ theorem spec_throw_concretePostEPost_test :
             let postTarget ← assertPostPremise xTy postSpec #[] "Test C"
             postTarget? := some postTarget
           catch _ =>
-            try
-              let epostTarget ← assertRelPremise xTy epostSpec "Test C"
-              epostTarget? := some epostTarget
-            catch _ =>
-              pure ()
+            if (← isProp xTy) then
+              epostPremTy? := some xTy
       unless preSeen do
         throwError "Test C: did not find pre premise among binders"
       let some postTarget := postTarget?
         | throwError "Test C: did not find post premise among binders"
-      let some epostTarget := epostTarget?
+      let some epostPremTy := epostPremTy?
         | throwError "Test C: did not find epost premise among binders"
+      unless !(epostPremTy.consumeMData.isAppOfArity ``PartialOrder.rel 2) do
+        throwError "Test C: epost premise is still a single `PartialOrder.rel` premise:\n{indentExpr epostPremTy}"
+      unless !(← containsProjOnArg ``EPost.cons.head epostSpec epostPremTy) do
+        throwError "Test C: found forbidden `EPost.cons.head epostSpec` projection in premise:\n{indentExpr epostPremTy}"
+      unless !(← containsProjOnArg ``EPost.cons.tail epostSpec epostPremTy) do
+        throwError "Test C: found forbidden `EPost.cons.tail epostSpec` projection in premise:\n{indentExpr epostPremTy}"
+      unless countNonTrueAndLeaves epostPremTy >= 1 do
+        throwError "Test C: expected at least one non-trivial conjunct, got:\n{indentExpr epostPremTy}"
       let (postConc, epostConc, ss') ← parseWpAppliedPostEPost concl
       assertExprDefEq postConc postTarget "Test C: post target mismatch"
-      assertExprDefEq epostConc epostTarget "Test C: epost target mismatch"
-      let expectedWp ← mkWpWithPostEPost rhs postTarget epostTarget
+      let expectedWp ← mkWpWithPostEPost rhs postTarget epostConc
       let expectedBody := mkAppN expectedWp ss'
       assertExprDefEq concl expectedBody "Test C: conclusion mismatch"
   catch ex =>
     let msg ← ex.toMessageData.toString
     if msg.contains "Not implemented" then
       logInfo m!"Test C skipped: {ex.toMessageData}"
+    else
+      throw ex
+
+@[local lspec high]
+theorem spec_throw_nestedConcreteEPost_test (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw 7 : ExceptT Nat (Except String) PUnit) post
+      epost⟨fun n => n = 7, fun s => s = "inner"⟩ ⊑
+    wp (MonadExceptOf.throw 7 : ExceptT Nat (Except String) PUnit) post
+      epost⟨fun n => n = 7, fun s => s = "inner"⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  try
+    let (ty, pre, rhs) ← testSpecBackwardProofType ``spec_throw_nestedConcreteEPost_test #[]
+    let_expr wp _ _ _ _ _ _ _ _postSpec epostSpec := rhs
+      | throwError "Test D: target not a wp application {rhs}"
+    let preApplied := mkAppN pre #[]
+    forallTelescope ty fun xs concl => do
+      let mut epostPremTy? : Option Expr := none
+      let mut preSeen := false
+      for x in xs do
+        let xTy ← instantiateMVars (← inferType x)
+        if (← isDefEqGuarded xTy preApplied) then
+          preSeen := true
+        else if (← isProp xTy) then
+          epostPremTy? := some xTy
+      unless preSeen do
+        throwError "Test D: did not find pre premise among binders"
+      let some epostPremTy := epostPremTy?
+        | throwError "Test D: did not find epost premise among binders"
+      unless !(epostPremTy.consumeMData.isAppOfArity ``PartialOrder.rel 2) do
+        throwError "Test D: epost premise is still a single `PartialOrder.rel` premise:\n{indentExpr epostPremTy}"
+      unless !(← containsProjOnArg ``EPost.cons.head epostSpec epostPremTy) do
+        throwError "Test D: found forbidden `EPost.cons.head epostSpec` projection in premise:\n{indentExpr epostPremTy}"
+      unless !(← containsProjOnArg ``EPost.cons.tail epostSpec epostPremTy) do
+        throwError "Test D: found forbidden `EPost.cons.tail epostSpec` projection in premise:\n{indentExpr epostPremTy}"
+      unless countNonTrueAndLeaves epostPremTy >= 2 do
+        throwError "Test D: expected at least two non-trivial conjuncts, got:\n{indentExpr epostPremTy}"
+      let (postConc, epostConc, ss') ← parseWpAppliedPostEPost concl
+      let expectedWp ← mkWpWithPostEPost rhs postConc epostConc
+      let expectedBody := mkAppN expectedWp ss'
+      assertExprDefEq concl expectedBody "Test D: conclusion mismatch"
+  catch ex =>
+    let msg ← ex.toMessageData.toString
+    if msg.contains "Not implemented" then
+      logInfo m!"Test D skipped: {ex.toMessageData}"
     else
       throw ex
 

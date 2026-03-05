@@ -137,8 +137,10 @@ instance ExceptT.instWPMonad {l : Type v}
         exact WPMonad.wp_pure (m := m) (Except.error e) (epost.pushExcept post) epost.tail
   wp_trans_monotone x := fun post post' epost epost' hepost hpost => by
     change wp x.run (epost.pushExcept post) epost.tail ⊑ wp x.run (epost'.pushExcept post') epost'.tail
-    have hhead := hepost.1
-    have htail := hepost.2
+    have hepost' : epost.head ⊑ epost'.head ∧ epost.tail ⊑ epost'.tail := by
+      simpa [PartialOrder.rel, meet_prop_eq_and] using hepost
+    let hhead := hepost'.1
+    let htail := hepost'.2
     apply WPMonad.wp_cons_econs (m := m) (x := x.run)
     · intro r
       cases r with
@@ -232,7 +234,12 @@ instance Except.instWPMonad : WPMonad (Except ε) Prop EPost⟨ε → Prop⟩ wh
   wp_trans_monotone x := fun post post' epost epost' hepost hpost => by
     cases x with
     | ok a => exact hpost a
-    | error e => exact hepost.1 e
+    | error e =>
+      have hhead : epost.head ⊑ epost'.head := by
+        have hepost' : epost.head ⊑ epost'.head ∧ epost.tail ⊑ epost'.tail := by
+          simpa [PartialOrder.rel, meet_prop_eq_and] using hepost
+        exact hepost'.1
+      exact hhead e
 
 -- EStateM combines state and exceptions
 instance EStateM.instWPMonad : WPMonad (EStateM ε σ) (σ → Prop) (ε → σ → Prop) where

@@ -46,26 +46,71 @@ instance : CompleteLattice EPost.nil where
   has_sup _ := ⟨EPost.nil.mk, fun _ => ⟨fun _ _ _ => trivial, fun _ => trivial⟩⟩
 
 instance [PartialOrder eh] [PartialOrder et] : PartialOrder (EPost.cons eh et) where
-  rel p q := p.head ⊑ q.head ∧ p.tail ⊑ q.tail
-  rel_refl := ⟨PartialOrder.rel_refl, PartialOrder.rel_refl⟩
-  rel_trans h1 h2 := ⟨PartialOrder.rel_trans h1.1 h2.1, PartialOrder.rel_trans h1.2 h2.2⟩
-  rel_antisymm := fun {p q} h1 h2 => by
+  rel p q := (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail)
+  rel_refl := by
+    intro p
+    have h : p.head ⊑ p.head ∧ p.tail ⊑ p.tail := by
+      exact And.intro PartialOrder.rel_refl PartialOrder.rel_refl
+    simpa [meet_prop_eq_and] using h
+  rel_trans := by
+    intro p q r h1 h2
+    have h1' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
+      simpa [meet_prop_eq_and] using h1
+    have h2' : q.head ⊑ r.head ∧ q.tail ⊑ r.tail := by
+      simpa [meet_prop_eq_and] using h2
+    have h : p.head ⊑ r.head ∧ p.tail ⊑ r.tail := by
+      exact And.intro
+        (PartialOrder.rel_trans h1'.1 h2'.1)
+        (PartialOrder.rel_trans h1'.2 h2'.2)
+    simpa [meet_prop_eq_and] using h
+  rel_antisymm := by
+    intro p q h1 h2
+    have h1' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
+      simpa [meet_prop_eq_and] using h1
+    have h2' : q.head ⊑ p.head ∧ q.tail ⊑ p.tail := by
+      simpa [meet_prop_eq_and] using h2
     cases p; cases q; congr 1
-    · exact PartialOrder.rel_antisymm h1.1 h2.1
-    · exact PartialOrder.rel_antisymm h1.2 h2.2
+    · exact PartialOrder.rel_antisymm h1'.1 h2'.1
+    · exact PartialOrder.rel_antisymm h1'.2 h2'.2
 
 instance [CompleteLattice eh] [CompleteLattice et] : CompleteLattice (EPost.cons eh et) where
   has_sup c := by
-    refine ⟨EPost.cons.mk (CompleteLattice.sup fun x => ∃ p, c p ∧ p.head = x)
-                           (CompleteLattice.sup fun x => ∃ p, c p ∧ p.tail = x), ?_⟩
+    let supHead : eh := CompleteLattice.sup (fun x => ∃ p, c p ∧ p.head = x)
+    let supTail : et := CompleteLattice.sup (fun x => ∃ p, c p ∧ p.tail = x)
+    refine ⟨EPost.cons.mk supHead supTail, ?_⟩
     intro q; constructor
-    · intro ⟨hh, ht⟩ p hp
-      exact ⟨PartialOrder.rel_trans (le_sup _ ⟨p, hp, rfl⟩) hh,
-             PartialOrder.rel_trans (le_sup _ ⟨p, hp, rfl⟩) ht⟩
+    · intro hq p hp
+      have hq' : supHead ⊑ q.head ∧ supTail ⊑ q.tail := by
+        have hqMeet : (supHead ⊑ q.head) ⊓ (supTail ⊑ q.tail) := by
+          simpa [PartialOrder.rel] using hq
+        simpa [meet_prop_eq_and] using hqMeet
+      have hpq : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
+        exact And.intro
+          (PartialOrder.rel_trans (le_sup _ ⟨p, hp, rfl⟩) hq'.1)
+          (PartialOrder.rel_trans (le_sup _ ⟨p, hp, rfl⟩) hq'.2)
+      have hpqMeet : (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail) := by
+        simpa [meet_prop_eq_and] using hpq
+      simpa [PartialOrder.rel] using hpqMeet
     · intro h
-      constructor
-      · apply sup_le; rintro _ ⟨p, hp, rfl⟩; exact (h p hp).1
-      · apply sup_le; rintro _ ⟨p, hp, rfl⟩; exact (h p hp).2
+      have hq : supHead ⊑ q.head ∧ supTail ⊑ q.tail := by
+        constructor
+        · apply sup_le; rintro _ ⟨p, hp, rfl⟩
+          have hpq : p ⊑ q := h p hp
+          have hpq' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
+            have hpqMeet : (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail) := by
+              simpa [PartialOrder.rel] using hpq
+            simpa [meet_prop_eq_and] using hpqMeet
+          exact hpq'.1
+        · apply sup_le; rintro _ ⟨p, hp, rfl⟩
+          have hpq : p ⊑ q := h p hp
+          have hpq' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
+            have hpqMeet : (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail) := by
+              simpa [PartialOrder.rel] using hpq
+            simpa [meet_prop_eq_and] using hpqMeet
+          exact hpq'.2
+      have hqMeet : (supHead ⊑ q.head) ⊓ (supTail ⊑ q.tail) := by
+        simpa [meet_prop_eq_and] using hq
+      simpa [PartialOrder.rel] using hqMeet
 
 -- instance [PartialOrder l] [PartialOrder e] : PartialOrder (Post l e α) where
 --   rel p q := (∀ a, p.val a ⊑ q.val a) ∧ p.exc ⊑ q.exc
