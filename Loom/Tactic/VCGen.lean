@@ -24,7 +24,7 @@ Takes all specs that match the given program `e` and sorts by descending priorit
 def SpecTheorems.findSpecs (database : SpecTheorems) (e : Expr) : MetaM (Array SpecTheorem) := do
   let candidates ← database.specs.getMatch e
   let candidates := candidates.filter (!database.erased.contains ·.proof)
-  return candidates.qsort (·.priority > ·.priority)
+  return candidates.insertionSort (·.priority > ·.priority)
 
 end Loom.Tactic.SpecAttr
 
@@ -123,7 +123,7 @@ private partial def mkFullyPointwiseRelPremise (lhs rhs : Expr) : SymM Expr := d
       let body ← mkFullyPointwiseRelPremise (lhs.beta #[x]) (mkApp rhs x)
       mkForallFVars #[x] body
   | _ =>
-    if (← isProp lhsTy) then
+    if lhsTy.isProp then
       mkArrow lhs rhs
     else
       mkAppM ``PartialOrder.rel #[lhs, rhs]
@@ -690,7 +690,8 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let res ← solve =<< introsWP goal
+    let goal ← introsWP goal
+    let res ← solve goal
     match res with
     | .noProgramOrLatticeFoundInTarget .. =>
       emitVC goal
