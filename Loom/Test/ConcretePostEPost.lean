@@ -34,11 +34,6 @@ def Goal (n : Nat) : Prop :=
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
-example : Goal 2 := by
-  intro s
-  simp only [loop, step]
-  mvcgen'
-
 #eval
   runBenchUsingTactic
     ``Goal [``loop, ``step]

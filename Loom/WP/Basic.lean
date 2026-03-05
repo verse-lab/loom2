@@ -67,6 +67,9 @@ theorem WPMonad.wp_econs [Monad m] [WPMonad m l e] (x : m α) (post : α → l) 
   (h' : epost ⊑ epost') :
     wp x post epost ⊑ wp x post epost' := by solve_by_elim [WPMonad.wp_trans_monotone, PartialOrder.rel_refl]
 
+theorem WPMonad.wp_econs_bot [Monad m] [WPMonad m l e] (x : m α) (post : α → l) (epost : e) :
+    wp x post ⊥ ⊑ wp x post epost := by solve_by_elim [WPMonad.wp_econs, bot_le]
+
 /-!
 # Derived theorems for WPMonad
 

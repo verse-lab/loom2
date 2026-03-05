@@ -199,13 +199,22 @@ private def mkSpecBackwardProof
     let epostTy ← Sym.inferType epostSpec
     /- mvar `epostAbstract` for new abstract `epost` -/
     epostAbstract ← mkFreshExprMVar (userName := `epost) epostTy
-    /- expanded premise type for abstracting concrete `epost` -/
-    let hepostTy ← mkEPostPointwisePremise epostSpec epostAbstract
-    /- mvar `?epostImpl` for the proof of the premise -/
-    let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
-    /- get the proof of `wp prog postAbstract ?epost epost`, where `epost` is abstracted.
-       This proof depends on both `?epostImpl` and `?pre` -/
-    let mono ← mkAppM ``WPMonad.wp_econs #[prog, postAbstract, epostSpec, epostAbstract, hepost]
+    /- if `epost` is `⊥`, then `epost ⊑ epostAbstract` holds trivially and
+      abstracting `epost` can be simply done by `WPMonad.wp_econs_bot` without
+      introducing a new premise. This case is quite common, that's why we handle
+      it specially. -/
+    let_expr bot _ _ := epostSpec |
+      /- expanded premise type for abstracting concrete `epost` -/
+      let hepostTy ← mkEPostPointwisePremise epostSpec epostAbstract
+      /- mvar `?epostImpl` for the proof of the premise -/
+      let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
+      /- get the proof of `wp prog postAbstract ?epost epost`, where `epost` is abstracted.
+        This proof depends on both `?epostImpl` and `?pre` -/
+      let mono ← mkAppM ``WPMonad.wp_econs #[prog, postAbstract, epostSpec, epostAbstract, hepost]
+      specApplied := mkAppN mono <| ss.push specApplied
+    /- get the proof of `wp prog postAbstract ?epost epost`, where `epost (= ⊥)` is abstracted.
+       This proof DOES NOT have a `?epostImpl` premise -/
+    let mono ← mkAppM ``WPMonad.wp_econs_bot #[prog, postAbstract, epostAbstract]
     specApplied := mkAppN mono <| ss.push specApplied
   abstractMVars specApplied
 
@@ -1127,6 +1136,36 @@ theorem spec_throw_nestedConcreteEPost_test (post : PUnit → Prop) :
       logInfo m!"Test D skipped: {ex.toMessageData}"
     else
       throw ex
+
+@[local lspec high]
+theorem spec_throw_botEPost_test (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw "boom" : Except String PUnit) post (⊥ : EPost⟨String → Prop⟩) ⊑
+      wp (MonadExceptOf.throw "boom" : Except String PUnit) post (⊥ : EPost⟨String → Prop⟩) := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let (ty, pre, rhs) ← testSpecBackwardProofType ``spec_throw_botEPost_test #[]
+  let preApplied := mkAppN pre #[]
+  forallTelescope ty fun xs concl => do
+    let mut preSeen := false
+    let mut extraPropPremises : Nat := 0
+    for x in xs do
+      let xTy ← instantiateMVars (← inferType x)
+      if (← isDefEqGuarded xTy preApplied) then
+        preSeen := true
+      else if (← isProp xTy) then
+        extraPropPremises := extraPropPremises + 1
+    unless preSeen do
+      throwError "Test E: did not find pre premise among binders"
+    unless extraPropPremises == 0 do
+      throwError "Test E: expected no extra premises (bot epost branch), got {extraPropPremises}"
+    let (postConc, epostConc, ss') ← parseWpAppliedPostEPost concl
+    let epostHead := epostConc.consumeMData
+    unless epostHead.isMVar || epostHead.isFVar do
+      throwError "Test E: expected abstract epost in conclusion, got {indentExpr epostConc}"
+    let expectedWp ← mkWpWithPostEPost rhs postConc epostConc
+    let expectedBody := mkAppN expectedWp ss'
+    assertExprDefEq concl expectedBody "Test E: conclusion mismatch"
 
 -- Test 4: ite for StateM Nat, n = 1 excess arg
 -- mkBackwardRuleForIte:
