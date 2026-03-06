@@ -22,7 +22,6 @@ variable [Monad m] [WPMonad m l e]
 /-- Spec for `pure`: if the precondition entails the postcondition applied to `a`, then `pure a`
 satisfies the triple. -/
 
-@[lspec]
 theorem Spec.pure' (a : α) (h : pre ⊑ post a) :
     Triple pre (Pure.pure (f := m) a) post epost :=
   Triple.pure a h
@@ -36,7 +35,7 @@ theorem Spec.pure (a : α) :
 /-- Spec for `bind`: if `x` establishes `wp (f a) post epost` for each result `a`, then
 `x >>= f` satisfies the triple. -/
 
-@[lspec]
+
 theorem Spec.bind' (x : m α) (f : α → m β)
     (h : Triple pre x (fun a => wp (f a) post epost) epost) :
     Triple pre (x >>= f) post epost :=
@@ -52,7 +51,7 @@ theorem Spec.bind (x : m α) (f : α → m β) :
 
 /-- Spec for `map`: if `x` satisfies postcondition `fun a => post (f a)`, then `f <$> x`
 satisfies `post`. -/
-@[lspec]
+
 theorem Spec.map' (f : α → β) (x : m α)
     (h : Triple pre x (fun a => post (f a)) epost) :
     Triple pre (f <$> x) post epost :=
@@ -67,7 +66,7 @@ theorem Spec.map (f : α → β) (x : m α) :
 
 /-- Spec for `seq`: if `x` establishes `wp y (fun a => post (f a)) epost` for each function `f`,
 then `x <*> y` satisfies `post`. -/
-@[lspec]
+
 theorem Spec.seq' (x : m (α → β)) (y : m α)
     (h : Triple pre x (fun f => wp y (fun a => post (f a)) epost) epost) :
     Triple pre (x <*> y) post epost :=

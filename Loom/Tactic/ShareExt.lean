@@ -16,6 +16,70 @@ where
     let i := i - 1
     loop revArgs start (← mkAppS b revArgs[i]!) i
 
+/--
+Similar to `Lean.Expr.instantiateRange`.
+It assumes the input is maximally shared, and ensures the output is too.
+It assumes `beginIdx ≤ endIdx` and `endIdx ≤ subst.size`
+-/
+private def instantiateRangeS' (e : Expr) (beginIdx endIdx : Nat) (subst : Array Expr) : AlphaShareBuilderM Expr :=
+  if _ : beginIdx > endIdx then unreachable! else
+  if _ : endIdx > subst.size then unreachable! else
+  let n := endIdx - beginIdx
+  replaceS' e fun e offset => do
+    match e with
+    | .bvar idx =>
+      if _h : idx >= offset then
+        if _h : idx < offset + n then
+          let v := subst[beginIdx + idx - offset]
+          liftLooseBVarsS' v 0 offset
+        else
+          mkBVarS (idx - n)
+      else
+        return some e
+    | .lit _ | .mvar _ | .fvar _ | .const _ _ | .sort _ =>
+      return some e
+    | _ =>
+      if offset >= e.looseBVarRange then
+        return some e
+      else
+        return none
+
+/-- Internal variant of `instantiateS` that runs in `AlphaShareBuilderM`. -/
+private def instantiateS' (e : Expr) (subst : Array Expr) : AlphaShareBuilderM Expr :=
+  instantiateRangeS' e 0 subst.size subst
+
+/--
+Similar to `Lean.Expr.instantiate`.
+It assumes the input is maximally shared, and ensures the output is too.
+-/
+private def instantiateS  (e : Expr) (subst : Array Expr) : SymM Expr :=
+  liftBuilderM <| instantiateS' e subst
+
+/--
+Beta-reduces `f` applied to reversed arguments `revArgs`, ensuring maximally shared terms.
+`betaRevS f #[a₃, a₂, a₁]` computes the beta-normal form of `f a₁ a₂ a₃`.
+-/
+private partial def betaRevS' (f : Expr) (revArgs : Array Expr) : AlphaShareBuilderM Expr :=
+  if revArgs.size == 0 then
+    return f
+  else
+    let sz := revArgs.size
+    let rec go (e : Expr) (i : Nat) : AlphaShareBuilderM Expr := do
+      match e with
+      | .lam _ _ b _ =>
+        if i + 1 < sz then
+          go b (i+1)
+        else
+          instantiateS' b revArgs
+      | .mdata _ b => go b i
+      | _ =>
+        let n := sz - i
+        mkAppRevRangeS (← instantiateRangeS' e n sz revArgs) 0 n revArgs
+    go f 0
+
+public def betaRevS (f : Expr) (revArgs : Array Expr) : SymM Expr :=
+  liftBuilderM <| betaRevS' f revArgs
+
 
 meta def mkAppRevS [Monad m] [Internal.MonadShareCommon m] (f : Expr) (revArgs : Array Expr) : m Expr :=
   mkAppRevRangeS f 0 revArgs.size revArgs

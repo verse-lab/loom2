@@ -105,12 +105,6 @@ private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes 
       let rhs := mkAppN (mkApp postTarget a) ss'
       mkForallFVars (#[a] ++ ss') (← mkArrow lhs rhs)
 
-/-- If `e` is explicitly `EPost.cons.mk head tail`, return `(head, tail)`. -/
-private def decomposeEPostConsMk? (e : Expr) : Option (Expr × Expr) :=
-  e.consumeMData.withApp fun fn args => do
-    guard $ fn.isConstOf ``EPost.cons.mk && args.size >= 2
-    return (args[args.size - 2]!, args[args.size - 1]!)
-
 /--
 Expand a relation fully pointwise: recurse through all function binders and produce
 implication at `Prop` leaves, falling back to `PartialOrder.rel` at non-`Prop` leaves.
@@ -136,9 +130,9 @@ private partial def mkEPostPointwisePremise (epostSpec epostTarget : Expr) : Sym
   let epostTy ← whnfD (← Sym.inferType epostSpec)
   if epostTy.isAppOfArity ``EPost.cons 2 then
     let (specHead, specTail) ←
-      match decomposeEPostConsMk? epostSpec with
-      | some parts => pure parts
-      | none => do
+      match_expr epostSpec with
+      | EPost.cons.mk _ _ head tail => pure (head, tail)
+      | _ => do
         let head ← mkAppM ``EPost.cons.head #[epostSpec]
         let tail ← mkAppM ``EPost.cons.tail #[epostSpec]
         pure (head, tail)
@@ -575,18 +569,48 @@ inductive SolveResult where
 inductive GoalKind where
   /-- Goal is `True`; it can be discharged immediately by `True.intro`. -/
   | TrivialTrue
-  /-- Goal is a WP application. We keep the full `withApp` decomposition. -/
-  | WP (head : Expr) (args : Array Expr)
+  /-- Goal is a concrete EPost component VC; stores selected component and its excess args. -/
+  | EPostVC (epost : Expr) (excessArgs : Array Expr)
   /-- Goal is a lattice connective application (`meet`/`himp`) with optional excess args. -/
   | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
+  /-- Goal is a WP application. We keep the full `withApp` decomposition. -/
+  | WP (head : Expr) (args : Array Expr)
   /-- Goal is neither a recognized WP nor a recognized lattice connective. -/
   | Unknown
+
+/--
+Get the `index`-th component from an `EPost` target.
+Use explicit constructor decomposition when available, otherwise use projections.
+-/
+private def mkEPostAtIndex (target : Expr) (index : Nat) : SymM Expr := do
+  let mut curr := target
+  for _ in [:index] do
+    let_expr EPost.cons.mk _ _ _ tail := curr
+      | throwError "Expected EPost.cons.mk, got {curr}"
+    curr := tail
+  let_expr EPost.cons.mk _ _ head _ := curr
+    | throwError "Expected EPost.cons.mk, got {curr}"
+  return head
+
+/-- Peel a chain of `.tail` projections, returning the base `EPost` and the number of tails. -/
+private partial def peelEPostTailChain (curr : Expr) (idx : Nat := 0) : Expr × Nat :=
+  curr.consumeMData.withApp fun fn args =>
+    if fn.isConstOf ``EPost.cons.tail && args.size > 0 then
+      peelEPostTailChain args[args.size - 1]! (idx + 1)
+    else
+      (curr, idx)
 
 /-- Classify a goal target as WP, logic-lattice connective, or unknown. -/
 def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
   target.withApp fun head args => do
     match_expr head with
     | True => return .TrivialTrue
+    | EPost.cons.head =>
+        let some epostArg := args[2]?
+          | return .Unknown
+        let (epostTarget, index) := peelEPostTailChain epostArg
+        let epost ← mkEPostAtIndex epostTarget index
+        return .EPostVC epost (args.extract 3 args.size)
     | wp => return .WP head args
     | meet =>
       let excessArgs := args.drop 4
@@ -653,6 +677,10 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
           | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
         return .goals goals
       return .noStrategyForProgram e
+  | .EPostVC epost excessArgs => do
+      let target ← betaRevS epost excessArgs.reverse
+      let goal ← goal.replaceTargetDefEq target
+      return .goals [goal]
 
 /--
 Called when decomposing the goal further did not succeed; in this case we emit a VC for the goal.
@@ -891,6 +919,26 @@ private partial def instantiateLeadingParamForalls (e : Expr) : MetaM Expr := do
     let x ← mkFreshExprMVar e'.bindingDomain!
     e := e'.bindingBody!.instantiate1 x
   instantiateMVars e
+
+private def impRhs? (e : Expr) : Option Expr :=
+  if let some (_lhs, rhs) := e.arrow? then
+    some rhs
+  else if e.isAppOfArity ``himp 4 then
+    some (e.getArg! 3)
+  else
+    none
+
+private def runClassifyGoalKind (target : Expr) : MetaM VCGen.GoalKind := do
+  let (kind, _state) ← SymM.run <| StateRefT'.run
+    (ReaderT.run (VCGen.classifyGoalKind target) { specThms := default })
+    {}
+  return kind
+
+private def runSolve (goal : MVarId) : MetaM VCGen.SolveResult := do
+  let (res, _state) ← SymM.run <| StateRefT'.run
+    (ReaderT.run (VCGen.solve goal) { specThms := default })
+    {}
+  return res
 
 /-- Test helper: run `mkBackwardRuleForIte` with the given monad/lattice expressions.
     Returns the type of the generated auxiliary lemma. -/
@@ -1137,6 +1185,78 @@ theorem spec_throw_nestedConcreteEPost_test (post : PUnit → Prop) :
       logInfo m!"Test D skipped: {ex.toMessageData}"
     else
       throw ex
+
+-- Test E/F: classify `epost.head` / `epost.tail.head` and a premise RHS as `.EPostVC`.
+#eval! show MetaM Unit from do
+  let (_ty, _pre, rhs) ← testSpecBackwardProofType ``spec_throw_nestedConcreteEPost_test #[]
+  let_expr wp _ _ _ _ _ _ _ _postSpec epostSpec := rhs
+    | throwError "Test E/F: target not a wp application {rhs}"
+  let epostHead ← mkAppM ``EPost.cons.head #[epostSpec]
+  let expectedHead ← whnfD epostHead
+  match (← runClassifyGoalKind epostHead) with
+  | .EPostVC epost excessArgs =>
+    unless excessArgs.isEmpty do
+      throwError "Test E/F: expected no excess args for `epost.head`, got {excessArgs.size}"
+    assertExprDefEq epost expectedHead "Test E/F: selected component mismatch for `epost.head`"
+  | _ =>
+    throwError "Test E/F: expected `.EPostVC` for `epost.head`"
+  let epostTail ← mkAppM ``EPost.cons.tail #[epostSpec]
+  let epostTailHead ← mkAppM ``EPost.cons.head #[epostTail]
+  let expectedTailHead ← whnfD epostTailHead
+  match (← runClassifyGoalKind epostTailHead) with
+  | .EPostVC epost excessArgs =>
+    unless excessArgs.isEmpty do
+      throwError "Test E/F: expected no excess args for `epost.tail.head`, got {excessArgs.size}"
+    assertExprDefEq epost expectedTailHead "Test E/F: selected component mismatch for `epost.tail.head`"
+  | _ =>
+    throwError "Test E/F: expected `.EPostVC` for `epost.tail.head`"
+
+@[local lspec high]
+theorem spec_throw_triplyNestedConcreteEPost_test (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw 7 : ExceptT Nat (ExceptT String (Except Unit)) PUnit) post
+      epost⟨fun n => n = 7, fun s => s = "inner", fun u => u = ()⟩ ⊑
+    wp (MonadExceptOf.throw 7 : ExceptT Nat (ExceptT String (Except Unit)) PUnit) post
+      epost⟨fun n => n = 7, fun s => s = "inner", fun u => u = ()⟩ := by
+  exact PartialOrder.rel_refl
+
+-- Test G: classify `epost.tail.tail.head` as `.EPostVC`.
+#eval! show MetaM Unit from do
+  let (_ty, _pre, rhs) ← testSpecBackwardProofType ``spec_throw_triplyNestedConcreteEPost_test #[]
+  let_expr wp _ _ _ _ _ _ _ _postSpec epostSpec := rhs
+    | throwError "Test G: target not a wp application {rhs}"
+  let epostTail ← mkAppM ``EPost.cons.tail #[epostSpec]
+  let epostTailTail ← mkAppM ``EPost.cons.tail #[epostTail]
+  let epostTailTailHead ← mkAppM ``EPost.cons.head #[epostTailTail]
+  let expectedTailTailHead ← whnfD epostTailTailHead
+  match (← runClassifyGoalKind epostTailTailHead) with
+  | .EPostVC epost excessArgs =>
+    unless excessArgs.isEmpty do
+      throwError "Test G: expected no excess args for `epost.tail.tail.head`, got {excessArgs.size}"
+    assertExprDefEq epost expectedTailTailHead
+      "Test G: selected component mismatch for `epost.tail.tail.head`"
+  | _ =>
+    throwError "Test G: expected `.EPostVC` for `epost.tail.tail.head`"
+
+-- Test H: solving an `.EPostVC` goal applies `epost` to all excess args in order.
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  withLocalDeclD `x nat fun x => do
+    withLocalDeclD `y nat fun y => do
+      let body ← mkEq x y
+      let pred ← mkLambdaFVars #[x, y] body
+      let epost ← mkAppM ``EPost.cons.mk #[pred, mkConst ``EPost.nil.mk]
+      let epostHead ← mkAppM ``EPost.cons.head #[epost]
+      let one := mkNatLit 1
+      let two := mkNatLit 2
+      let target := mkAppN epostHead #[one, two]
+      let expected ← whnfD target
+      let goalExpr ← mkFreshExprSyntheticOpaqueMVar target
+      let .mvar goal := goalExpr
+        | throwError "Test H: expected fresh metavariable goal"
+      let .goals [goal'] ← runSolve goal
+        | throwError "Test H: expected a single rewritten goal"
+      let goalTy ← instantiateMVars (← goal'.getType)
+      assertExprDefEq goalTy expected "Test H: rewritten goal mismatch"
 
 @[local lspec high]
 theorem spec_throw_botEPost_test (post : PUnit → Prop) :
