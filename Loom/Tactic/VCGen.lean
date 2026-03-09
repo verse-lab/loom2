@@ -666,6 +666,38 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply split rule for {indentExpr e}"
         return .goals goals
+      if f.isConstOf ``bind then
+        -- e = @bind m' bindInst α' β' xProg gFn
+        let bindArgs := e.getAppArgs
+        let αInner  := bindArgs[2]!   -- intermediate type (α')
+        -- α from the wp match = β' (bind's result type)
+        let xProg   := bindArgs[4]!   -- first computation
+        let gFn     := bindArgs[5]!   -- continuation
+        -- Build inner postcondition: fun (a : α') => wp (gFn a) post epost
+        -- Construct directly with de Bruijn indices, avoiding withLocalDeclD
+        let gFn' := gFn.consumeMData
+        let (ga, bindingName) :=
+          if let .lam name _ty body _bi := gFn' then
+            (body, name)  -- body already has bvar 0 for the parameter
+          else
+            (mkApp gFn (.bvar 0), `a)
+        let wpBody ← mkAppS₉ head m l errTy monadInst instWP α ga post epost
+        let innerPost ← shareCommon (.lam bindingName αInner wpBody .default)
+        -- Build new wp at lattice level: wp xProg innerPost epost
+        let newWpBase ← mkAppS₉ head m l errTy monadInst instWP αInner xProg innerPost epost
+        -- Apply excess state args to get Prop-level target
+        let newTarget ← mkAppNS newWpBase excessArgs
+        -- Create mvar for the new subgoal
+        let newGoalMVar ← mkFreshExprMVar (some newTarget)
+        -- Build proof: @WPMonad.wp_bind m l errTy monadInst instWP αInner α xProg gFn post epost
+        -- wp and WPMonad.wp_bind share the same universe params
+        let .const _ wpLevels := head
+          | throwError "wp head is not a constant"
+        -- WPMonad.wp_bind arg order: m, l, e, α, β, [Monad], [WPMonad], x, f, post, epost
+        let proof := mkAppN (mkConst ``WPMonad.wp_bind wpLevels)
+          #[m, l, errTy, αInner, α, monadInst, instWP, xProg, gFn, post, epost]
+        goal.assign (mkAppN proof (excessArgs.push newGoalMVar))
+        return .goals [newGoalMVar.mvarId!]
       if f.isConst || f.isFVar then
         trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
         let thms ← (← read).specThms.findSpecs e
