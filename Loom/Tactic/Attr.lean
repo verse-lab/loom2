@@ -81,10 +81,15 @@ structure SpecTheorem where
   `keys = (← mkPath (← forallMetaTelescope prog).2.2)`.
   -/
   prog : Expr
+  /-- Pattern for matching the program expression. Populated by `migrateSpecTheoremsDatabase`. -/
+  pattern : Option Sym.Pattern := none
   /-- The proof for the theorem. -/
   proof : SpecProof
   priority : Nat := eval_prio default
-  deriving Inhabited, BEq
+  deriving Inhabited
+
+instance : BEq SpecTheorem where
+  beq a b := a.keys == b.keys && a.prog == b.prog && a.proof == b.proof && a.priority == b.priority
 
 abbrev SpecEntry := SpecTheorem
 

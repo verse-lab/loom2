@@ -1,5 +1,6 @@
 import Lean
 import Loom.Tactic.Attr
+import Loom.Tactic.FindSpec
 import Loom.Triple.Basic
 import Loom.Triple.SpecLemmas
 import Loom.WP.SimpLemmas
@@ -10,23 +11,11 @@ import Loom.Tactic.ShareExt
 
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 open Loom.Tactic.SpecAttr
+open Loom.Tactic.FindSpec
 
 namespace Loom
 
 initialize registerTraceClass `Loom.Tactic.vcgen
-
-namespace Loom.Tactic.SpecAttr
-
-/--
-Look up `SpecTheorem`s in the `@[lspec]` database.
-Takes all specs that match the given program `e` and sorts by descending priority.
--/
-def SpecTheorems.findSpecs (database : SpecTheorems) (e : Expr) : MetaM (Array SpecTheorem) := do
-  let candidates ← database.specs.getMatch e
-  let candidates := candidates.filter (!database.erased.contains ·.proof)
-  return candidates.insertionSort (·.priority > ·.priority)
-
-end Loom.Tactic.SpecAttr
 
 /-- Count function arrows in a type, e.g. `σ1 → σ2 → Prop` → 2 -/
 private partial def countExcessArgs (l : Expr) : MetaM Nat := do
@@ -463,33 +452,15 @@ def LogicOp.postProcessGoal (lop : LogicOp) (goal : MVarId) : SymM (List MVarId)
       | throwError "Failed to intro implication premise at goal {goal.name}"
     return [goal]
 
-/--
-Given an array of `SpecTheorem`s (sorted by priority), try to build a backward rule
-from the first matching spec.
-
-The backward rule is an auxiliary lemma with excess state arguments made explicit:
-for `l = σ1 → ... → σn → Prop`, it turns `pre ⊑ wp x post epost` into
-`∀ s1 ... sn, pre s1 ... sn → wp x post epost s1 ... sn`.
--/
-def mkBackwardRuleFromSpecs (specThms : Array SpecTheorem)
-    (e l instWP : Expr) (excessArgs : Array Expr)
-    : MetaM (Option (SpecTheorem × BackwardRule)) := SymM.run do
-  for specThm in specThms do
-    if let some rule ← withNewMCtxDepth
-        (tryMkBackwardRuleFromSpec specThm e l instWP excessArgs) then
-      return (specThm, rule)
-  return none
-
 /-! ## VCGen monad and caching -/
 
 structure VCGen.Context where
   specThms : SpecTheorems
-  -- TODO: entailsConsIntroRule : BackwardRule
 
 structure VCGen.State where
-  /-- Cache mapping spec theorem names × WPMonad instance × excess arg count
+  /-- Cache mapping spec theorem proof key × WPMonad instance × excess arg count
       to their backward rule. Avoids rebuilding the same aux lemma repeatedly. -/
-  specBackwardRuleCache : Std.HashMap (Array Name × Expr × Nat) (SpecTheorem × BackwardRule) := {}
+  specBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   /-- Cache mapping split rule name × WPMonad instance × excess arg count
       to their backward rule. -/
   splitBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
@@ -505,24 +476,20 @@ abbrev VCGenM := ReaderT VCGen.Context (StateRefT VCGen.State SymM)
 
 namespace VCGen
 
-def SpecTheorem.global? (specThm : SpecTheorem) : Option Name :=
-  match specThm.proof with | .global decl => some decl | _ => none
-
-/-- Cached version of `mkBackwardRuleFromSpecs`. The cache key is
-    `(spec decl names, instWP, excessArgs.size)`. Falls back to the uncached
-    version when any spec theorem is not a global declaration. -/
-def mkBackwardRuleFromSpecsCached (specThms : Array SpecTheorem)
+/-- Cached version of `tryMkBackwardRuleFromSpec` for a single spec theorem.
+    Cache key: `(proof key, instWP, excessArgs.size)`. -/
+def mkBackwardRuleFromSpecCached (specThm : SpecTheorem)
     (e l instWP : Expr) (excessArgs : Array Expr)
-    : OptionT VCGenM (SpecTheorem × BackwardRule) := do
-    let decls := specThms.filterMap SpecTheorem.global?
+    : OptionT VCGenM BackwardRule := do
+    let key := (specThm.proof.key, instWP, excessArgs.size)
     let s := (← get).specBackwardRuleCache
-    match s[(decls, instWP, excessArgs.size)]? with
-    | some (specThm, rule) => return (specThm, rule)
+    match s[key]? with
+    | some rule => return rule
     | none =>
-      let some rule ← mkBackwardRuleFromSpecs specThms e l instWP excessArgs
+      let some rule ← (withNewMCtxDepth
+          (tryMkBackwardRuleFromSpec specThm e l instWP excessArgs).run : SymM _)
         | failure
-      let key := (decls, instWP, excessArgs.size)
-      modify ({ · with specBackwardRuleCache := s.insert key rule })
+      modify fun st => { st with specBackwardRuleCache := st.specBackwardRuleCache.insert key rule }
       return rule
 
 /-- Cached wrapper for `mkBackwardRuleForIte`. -/
@@ -668,10 +635,12 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         return .goals goals
       if f.isConst || f.isFVar then
         trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
-        let thms ← (← read).specThms.findSpecs e
-        trace[Loom.Tactic.vcgen] "Candidates for {e}: {thms.map (·.proof)}"
-        let some (thm, rule) ← (mkBackwardRuleFromSpecsCached thms e l instWP excessArgs).run
-          | return .noSpecFoundForProgram e m thms
+        match ← findSpecs (← read).specThms e with
+        | .error thms => return .noSpecFoundForProgram e m thms
+        | .ok thm =>
+        trace[Loom.Tactic.vcgen] "Spec for {e}: {thm.proof}"
+        let some rule ← (mkBackwardRuleFromSpecCached thm e l instWP excessArgs).run
+          | return .noSpecFoundForProgram e m #[thm]
         trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
@@ -759,7 +728,9 @@ syntax (name := mvcgen') "mvcgen'"
 public meta def elabMVCGen' : Tactic := fun _stx => withMainContext do
   let ctx ← getSpecTheorems
   let goal ← getMainGoal
-  let { invariants, vcs } ← SymM.run <| VCGen.main goal ⟨ctx⟩
+  let { invariants, vcs } ← SymM.run do
+    let migratedCtx ← migrateSpecTheoremsDatabase ctx
+    VCGen.main goal ⟨migratedCtx⟩
   replaceMainGoal (invariants ++ vcs).toList
 
 

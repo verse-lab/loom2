@@ -17,28 +17,8 @@ def throwNatOrString (n : Nat) : M PUnit := do
 @[lspec high]
 theorem spec_throwNatOrString (n : Nat) :
     Triple True (throwNatOrString n) (fun _ => True) epost⟨(· = 7), (· = "inner")⟩ := by
-  by_cases h30 : n = 30
-  ·
-    let h : Triple _ (throwNatOrString n) (fun _ => True) epost⟨(· = 7), (· = "inner")⟩ := by
-      simpa [throwNatOrString, h30, throwThe] using
-        (Spec.throw_ExceptT (m := Except String) (err := 7)
-          (post := (fun _ => True))
-          (epost := epost⟨(· = 7), (· = "inner")⟩))
-    exact Triple.iff.mpr <| Triple.entails_wp_of_pre h (by intro _; decide)
-  · by_cases h239 : n = 239
-    ·
-      let h : Triple _ (throwNatOrString n) (fun _ => True) epost⟨(· = 7), (· = "inner")⟩ := by
-        simpa [throwNatOrString, h30, h239, throwThe] using
-          (Spec.throw_ExceptT_lift (m := Except String) (ε := String) (ε' := Nat)
-            (err := "inner")
-            (post := (fun _ => True))
-            (epost := epost⟨(· = 7), (· = "inner")⟩))
-      exact Triple.iff.mpr <| Triple.entails_wp_of_pre h (by intro _; simp)
-    ·
-      simpa [throwNatOrString, h30, h239] using
-        (Spec.pure (m := M) (a := ())
-          (post := (fun _ => True))
-          (epost := epost⟨(· = 7), (· = "inner")⟩))
+  rw [Triple.iff]; intro; unfold throwNatOrString
+  mvcgen' <;> rfl
 
 def step (n : Nat) : ExceptT Nat (Except String) PUnit := do
   throwNatOrString n
