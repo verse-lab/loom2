@@ -5,7 +5,7 @@ Authors: Sebastian Graf
 -/
 module
 public import Lean.Meta
-import Lean.Meta.InstMVarsNU
+import Lean.Meta.InstMVarsAll
 import Lean.Elab
 
 
@@ -17,8 +17,6 @@ def timeItMs (k : MetaM α) : MetaM (α × UInt64) := do
   let endTime ← IO.monoNanosNow
   let ms := (endTime - startTime).toFloat / 1000000.0
   return (a, ms.toUInt64)
-
-#check shareCommonPreDefs
 
 /-- Helper function for executing a tactic `k` for solving `$(goal) n`. -/
 def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyntax `tactic)) (k : MVarId → MetaM (List MVarId)) : MetaM Unit := do
@@ -43,11 +41,11 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
       for mvarId in mvarIds do
         let ([], _) ← Lean.Elab.runTactic mvarId discharge.raw {} {}
           | throwError "{dischargePp} failed to solve {mvarId}"
-  let (expr, instMs) ← timeItMs (instantiateMVarsNoUpdateLean mvar)
+  let (expr, instMs) ← timeItMs (instantiateAllMVarsSharing mvar)
   -- Emulate the shareCommonPreDefs step before sending the term to the kernel.
   -- If we don't do this, kernel checking time balloons.
-  -- let (expr, shareMs) ← timeItMs do
-  --   SymM.run (shareCommon expr)
+  let (expr, shareMs) ← timeItMs do
+    SymM.run (shareCommon expr)
   trace[Loom.Tactic.vcgen] "expr: {expr}"
   let (_, kernelMs) ← timeItMs (checkWithKernel expr)
   let mut msg := s!"goal_{n}: {ms} ms"
@@ -56,7 +54,7 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
   else
     msg := msg ++ s!", {mvarIds.length} VCs"
   msg := msg ++ s!", instantiate: {instMs} ms"
-  -- msg := msg ++ s!", shareCommon: {shareMs} ms"
+  msg := msg ++ s!", shareCommon: {shareMs} ms"
   msg := msg ++ s!", kernel: {kernelMs} ms"
   IO.println msg
 
@@ -71,6 +69,7 @@ Solves a goal of the form `goal n` using the given tactic, where `n` ranges over
 For many benchmarks, this is `[step, loop]`.
 -/
 public def runBenchUsingTactic (goal : Name) (unfold : List Name) (solve : MetaM (TSyntax `tactic)) (discharge : MetaM (TSyntax `tactic)) (sizes : List Nat) : MetaM Unit := do
+  IO.println s!"--- {(← getEnv).mainModule} ---"
   for n in sizes do
     solveUsingTactic goal unfold n solve discharge
 
