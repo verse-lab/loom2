@@ -27,10 +27,12 @@ def Goal (n : Nat) : Prop :=
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
-#eval
-  runBenchUsingTactic
+def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| (intro s; mvcgen'))
     `(tactic| sorry)
-    --[400, 500, 600, 700, 800, 900, 1000]
-    [1000]
+
+#time
+#eval runTests [200, 250, 300, 350, 400, 450]
+    -- [400, 500, 600, 700, 800, 900, 1000]
+    -- [1000]

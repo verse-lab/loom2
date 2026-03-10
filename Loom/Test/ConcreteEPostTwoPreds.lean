@@ -39,9 +39,9 @@ set_option maxHeartbeats 10000000
 
 -- set_option trace.Loom.Tactic.vcgen true
 
-#eval
-  runBenchUsingTactic
+def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| mvcgen')
     `(tactic| sorry)
-    [1000]
+
+#eval runTests [1000]

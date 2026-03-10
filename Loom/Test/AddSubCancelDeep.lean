@@ -53,5 +53,6 @@ theorem Spec.M_set_Nat (n : Nat) :
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
-#eval runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂ h; mvcgen')) `(tactic| grind)
-  [1000]
+def runTests := runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂ h; mvcgen')) `(tactic| grind)
+
+#eval runTests [1000]

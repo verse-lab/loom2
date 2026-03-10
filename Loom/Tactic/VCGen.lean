@@ -230,11 +230,11 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   -- Use isDefEqGuarded (not isDefEqS) because isDefEqS is a lightweight structural check
   -- that may fail to see through abbreviations like `Unit := PUnit`
   guard <| ← isDefEqGuarded l l'
-  let_expr wp _m' _ _ _monadInst' instWP' _α e' _post _epost := rhs
+  let_expr wp _m' _ _ _monadInst' instWP' _α _e' _post _epost := rhs
     | throwError "target not a wp application {rhs}"
   -- Unifying instWP transitively assigns m, e, cl, monadInst via type-level unification.
   -- For e/e' we only probe that unification exists, without committing assignments.
-  guard <| ← isDefEqGuarded instWP instWP' <&&> isDefEqNoAssign e e'
+  guard <| ← isDefEqGuarded instWP instWP' --<&&> isDefEqNoAssign e e'
   -- Use local excess-state binders so explicit post premises can be re-lifted to `⊑`.
   let mut ss := #[]
   let mut ssTypes := #[]
