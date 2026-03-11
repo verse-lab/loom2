@@ -33,6 +33,8 @@ instance [CompleteLattice eh] [CompleteLattice et] : CompleteLattice' (EPost.con
 instance {σ : Type u} {β : Type v} [CompleteLattice β] : CompleteLattice' (σ → β) where
   cl := inferInstance
 
+-- AssertM α := (p : Prop) × (p -> α)
+
 class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (e : outParam (Type w'))
     [Monad m] extends LawfulMonad m, CompleteLattice l, CompleteLattice' e where
   wpTrans : m α → PredTrans l e α
@@ -69,6 +71,21 @@ theorem WPMonad.wp_econs [Monad m] [WPMonad m l e] (x : m α) (post : α → l) 
 
 theorem WPMonad.wp_econs_bot [Monad m] [WPMonad m l e] (x : m α) (post : α → l) (epost : e) :
     wp x post ⊥ ⊑ wp x post epost := by solve_by_elim [WPMonad.wp_econs, bot_le]
+
+theorem WPMonad.wp_cons_rel [Monad m] [WPMonad m l e] (x : m α) (post post' : α → l) (epost : e)
+    (h : post ⊑ post') {pre : l} (h' : pre ⊑ wp x post epost) :
+    pre ⊑ wp x post' epost :=
+  PartialOrder.rel_trans h' (WPMonad.wp_cons x post post' epost h)
+
+theorem WPMonad.wp_econs_rel [Monad m] [WPMonad m l e] (x : m α) (post : α → l) (epost epost' : e)
+    (h : epost ⊑ epost') {pre : l} (h' : pre ⊑ wp x post epost) :
+    pre ⊑ wp x post epost' :=
+  PartialOrder.rel_trans h' (WPMonad.wp_econs x post epost epost' h)
+
+theorem WPMonad.wp_econs_bot_rel [Monad m] [WPMonad m l e] (x : m α) (post : α → l) (epost : e)
+    {pre : l} (h : pre ⊑ wp x post ⊥) :
+    pre ⊑ wp x post epost :=
+  PartialOrder.rel_trans h (WPMonad.wp_econs_bot x post epost)
 
 /-!
 # Derived theorems for WPMonad

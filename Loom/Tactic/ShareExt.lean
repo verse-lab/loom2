@@ -109,3 +109,10 @@ meta def mkAppS₈ [Monad m] [Internal.MonadShareCommon m] (f a₁ a₂ a₃ a�
 
 meta def mkAppS₉ [Monad m] [Internal.MonadShareCommon m] (f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉ : Expr) : m Expr := do
   mkAppS (← mkAppS₈ f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈) a₉
+
+namespace Loom
+
+def preprocessExpr (e : Expr) : SymM Expr := do
+  shareCommon (← unfoldReducible (← instantiateMVars e))
+
+end Loom

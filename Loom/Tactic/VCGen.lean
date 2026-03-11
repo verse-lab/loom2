@@ -33,9 +33,6 @@ private def getExcessArgTypes (l : Expr) (n : Nat) : MetaM (Array Expr) := do
     l := l.bindingBody!
   return result
 
-def preprocessExpr (e : Expr) : SymM Expr := do
-  shareCommon (← unfoldReducible (← instantiateMVars e))
-
 private def withNameHead? (e : Expr) : Option (Array Expr) :=
   let e := e.consumeMData
   if e.isAppOf ``withName then
