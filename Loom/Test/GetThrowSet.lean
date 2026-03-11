@@ -38,4 +38,4 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro post epost h; mvcgen'))
     `(tactic| sorry)
 
-#eval runTests [400, 500, 600]
+#eval runTests [1000]

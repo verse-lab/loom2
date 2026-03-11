@@ -32,7 +32,7 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro s; mvcgen'))
     `(tactic| sorry)
 
-#time
-#eval runTests [200, 250, 300, 350, 400, 450]
+
+#eval runTests [500]
     -- [400, 500, 600, 700, 800, 900, 1000]
     -- [1000]

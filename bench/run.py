@@ -34,6 +34,8 @@ METRICS = [
     ("share_ms",       "shareCommon"),
     ("kernel_ms",      "Kernel"),
     ("unfold_ms",      "Unfolding"),
+    ("share_per_size",  "ShareCommon / Proof Size"),
+    ("kernel_per_shared", "Kernel / Shared Proof Size"),
 ]
 
 
@@ -86,6 +88,8 @@ def parse_output(size: int, stdout: str) -> dict:
     instantiate_ms = None
     share_ms = None
     kernel_ms = None
+    proof_size = None
+    proof_size_shared = None
 
     for line in stdout.strip().split("\n"):
         line = line.strip()
@@ -98,7 +102,9 @@ def parse_output(size: int, stdout: str) -> dict:
         # With discharge timing
         m = re.match(
             r"goal_(\d+):\s+(\d+)\s+ms,\s+(\d+)\s+VCs\s+by\s+.+?:\s+(\d+)\s+ms,\s+"
-            r"instantiate:\s+(\d+)\s+ms,\s+shareCommon:\s+(\d+)\s+ms,\s+kernel:\s+(\d+)\s+ms",
+            r"instantiate:\s+(\d+)\s+ms,\s+shareCommon:\s+(\d+)\s+ms,\s+kernel:\s+(\d+)\s+ms"
+            r"(?:,\s+proofSize:\s+(\d+))?"
+            r"(?:,\s+proofSizeShared:\s+(\d+))?",
             line,
         )
         if m:
@@ -108,12 +114,18 @@ def parse_output(size: int, stdout: str) -> dict:
             instantiate_ms = int(m.group(5))
             share_ms = int(m.group(6))
             kernel_ms = int(m.group(7))
+            if m.group(8):
+                proof_size = int(m.group(8))
+            if m.group(9):
+                proof_size_shared = int(m.group(9))
             continue
 
         # Without discharge timing (0 VCs)
         m = re.match(
             r"goal_(\d+):\s+(\d+)\s+ms,\s+(\d+)\s+VCs,\s+"
-            r"instantiate:\s+(\d+)\s+ms,\s+shareCommon:\s+(\d+)\s+ms,\s+kernel:\s+(\d+)\s+ms",
+            r"instantiate:\s+(\d+)\s+ms,\s+shareCommon:\s+(\d+)\s+ms,\s+kernel:\s+(\d+)\s+ms"
+            r"(?:,\s+proofSize:\s+(\d+))?"
+            r"(?:,\s+proofSizeShared:\s+(\d+))?",
             line,
         )
         if m:
@@ -123,6 +135,10 @@ def parse_output(size: int, stdout: str) -> dict:
             instantiate_ms = int(m.group(4))
             share_ms = int(m.group(5))
             kernel_ms = int(m.group(6))
+            if m.group(7):
+                proof_size = int(m.group(7))
+            if m.group(8):
+                proof_size_shared = int(m.group(8))
             continue
 
     if vcgen_ms is None:
@@ -140,6 +156,8 @@ def parse_output(size: int, stdout: str) -> dict:
         "share_ms": share_ms,
         "kernel_ms": kernel_ms,
         "total_ms": total_ms,
+        "proof_size": proof_size or 0,
+        "proof_size_shared": proof_size_shared or 0,
     }
 
 
@@ -234,11 +252,24 @@ def copy_current_to_baseline():
     print(f"Baseline saved: {dst}")
 
 
+COMPONENT_METRICS = [
+    ("unfold_ms",      "Unfolding"),
+    ("vcgen_ms",       "VC Generation"),
+    ("discharge_ms",   "Discharging"),
+    ("instantiate_ms", "Instantiate"),
+    ("share_ms",       "shareCommon"),
+    ("kernel_ms",      "Kernel"),
+]
+
+COMPONENT_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"]
+
+
 def generate_plots(results: dict, baseline: dict | None):
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_pdf import PdfPages
     except ImportError:
         print("matplotlib not installed. Install with: pip install matplotlib")
         return
@@ -249,61 +280,166 @@ def generate_plots(results: dict, baseline: dict | None):
     cmap = matplotlib.colormaps["tab10"]
     colors = {name: cmap(i) for i, name in enumerate(bench_names)}
 
-    nmetrics = len(METRICS)
-    ncols = 3
-    nrows = (nmetrics + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(18, 4 * nrows))
-    axes = axes.flatten()
+    output_path = RESULTS_DIR / "plots.pdf"
+    with PdfPages(str(output_path)) as pdf:
+        # Page 1: metric comparison across benchmarks
+        nmetrics = len(METRICS)
+        ncols = 3
+        nrows = (nmetrics + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(18, 4 * nrows))
+        axes = axes.flatten()
 
-    title = f"Loom Benchmarks — {results.get('git_branch', '?')}@{results.get('git_commit', '?')}"
-    if baseline:
-        title += f" (baseline: {baseline.get('git_branch', '?')}@{baseline.get('git_commit', '?')})"
-    fig.suptitle(title, fontsize=14)
+        title = f"Loom Benchmarks — {results.get('git_branch', '?')}@{results.get('git_commit', '?')}"
+        if baseline:
+            title += f" (baseline: {baseline.get('git_branch', '?')}@{baseline.get('git_commit', '?')})"
+        fig.suptitle(title, fontsize=14)
 
-    for idx, (metric_key, metric_label) in enumerate(METRICS):
-        ax = axes[idx]
-        ax.set_title(metric_label)
-        ax.set_xlabel("Size (n)")
-        ax.set_ylabel("Time (ms)")
+        for idx, (metric_key, metric_label) in enumerate(METRICS):
+            ax = axes[idx]
+            ax.set_title(metric_label)
+            ax.set_xlabel("Size (n)")
+            # (numerator_key, denominator_key, multiplier, y_label)
+            RATIO_METRICS = {
+                "share_per_size":    ("share_ms",  "proof_size",        1_000_000, "μs per obj"),
+                "kernel_per_shared": ("kernel_ms", "proof_size_shared", 1_000,     "ms per K objs"),
+            }
+            if metric_key in RATIO_METRICS:
+                ax.set_ylabel(RATIO_METRICS[metric_key][3])
+            else:
+                ax.set_ylabel("Time (ms)")
 
-        for bench_name in bench_names:
+            def get_values(ok_data, mkey):
+                if mkey in RATIO_METRICS:
+                    num_key, denom_key, mult, _ = RATIO_METRICS[mkey]
+                    filtered = [d for d in ok_data if d.get(denom_key, 0) > 0]
+                    sizes = [d["size"] for d in filtered]
+                    values = [d[num_key] * mult / d[denom_key] for d in filtered]
+                    return sizes, values
+                else:
+                    sizes = [d["size"] for d in ok_data]
+                    values = [d.get(mkey, 0) for d in ok_data]
+                    return sizes, values
+
+            for bench_name in bench_names:
+                data = benchmarks[bench_name]["results"]
+                ok_data = [d for d in data if d.get("status") == "ok"]
+                sizes, values = get_values(ok_data, metric_key)
+                if values:
+                    ax.plot(sizes, values, "o-", color=colors[bench_name],
+                            label=bench_name, markersize=4)
+
+            if baseline:
+                for bench_name in bench_names:
+                    if bench_name not in baseline.get("benchmarks", {}):
+                        continue
+                    data = baseline["benchmarks"][bench_name]["results"]
+                    ok_data = [d for d in data if d.get("status") == "ok"]
+                    sizes, values = get_values(ok_data, metric_key)
+                    if values:
+                        ax.plot(sizes, values, "--", color=colors[bench_name],
+                                alpha=0.5, markersize=3)
+
+            ax.grid(True, alpha=0.3)
+
+        for idx in range(nmetrics, len(axes)):
+            axes[idx].set_visible(False)
+
+        handles, labels = axes[0].get_legend_handles_labels()
+        if handles:
+            fig.legend(handles, labels, loc="lower center",
+                       ncol=min(len(bench_names), 6), fontsize=9,
+                       bbox_to_anchor=(0.5, -0.02))
+
+        plt.tight_layout(rect=[0, 0.04, 1, 0.96])
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # Page 2: per-benchmark stacked area charts (component breakdown)
+        ncols = 3
+        nrows = (len(bench_names) + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(18, 4 * nrows))
+        if nrows == 1:
+            axes = [axes]
+        axes_flat = [ax for row in axes for ax in (row if hasattr(row, '__len__') else [row])]
+
+        fig.suptitle("Component Breakdown per Benchmark", fontsize=14)
+
+        for idx, bench_name in enumerate(bench_names):
+            ax = axes_flat[idx]
             data = benchmarks[bench_name]["results"]
             ok_data = [d for d in data if d.get("status") == "ok"]
-            sizes = [d["size"] for d in ok_data]
-            values = [d.get(metric_key, 0) for d in ok_data]
-            if values:
-                ax.plot(sizes, values, "o-", color=colors[bench_name],
-                        label=bench_name, markersize=4)
+            if not ok_data:
+                ax.set_visible(False)
+                continue
 
-        if baseline:
-            for bench_name in bench_names:
-                if bench_name not in baseline.get("benchmarks", {}):
-                    continue
-                data = baseline["benchmarks"][bench_name]["results"]
-                ok_data = [d for d in data if d.get("status") == "ok"]
-                sizes = [d["size"] for d in ok_data]
-                values = [d.get(metric_key, 0) for d in ok_data]
-                if values:
-                    ax.plot(sizes, values, "--", color=colors[bench_name],
+            sizes = [d["size"] for d in ok_data]
+            stacks = []
+            labels = []
+            for metric_key, metric_label in COMPONENT_METRICS:
+                stacks.append([d.get(metric_key, 0) for d in ok_data])
+                labels.append(metric_label)
+
+            ax.stackplot(sizes, *stacks, labels=labels, colors=COMPONENT_COLORS, alpha=0.85)
+            ax.set_title(bench_name)
+            ax.set_xlabel("Size (n)")
+            ax.set_ylabel("Time (ms)")
+            ax.grid(True, alpha=0.3)
+
+        for idx in range(len(bench_names), len(axes_flat)):
+            axes_flat[idx].set_visible(False)
+
+        # Shared legend from last visible plot
+        handles, labels = axes_flat[0].get_legend_handles_labels()
+        if handles:
+            fig.legend(handles, labels, loc="lower center",
+                       ncol=len(COMPONENT_METRICS), fontsize=9,
+                       bbox_to_anchor=(0.5, -0.02))
+
+        plt.tight_layout(rect=[0, 0.04, 1, 0.96])
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # Page 3: per-benchmark proof size plots
+        fig, axes = plt.subplots(2, 3, figsize=(18, 8))
+        axes_flat = axes.flatten()
+        fig.suptitle("Proof Size per Benchmark", fontsize=14)
+
+        for idx, bench_name in enumerate(bench_names):
+            ax = axes_flat[idx]
+            data = benchmarks[bench_name]["results"]
+            ok_data = [d for d in data if d.get("status") == "ok"]
+            if not ok_data:
+                ax.set_visible(False)
+                continue
+
+            sizes = [d["size"] for d in ok_data]
+            values = [d.get("proof_size", 0) / 1_000 for d in ok_data]
+            shared_values = [d.get("proof_size_shared", 0) / 1_000 for d in ok_data]
+            ax.plot(sizes, values, "o-", color=colors[bench_name], markersize=4, label="before sharing")
+            ax.plot(sizes, shared_values, "s-", color=colors[bench_name], markersize=4, alpha=0.6, label="after sharing")
+
+            if baseline and bench_name in baseline.get("benchmarks", {}):
+                bdata = baseline["benchmarks"][bench_name]["results"]
+                bok = [d for d in bdata if d.get("status") == "ok"]
+                bsizes = [d["size"] for d in bok]
+                bvalues = [d.get("proof_size", 0) / 1_000 for d in bok]
+                if bvalues:
+                    ax.plot(bsizes, bvalues, "--", color=colors[bench_name],
                             alpha=0.5, markersize=3)
 
-        ax.grid(True, alpha=0.3)
+            ax.set_title(bench_name)
+            ax.set_xlabel("Size (n)")
+            ax.set_ylabel("Proof Size (K objs)")
+            ax.legend(fontsize=7)
+            ax.grid(True, alpha=0.3)
 
-    # Hide unused subplots
-    for idx in range(nmetrics, len(axes)):
-        axes[idx].set_visible(False)
+        for idx in range(len(bench_names), len(axes_flat)):
+            axes_flat[idx].set_visible(False)
 
-    # Shared legend
-    handles, labels = axes[0].get_legend_handles_labels()
-    if handles:
-        fig.legend(handles, labels, loc="lower center",
-                   ncol=min(len(bench_names), 6), fontsize=9,
-                   bbox_to_anchor=(0.5, -0.02))
+        plt.tight_layout(rect=[0, 0.02, 1, 0.96])
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
 
-    plt.tight_layout(rect=[0, 0.04, 1, 0.96])
-    output_path = RESULTS_DIR / "plots.pdf"
-    fig.savefig(str(output_path), bbox_inches="tight")
-    plt.close(fig)
     print(f"Plots saved to {output_path}")
 
 

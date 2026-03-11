@@ -10,7 +10,6 @@ import Lean.Elab
 
 
 open Lean Parser Meta Elab Tactic Sym
-#check instantiateMVars
 
 def timeItMs (k : MetaM α) : MetaM (α × UInt64) := do
   let startTime ← IO.monoNanosNow
@@ -43,10 +42,12 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
         let ([], _) ← Lean.Elab.runTactic mvarId discharge.raw {} {}
           | throwError "{dischargePp} failed to solve {mvarId}"
   let (expr, instMs) ← timeItMs (instantiateMVars mvar)
+  let proofSize ← expr.numObjs
   -- Emulate the shareCommonPreDefs step before sending the term to the kernel.
   -- If we don't do this, kernel checking time balloons.
-  let (expr, shareMs) ← timeItMs do
-    SymM.run (shareCommon expr)
+  let (expr, shareMs) ← timeItMs fun _ => do
+    return ShareCommon.shareCommon' expr
+  let proofSizeShared ← expr.numObjs
   trace[Loom.Tactic.vcgen] "expr: {expr}"
   let (_, kernelMs) ← timeItMs (checkWithKernel expr)
   let mut msg := s!"goal_{n}: {ms} ms"
@@ -57,6 +58,8 @@ def driver (goal : Name) (unfold : List Name) (n : Nat) (discharge : MetaM (TSyn
   msg := msg ++ s!", instantiate: {instMs} ms"
   msg := msg ++ s!", shareCommon: {shareMs} ms"
   msg := msg ++ s!", kernel: {kernelMs} ms"
+  msg := msg ++ s!", proofSize: {proofSize}"
+  msg := msg ++ s!", proofSizeShared: {proofSizeShared}"
   IO.println msg
 
 def solveUsingTactic (goal : Name) (unfold : List Name) (n : Nat) (solve : MetaM (TSyntax `tactic)) (discharge : MetaM (TSyntax `tactic)) (check := true) : MetaM Unit := do
@@ -79,7 +82,7 @@ def solveUsingSym (goal : Name) (unfold : List Name) (n : Nat) (solve : MVarId �
 
 /--
 Solves a goal of the form `goal n` using a `SymM` procedure, where `n` ranges over `sizes`.
-`unfold` is a list of `simp` lemmas to apply in order to unfold `goal n`.
+`unfold` is a list of `simp` lemmas to apply in order to unfold `goal n``.
 For many benchmarks, this is `[step, loop]`.
 -/
 public def runBenchUsingSym (goal : Name) (unfold : List Name) (solve : MVarId → SymM (List MVarId)) (discharge : MetaM (TSyntax `tactic)) (sizes : List Nat) : MetaM Unit := do
