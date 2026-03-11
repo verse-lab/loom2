@@ -80,6 +80,17 @@ def findSpecs (database : SpecTheorems) (e : Expr) :
 
 /-! ## Backward rule construction from specs -/
 
+/-- Build the explicit pointwise implication premise used to weaken a concrete `post`. -/
+private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes : Array Expr) : SymM Expr := do
+  let .forallE _ α _ _ := postTy
+    | throwError "expected a postcondition function, got {indentExpr postTy}"
+  withLocalDeclD `a α fun a => do
+    let ssNamesTypes := ssTypes.map (`s, ·)
+    withLocalDeclsDND ssNamesTypes fun ss' => do
+      let lhs := postSpec.betaRev <| ss'.reverse.push a
+      let rhs := mkAppN (mkApp postTarget a) ss'
+      mkForallFVars (#[a] ++ ss') (← mkArrow lhs rhs)
+
 /--
 Turn a spec proof `pre ⊑ wp prog post epost` into a backward rule proof term.
 
@@ -90,7 +101,7 @@ or `WPMonad.wp_econs_bot_rel`. If `pre` is concrete, it is generalized using `Pa
 The result stays in `⊑` form: `?pre s1..sn ⊑ wp prog ?post ?epost s1..sn`.
 -/
 private def mkSpecBackwardProof
-    (pre rhs specProof : Expr) (ss _ssTypes : Array Expr) : SymM AbstractMVarsResult := do
+    (pre rhs specProof : Expr) (ss ssTypes : Array Expr) : SymM AbstractMVarsResult := do
   /- we start with `pre ⊑ wp prog post epost` where
   1. `pre` represents the Lean expression for `pre`
   2. `rhs` represents the Lean expression for `wp prog post epost`
@@ -109,8 +120,8 @@ private def mkSpecBackwardProof
     let postTy ← Sym.inferType postSpec
     /- mvar `postAbstract` for new abstract `post` -/
     postAbstract ← mkFreshExprMVar (userName := `post) postTy
-    /- premise type `postSpec ⊑ postAbstract` for abstracting concrete `post` -/
-    let hpostTy ← mkAppM ``PartialOrder.rel #[postSpec, postAbstract]
+    /- premise type `∀ (a : α) (s₁ : σ₁) ... (sₙ : σₙ), postSpec a s₁ ... sₙ → postAbstract a s₁ ... sₙ` -/
+    let hpostTy ← mkPostPointwisePremise postSpec postAbstract postTy ssTypes
     /- mvar `?postImpl` for the proof of the premise -/
     let hpost ← mkFreshExprMVar (userName := `postImpl) hpostTy
     /- get the proof of `pre ⊑ wp prog postAbstract epostSpec`, where `post` is abstracted.
@@ -128,7 +139,9 @@ private def mkSpecBackwardProof
       introducing a new premise. This case is quite common, that's why we handle
       it specially. -/
     let_expr bot _ _ := epostSpec |
-      /- premise type `epostSpec ⊑ epostAbstract` for abstracting concrete `epost` -/
+      /- premise type `epostSpec ⊑ epostAbstract` for abstracting concrete `epost`
+        Note: we leave it in the form of `⊑` it here, because we cannot decompose `epostAbstact`
+        The latter we will get on the level of `solver` function. So we handle the whole thing later -/
       let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostAbstract]
       /- mvar `?epostImpl` for the proof of the premise -/
       let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
@@ -196,5 +209,115 @@ def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   let type ← preprocessExpr (← Meta.inferType res.expr)
   let spec ← Meta.mkAuxLemma res.paramNames.toList type res.expr
   mkBackwardRuleFromDecl spec
+
+/-! ## Tests for mkSpecBackwardProof -/
+
+section Test
+
+/-- Test helper: call mkSpecBackwardProof directly and return the type of the result.
+    Mirrors `testSpecBackwardProofType` from VCGen.lean but for the new ⊑-form output. -/
+private def testSpecBackwardProofType' (declName : Name)
+    (excessArgTypes : Array Expr) : MetaM Expr := do
+  let specThm ← mkSpecTheoremFromConst declName
+  let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
+  let_expr PartialOrder.rel _ _ pre rhs := specType
+    | throwError "not a partial order ⊑ application {specType}"
+  let excessArgNamesTypes := excessArgTypes.map fun ty => (`s, ty)
+  let spec ← withLocalDeclsDND excessArgNamesTypes fun ss => do
+    let res ← SymM.run <| mkSpecBackwardProof pre rhs specProof ss excessArgTypes
+    mkLambdaFVars ss res.expr
+  instantiateMVars (← inferType spec)
+
+/-- Test helper: call tryMkBackwardRuleFromSpec and return the backward rule type. -/
+private def testBackwardRule' (declName : Name) (l instWP : Expr)
+    (excessArgs : Array Expr) : MetaM Expr := do
+  let specThm ← mkSpecTheoremFromConst declName
+  let rule ← SymM.run do
+    tryMkBackwardRuleFromSpec specThm l instWP excessArgs
+  match rule with
+  | some br => inferType br.expr
+  | none => throwError "tryMkBackwardRuleFromSpec returned none for {declName}"
+
+-- Test 1': wp_bind for Id, n=0 excess args (abstract pre/post/epost)
+#eval! show MetaM Unit from do
+  let m := mkConst ``Id [.zero]
+  let l := mkSort 0
+  let errTy := mkConst ``EPost.nil
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let ty ← testBackwardRule' ``WPMonad.wp_bind l instWP #[]
+  logInfo m!"Test 1' (Id, n=0): {ty}"
+
+-- Test 2': wp_bind for StateM Nat, n=1 excess arg
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let m ← mkAppM ``StateM #[nat]
+  let l ← mkArrow nat (mkSort 0)
+  let errTy := mkConst ``EPost.nil
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  withLocalDeclD `s nat fun s => do
+    let ty ← testBackwardRule' ``WPMonad.wp_bind l instWP #[s]
+    logInfo m!"Test 2' (StateM Nat, n=1): {ty}"
+
+-- Test A': concrete post, 1 excess arg
+@[local lspec high]
+theorem spec_set_concretePost_test' (epost : EPost.nil) :
+    wp (set (m := StateM Nat) 7) (fun _ _ => True) epost ⊑
+      wp (set (m := StateM Nat) 7) (fun _ _ => True) epost := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let ty ← testSpecBackwardProofType' ``spec_set_concretePost_test' #[nat]
+  logInfo m!"Test A' (concrete post, n=1): {ty}"
+
+-- Test B': concrete epost (non-⊥), 0 excess args
+@[local lspec high]
+theorem spec_throw_concreteEPost_test' (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw "boom" : Except String PUnit) post epost⟨fun _ => True⟩ ⊑
+      wp (MonadExceptOf.throw "boom" : Except String PUnit) post epost⟨fun _ => True⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let ty ← testSpecBackwardProofType' ``spec_throw_concreteEPost_test' #[]
+  logInfo m!"Test B' (concrete epost, n=0): {ty}"
+
+-- Test C': concrete post + epost, 0 excess args
+@[local lspec high]
+theorem spec_throw_concretePostEPost_test' :
+    wp (MonadExceptOf.throw "boom" : Except String PUnit) (fun _ => True) epost⟨fun _ => True⟩ ⊑
+      wp (MonadExceptOf.throw "boom" : Except String PUnit) (fun _ => True) epost⟨fun _ => True⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let ty ← testSpecBackwardProofType' ``spec_throw_concretePostEPost_test' #[]
+  logInfo m!"Test C' (concrete post+epost, n=0): {ty}"
+
+-- Test D': nested concrete epost, 0 excess args
+@[local lspec high]
+theorem spec_throw_nestedConcreteEPost_test' (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw 7 : ExceptT Nat (Except String) PUnit) post
+      epost⟨fun n => n = 7, fun s => s = "inner"⟩ ⊑
+    wp (MonadExceptOf.throw 7 : ExceptT Nat (Except String) PUnit) post
+      epost⟨fun n => n = 7, fun s => s = "inner"⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let ty ← testSpecBackwardProofType' ``spec_throw_nestedConcreteEPost_test' #[]
+  logInfo m!"Test D' (nested epost, n=0): {ty}"
+
+-- Test E': ⊥ epost, 0 excess args (should have no epost premise)
+@[local lspec high]
+theorem spec_throw_botEPost_test' (post : PUnit → Prop) :
+    wp (MonadExceptOf.throw "boom" : Except String PUnit) post (⊥ : EPost⟨String → Prop⟩) ⊑
+      wp (MonadExceptOf.throw "boom" : Except String PUnit) post (⊥ : EPost⟨String → Prop⟩) := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let ty ← testSpecBackwardProofType' ``spec_throw_botEPost_test' #[]
+  logInfo m!"Test E' (bot epost, n=0): {ty}"
+
+end Test
 
 end Loom.Tactic.Spec
