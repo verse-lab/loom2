@@ -65,8 +65,9 @@ def findSpecs (database : SpecTheorems) (e : Expr) :
     SymM (Except (Array SpecTheorem) SpecTheorem) := do
   trace[Loom.Tactic.vcgen] "Finding specs for {e}"
   let e ← instantiateMVars e
+  -- Eta-reduce to match disc tree keys (patterns are preprocessed with etaReduceAll)
   let e ← shareCommon e
-  let candidates <- database.specs.getMatch e
+  let candidates := Sym.getMatch database.specs e
 
   trace[Loom.Tactic.vcgen] "Candidates: {candidates.map (·.proof.key)}"
   let candidates := candidates.filter (!database.erased.contains ·.proof)

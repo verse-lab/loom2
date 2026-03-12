@@ -30,8 +30,6 @@ def Goal (n : Nat) : Prop := ∀ s post (_ : post s), wp (loop n) (fun _ => post
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
--- set_option trace.Loom.Tactic.vcgen true
-
 def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| (intro s post h; mvcgen'))

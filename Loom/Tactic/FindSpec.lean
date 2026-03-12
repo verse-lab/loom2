@@ -60,6 +60,7 @@ Returns `.ok spec` on the first match, or `.error candidates` if no spec matches
 def findSpecs (database : SpecTheorems) (e : Expr) :
     SymM (Except (Array SpecTheorem) SpecTheorem) := do
   let e ← instantiateMVars e
+  -- Eta-reduce to match disc tree keys (patterns are preprocessed with etaReduceAll)
   let e ← shareCommon e
   let candidates := Sym.getMatch database.specs e
   let candidates := candidates.filter (!database.erased.contains ·.proof)

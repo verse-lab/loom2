@@ -326,6 +326,12 @@ theorem propSup_is_sup (c : Prop → Prop) : is_sup c (propSup c) := by
 instance : CompleteLattice Prop where
   has_sup c := ⟨propSup c, propSup_is_sup c⟩
 
+theorem prop_pre_intro (x y : Prop) : (x → True ⊑ y) → x ⊑ y :=
+  fun h hx => h hx trivial
+
+theorem prop_pre_elim (x : Prop) : x → True ⊑ x :=
+  fun hx _ => hx
+
 @[simp] theorem iInf_prop_eq_forall {ι : Type u} (f : ι → Prop) :
     (iInf f : Prop) = (∀ i, f i) := by
   apply propext

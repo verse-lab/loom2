@@ -22,6 +22,8 @@ initialize registerTraceClass `Loom.Tactic.vcgen
 
 structure VCGen.Context where
   specThms : SpecTheorems
+  introPreRule : BackwardRule
+  elimPreRule : BackwardRule
 
 structure VCGen.State where
   specBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
@@ -84,6 +86,8 @@ inductive GoalKind where
   | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
   /-- RHS is a WP application. -/
   | WP (head : Expr) (args : Array Expr)
+  /-- Lattice type is Prop and precondition is not `True`; intro the pre. -/
+  | IntroPre
   /-- RHS is neither a recognized WP nor a recognized lattice connective. -/
   | Unknown
 
@@ -113,30 +117,16 @@ private partial def peelEPostTailChain (curr : Expr) (idx : Nat := 0) : Expr × 
 /-- Classify the RHS of a `pre ⊑ rhs` goal. If the target is not in `⊑` form,
     falls back to classifying the target directly. -/
 def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
-  -- Try to decompose as PartialOrder.rel _ _ pre rhs
-  let rhs :=
-    match_expr target with
-    | PartialOrder.rel _ _ _pre rhs => rhs
-    | _ => target
-  rhs.withApp fun head args => do
-    match_expr head with
-    | True => return .TrivialTrue
-    | EPost.cons.head =>
-        let some epostArg := args[2]?
-          | return .Unknown
-        let (epostTarget, index) := peelEPostTailChain epostArg
-        let epost ← mkEPostAtIndex epostTarget index
-        return .EPostVC epost (args.extract 3 args.size)
-    | wp => return .WP head args
-    | meet =>
-      let excessArgs := args.drop 4
-      let as := args.extract 2 4
-      return .Lattice .And as excessArgs
-    | himp =>
-      let excessArgs := args.drop 4
-      let as := args.extract 2 4
-      return .Lattice .Imp as excessArgs
-    | _ => return .Unknown
+  -- If the lattice type is Prop and pre is not True, intro the pre
+  match_expr target with
+  | PartialOrder.rel _ _ pre rhs =>
+    if pre.isConstOf ``True then
+      rhs.withApp fun head args => do
+        match_expr head with
+        | wp => return .WP head args
+        | _ => return .Unknown
+    else return .IntroPre
+  | _ => return .Unknown
 
 /-- Main solve step for a goal of the form `pre ⊑ rhs`. -/
 def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
@@ -145,6 +135,14 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   match kind with
   | .TrivialTrue => do
       throwError "TrivialTrue not yet implemented in VCGen'"
+  | .IntroPre => do
+      let rule := (← read).introPreRule
+      let .goals goals ← rule.apply goal
+        | throwError "Failed to apply intro_pre rule"
+      let goals ← goals.mapM fun g => do
+        let .goal _ g ← Sym.intros g | throwError "Failed to intro pre"
+        return g
+      return .goals goals
   | .Unknown =>
       return .noProgramOrLatticeFoundInTarget target
   | .Lattice _lop _as _excessArgs => do
@@ -192,8 +190,16 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   | .EPostVC _epost _excessArgs => do
       throwError "EPostVC not yet implemented in VCGen'"
 
-/-- Emit a VC for a goal that cannot be further decomposed. -/
+/-- Emit a VC for a goal that cannot be further decomposed.
+    If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper. -/
 meta def emitVC (goal : MVarId) : VCGenM Unit := do
+  let mut goal := goal
+  let ty ← goal.getType
+  if let some (_, _, Expr.const ``True _, _) := ty.app4? ``PartialOrder.rel then
+    let rule := (← read).elimPreRule
+    let .goals [goal'] ← rule.apply goal
+      | throwError "Failed to apply elim_pre rule"
+    goal := goal'
   let ty ← goal.getType
   goal.setKind .syntheticOpaque
   if ty.isAppOf ``Std.Do.Invariant then
@@ -215,6 +221,10 @@ meta def unfoldTriple (goal : MVarId) : OptionT SymM MVarId := goal.withContext 
 /-- Main work loop: decompose the goal repeatedly. -/
 meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← preprocessMVar goal
+  -- (← goal.getType).checkMaxShared
+  let target ← shareCommon <| ←  Sym.etaReduceAll <| ← goal.getType
+  let goal ← goal.replaceTargetDefEq target
+  -- (← goal.getType).checkMaxShared
   let some goal ← unfoldTriple goal |>.run | return ()
   -- No introsWP — we keep goals in ⊑ form
   let mut worklist := Std.Queue.empty.enqueue goal
@@ -258,7 +268,9 @@ public meta def elabMVCGen' : Tactic := fun _stx => withMainContext do
   let goal ← getMainGoal
   let { invariants, vcs } ← SymM.run do
     let migratedCtx ← migrateSpecTheoremsDatabase ctx
-    VCGen.main goal { specThms := migratedCtx }
+    let introPreRule ← mkBackwardRuleFromDecl ``prop_pre_intro
+    let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
+    VCGen.main goal { specThms := migratedCtx, introPreRule, elimPreRule }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen
