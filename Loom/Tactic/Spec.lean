@@ -6,6 +6,7 @@ import Lean
 import Loom.Tactic.Attr
 import Loom.Tactic.Logic
 import Loom.Triple.Basic
+import Loom.Triple.SpecLemmas
 
 namespace Loom.Tactic.Spec
 
@@ -62,9 +63,12 @@ Returns `.ok spec` on the first match, or `.error candidates` if no spec matches
 -/
 def findSpecs (database : SpecTheorems) (e : Expr) :
     SymM (Except (Array SpecTheorem) SpecTheorem) := do
+  trace[Loom.Tactic.vcgen] "Finding specs for {e}"
   let e ← instantiateMVars e
   let e ← shareCommon e
-  let candidates := Sym.getMatch database.specs e
+  let candidates <- database.specs.getMatch e
+
+  trace[Loom.Tactic.vcgen] "Candidates: {candidates.map (·.proof.key)}"
   let candidates := candidates.filter (!database.erased.contains ·.proof)
   if h : candidates.size = 1 then return .ok candidates[0]
   let candidates := candidates.insertionSort (·.priority > ·.priority)
@@ -152,29 +156,41 @@ private def mkSpecBackwardProof
        This proof DOES NOT have a `?epostImpl` premise -/
     specApplied ← mkAppM ``WPMonad.wp_econs_bot_rel #[prog, postAbstract, epostAbstract, specApplied]
 
+  let preApplied ← betaRevS pre ss.reverse
+  specApplied := mkAppN specApplied ss
+  let wpTy ← mkAppM ``wp <| #[prog, postAbstract, epostAbstract] ++ ss
+  let specAppliedTy ← mkAppM ``PartialOrder.rel #[preApplied, wpTy]
+  specApplied ← mkExpectedTypeHint specApplied specAppliedTy
+  /- use `betaRevS` to avoid creating beta redexes when `pre` is a lambda -/
+  let preAppliedTy ← Meta.inferType preApplied
+  let preAbstract ← mkFreshExprMVar (userName := `pre) preAppliedTy
+  let specAbstractTy ← mkAppM ``PartialOrder.rel #[preAbstract, preApplied]
+  let specAbstract ← mkFreshExprMVar (userName := `vc) specAbstractTy
+  specApplied ← mkAppM ``PartialOrder.rel_trans #[specAbstract, specApplied]
+
   /- At this point, `specApplied` has type `pre ⊑ wp prog ?postAbstract ?epostAbstract` at `l` level.
      Apply excess args to get pointwise form at `l'` level (where `l = S1 → ... → Sn → l'`):
      `specApplied s1..sn : pre s1..sn ⊑ wp prog ?postAbstract ?epostAbstract s1..sn` -/
-  specApplied := mkAppN specApplied ss
+  -- specApplied := mkAppN specApplied ss
+  -- let wpTy ← mkAppM ``wp <| #[prog, postAbstract, epostAbstract] ++ ss
+  -- let specAppliedTy ← mkAppM ``PartialOrder.rel #[preApplied, wpTy]
+  -- specApplied ← mkExpectedTypeHint specApplied specAppliedTy
 
   /- abstract concrete `pre` if it is not already abstract.
      Uses transitivity: `?preAbstract s1..sn ⊑ pre s1..sn ⊑ wp ... s1..sn`
      The premise `?preAbstract s1..sn ⊑ pre s1..sn` uses `PartialOrder.rel` at `l'` level
      (not `→`), since `l'` may not be `Prop`. -/
-  let preAbstract := pre.consumeMData
-  unless preAbstract.isMVar do
-    let preTy ← Sym.inferType pre
-    let preAbstract ← mkFreshExprMVar (userName := `pre) preTy
-    /- no need for `betaRevS` on a fresh mvar — it cannot have betas -/
-    let preAbstractApplied := mkAppN preAbstract ss
-    /- use `betaRevS` to avoid creating beta redexes when `pre` is a lambda -/
-    let preApplied ← betaRevS pre ss.reverse
-    /- premise type `preAbstract s1..sn ⊑ pre s1..sn` at `l'` level -/
-    let hpreRelTy ← mkAppM ``PartialOrder.rel #[preAbstractApplied, preApplied]
-    /- mvar `?preImpl` for the proof of the premise -/
-    let hpreRel ← mkFreshExprMVar (userName := `preImpl) hpreRelTy
-    /- chain transitivity: ?preAbstract s1..sn ⊑ pre s1..sn ⊑ wp ... s1..sn -/
-    specApplied ← mkAppM ``PartialOrder.rel_trans #[hpreRel, specApplied]
+  -- unless preAbstract.isMVar do
+  --   let preTy ← Sym.inferType pre
+  --   let preAbstract ← mkFreshExprMVar (userName := `pre) preTy
+  --   /- no need for `betaRevS` on a fresh mvar — it cannot have betas -/
+  --   let preAbstractApplied := mkAppN preAbstract ss
+  --   /- premise type `preAbstract s1..sn ⊑ pre s1..sn` at `l'` level -/
+  --   let hpreRelTy ← mkAppM ``PartialOrder.rel #[preAbstractApplied, preApplied]
+  --   /- mvar `?preImpl` for the proof of the premise -/
+  --   let hpreRel ← mkFreshExprMVar (userName := `preImpl) hpreRelTy
+  --   /- chain transitivity: ?preAbstract s1..sn ⊑ pre s1..sn ⊑ wp ... s1..sn -/
+  --   specApplied ← mkAppOptM ``PartialOrder.rel_trans #[none, none, none, none, wpTy, hpreRel, specApplied]
 
   abstractMVars specApplied
 
@@ -317,6 +333,40 @@ theorem spec_throw_botEPost_test' (post : PUnit → Prop) :
 #eval! show MetaM Unit from do
   let ty ← testSpecBackwardProofType' ``spec_throw_botEPost_test' #[]
   logInfo m!"Test E' (bot epost, n=0): {ty}"
+
+-- Test F': Spec.get_StateT for StateM Nat (abstract post/epost, concrete pre)
+@[local lspec high]
+theorem spec_get_StateM_test' (post : Nat → Nat → Prop) (epost : EPost.nil) :
+    (fun s => post s s) ⊑ wp (MonadStateOf.get : StateM Nat Nat) post epost :=
+  Triple.iff.mp (Spec.get_StateT post)
+
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let m ← mkAppM ``StateM #[nat]
+  let l ← mkArrow nat (mkSort 0)
+  let errTy := mkConst ``EPost.nil
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  withLocalDeclD `s nat fun s => do
+    let ty ← testBackwardRule' ``spec_get_StateM_test' l instWP #[s]
+    logInfo m!"Test F' (get_StateT, StateM Nat, n=1): {ty}"
+
+-- Test G': Spec.set_StateT for StateM Nat (abstract post/epost, concrete pre)
+@[local lspec high]
+theorem spec_set_StateM_test' (v : Nat) (post : PUnit → Nat → Prop) (epost : EPost.nil) :
+    (fun _ => post ⟨⟩ v) ⊑ wp (set v : StateM Nat PUnit) post epost :=
+  Triple.iff.mp (Spec.set_StateT v post)
+
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let m ← mkAppM ``StateM #[nat]
+  let l ← mkArrow nat (mkSort 0)
+  let errTy := mkConst ``EPost.nil
+  let monadM ← synthInstance (← mkAppM ``Monad #[m])
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  withLocalDeclD `s nat fun s => do
+    let ty ← testBackwardRule' ``spec_set_StateM_test' l instWP #[s]
+    logInfo m!"Test G' (set_StateT, StateM Nat, n=1): {ty}"
 
 end Test
 

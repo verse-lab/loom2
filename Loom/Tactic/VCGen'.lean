@@ -263,4 +263,32 @@ public meta def elabMVCGen' : Tactic := fun _stx => withMainContext do
 
 end VCGen
 
+-- Quick test: does mvcgen' decompose a simple ⊑ wp goal?
+@[lspec high] theorem spec_get_StateT_test {m : Type u → Type v} {l e : Type u}
+    [Monad m] [WPMonad m l e]
+    {σ : Type u} (post : σ → σ → l) (epost : e) :
+    Triple (fun s => post s s) (MonadStateOf.get : StateT σ m σ) post epost := by
+  exact ⟨WP.get_StateT_wp post epost⟩
+
+-- Check goal shape after preprocessMVar
+#eval show Elab.TermElabM Unit from do
+  let goalTy ← Lean.Elab.Term.elabTerm
+    (← `(∀ post, post ⊑ wp (get >>= fun s => set s : StateM Nat Unit) (fun _ => post) ⟨⟩))
+    none
+  let goal ← mkFreshExprSyntheticOpaqueMVar goalTy
+  let mvarId := goal.mvarId!
+  let preprocessed ← SymM.run do preprocessMVar mvarId
+  let ty ← preprocessed.getType
+  logInfo m!"After preprocessMVar: {ty}"
+  -- Check RHS structure
+  let ty ← instantiateMVars ty
+  match ty with
+  | .forallE _ _ body _ =>
+    let_expr PartialOrder.rel _ _ _pre rhs := body
+      | logInfo m!"Not PartialOrder.rel form: {body}"
+    rhs.withApp fun head _args => do
+      logInfo m!"RHS head: {head}"
+      logInfo m!"RHS head isConst: {head.isConst}"
+  | _ => logInfo m!"Not forall: {ty}"
+
 end Loom
