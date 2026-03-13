@@ -85,16 +85,45 @@ def findSpecs (database : SpecTheorems) (e : Expr) :
 
 /-! ## Backward rule construction from specs -/
 
+/- TODO: what would the proper way? -/
+private def mkStateName (_ty : Expr) : Name := `s
+  -- match ty.const?.map (·.1) with
+  -- | some name => "state" ++ name.toString |>.toName
+  -- | none => `s
+
 /-- Build the explicit pointwise implication premise used to weaken a concrete `post`. -/
 private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes : Array Expr) : SymM Expr := do
   let .forallE _ α _ _ := postTy
     | throwError "expected a postcondition function, got {indentExpr postTy}"
   withLocalDeclD `a α fun a => do
-    let ssNamesTypes := ssTypes.map (`s, ·)
+    let ssNamesTypes := ssTypes.map (fun ty => (mkStateName ty, ty))
     withLocalDeclsDND ssNamesTypes fun ss' => do
       let lhs := postSpec.betaRev <| ss'.reverse.push a
       let rhs := mkAppN (mkApp postTarget a) ss'
-      mkForallFVars (#[a] ++ ss') (← mkArrow lhs rhs)
+      mkForallFVars (#[a] ++ ss') (← mkAppM ``PartialOrder.rel  #[lhs, rhs])
+/-- Recursively decompose `epostSpec ⊑ epostAbstract` into per-component proofs.
+    - `EPost.cons.mk head tail` → mvar for `head ⊑ epostAbstract.head`, recurse on tail
+    - `EPost.nil.mk` → trivial via `EPost.nil_rel`
+    - Otherwise → single mvar for `epostSpec ⊑ epostAbstract` -/
+partial def decomposeEPostRel (epostSpec epostAbstract : Expr) : SymM Expr := do
+  match_expr epostSpec with
+  | EPost.cons.mk ehTy _etTy head tail =>
+    let absHead ← mkAppM ``EPost.cons.head #[epostAbstract]
+    let absTail ← mkAppM ``EPost.cons.tail #[epostAbstract]
+    let headTy ← Sym.inferType head
+    -- Collect state types: e.g. String → Nat → Prop → skip first (exc type), rest are state types
+    let ssTypes ← forallTelescope ehTy fun xs _ => do
+      xs.drop 1 |>.mapM (Meta.inferType ·)
+    let hHeadTy ← mkPostPointwisePremise head absHead headTy ssTypes
+    let hHead ← mkFreshExprMVar (userName := `epostImpl) hHeadTy
+    let hTail ← decomposeEPostRel tail absTail
+    mkAppM ``EPost.cons_rel #[head, tail, epostAbstract, hHead, hTail]
+  | EPost.nil.mk =>
+    mkAppM ``EPost.nil_rel #[epostAbstract]
+  | _ =>
+    let hTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostAbstract]
+    let h ← mkFreshExprMVar (userName := `epostImpl) hTy
+    return h
 
 /--
 Turn a spec proof `pre ⊑ wp prog post epost` into a backward rule proof term.
@@ -144,14 +173,9 @@ private def mkSpecBackwardProof
       introducing a new premise. This case is quite common, that's why we handle
       it specially. -/
     let_expr bot _ _ := epostSpec |
-      /- premise type `epostSpec ⊑ epostAbstract` for abstracting concrete `epost`
-        Note: we leave it in the form of `⊑` it here, because we cannot decompose `epostAbstact`
-        The latter we will get on the level of `solver` function. So we handle the whole thing later -/
-      let hepostTy ← mkAppM ``PartialOrder.rel #[epostSpec, epostAbstract]
-      /- mvar `?epostImpl` for the proof of the premise -/
-      let hepost ← mkFreshExprMVar (userName := `epostImpl) hepostTy
-      /- get the proof of `pre ⊑ wp prog postAbstract epostAbstract`, where `epost` is abstracted.
-        Uses wp_econs_rel: epost ⊑ epost' → pre ⊑ wp x post epost → pre ⊑ wp x post epost' -/
+      /- Decompose `epostSpec ⊑ epostAbstract` into per-component proofs
+        using `EPost.cons_rel` and `EPost.nil_rel` -/
+      let hepost ← decomposeEPostRel epostSpec epostAbstract
       specApplied ← mkAppM ``WPMonad.wp_econs_rel #[prog, postAbstract, epostSpec, epostAbstract, hepost, specApplied]
     /- get the proof of `pre ⊑ wp prog postAbstract epostAbstract`, where `epost (= ⊥)` is abstracted.
        This proof DOES NOT have a `?epostImpl` premise -/
@@ -368,6 +392,22 @@ theorem spec_set_StateM_test' (v : Nat) (post : PUnit → Nat → Prop) (epost :
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule' ``spec_set_StateM_test' l instWP #[s]
     logInfo m!"Test G' (set_StateT, StateM Nat, n=1): {ty}"
+
+-- Test H': nested epost with state args (exercises ssTypes in decomposeEPostRel)
+abbrev M_test := ExceptT Nat (ExceptT String (StateM Nat))
+
+@[local lspec high]
+theorem spec_throw_nestedEPostWithState_test' (post : PUnit → Nat → Prop) :
+    wp (MonadExceptOf.throw 7 : M_test PUnit) post
+      epost⟨fun n s => n = 7 ∧ s = 0, fun e s => e = "inner" ∧ s = 0⟩ ⊑
+    wp (MonadExceptOf.throw 7 : M_test PUnit) post
+      epost⟨fun n s => n = 7 ∧ s = 0, fun e s => e = "inner" ∧ s = 0⟩ := by
+  exact PartialOrder.rel_refl
+
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let ty ← testSpecBackwardProofType' ``spec_throw_nestedEPostWithState_test' #[nat]
+  logInfo m!"Test H' (nested epost with state, n=1): {ty}"
 
 end Test
 

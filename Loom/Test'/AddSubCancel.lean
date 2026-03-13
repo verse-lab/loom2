@@ -44,14 +44,6 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro post; mvcgen'))
     `(tactic| grind)
 
-attribute [grind] PartialOrder.rel_refl
-
--- example : Goal 10 := by
---   intro post s
---   simp only [loop, step]
---   mvcgen'
---   grind
-
 #eval
   runBenchUsingTactic
     ``Goal [``loop, ``step]

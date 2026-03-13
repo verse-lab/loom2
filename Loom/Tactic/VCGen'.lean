@@ -7,8 +7,8 @@ import Loom.Triple.SpecLemmas
 import Loom.WP.SimpLemmas
 import Loom.Frame
 import Lean.Meta
-import Lean.Meta.Match.Rewrite
 import Loom.Tactic.ShareExt
+import Loom.Tactic.Match
 
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 open Loom.Tactic.SpecAttr
@@ -54,10 +54,18 @@ def mkBackwardRuleFromSpecCached (specThm : SpecTheorem)
       modify fun st => { st with specBackwardRuleCache := st.specBackwardRuleCache.insert key rule }
       return rule
 
+
 def mkBackwardRuleForIteCached
-    (_wpHead _m _l _errTy _monadInst _instWP : Expr)
-    (_excessArgs : Array Expr) : VCGenM BackwardRule := do
-  throwError "mkBackwardRuleForIteCached not yet implemented in VCGen'"
+    (wpHead m l errTy monadInst instWP : Expr)
+    (excessArgs : Array Expr) : VCGenM BackwardRule := do
+  let s := (← get).splitBackwardRuleCache
+  match s[(``ite, instWP, excessArgs.size)]? with
+  | some rule => return rule
+  | none =>
+    let rule ← mkBackwardRuleForIte wpHead m l errTy monadInst instWP excessArgs
+    let key := (``ite, instWP, excessArgs.size)
+    modify ({ · with splitBackwardRuleCache := s.insert key rule })
+    return rule
 
 def mkBackwardRuleForLogicCached
     (_lop : LogicOp) (_as _excessArgs : Array Expr) : VCGenM BackwardRule := do
@@ -81,7 +89,7 @@ inductive GoalKind where
   /-- RHS is `True`; dischargeable via `le_top` or similar. -/
   | TrivialTrue
   /-- RHS is a concrete EPost component; stores selected component and its excess args. -/
-  | EPostVC (epost : Expr) (excessArgs : Array Expr)
+  | EPostVC (relConst : Expr) (α inst : Expr) (pre : Expr) (epost : Expr) (excessArgs : Array Expr)
   /-- RHS is a lattice connective application (`meet`/`himp`) with optional excess args. -/
   | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
   /-- RHS is a WP application. -/
@@ -117,12 +125,17 @@ private partial def peelEPostTailChain (curr : Expr) (idx : Nat := 0) : Expr × 
 /-- Classify the RHS of a `pre ⊑ rhs` goal. If the target is not in `⊑` form,
     falls back to classifying the target directly. -/
 def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
-  -- If the lattice type is Prop and pre is not True, intro the pre
   match_expr target with
-  | PartialOrder.rel _ _ pre rhs =>
+  | PartialOrder.rel α inst pre rhs =>
     if pre.isConstOf ``True then
       rhs.withApp fun head args => do
         match_expr head with
+        | EPost.cons.head =>
+          let some epostArg := args[2]?
+            | return .Unknown
+          let (epostTarget, index) := peelEPostTailChain epostArg
+          let epost ← mkEPostAtIndex epostTarget index
+          return .EPostVC target.getAppFn α inst pre epost (args.extract 3 args.size)
         | wp => return .WP head args
         | _ => return .Unknown
     else return .IntroPre
@@ -173,6 +186,12 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply split rule for {indentExpr e}"
+        -- Intro the split condition in each branch with names `if_pos` / `if_neg`
+        let names := [`if_pos, `if_neg]
+        let goals ← goals.zip names |>.mapM fun (g, n) => do
+          let .goal _ g ← Sym.intros g #[n]
+            | throwError "Failed to intro split condition"
+          return g
         return .goals goals
       if f.isConst || f.isFVar then
         trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
@@ -187,8 +206,11 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
           | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
         return .goals goals
       return .noStrategyForProgram e
-  | .EPostVC _epost _excessArgs => do
-      throwError "EPostVC not yet implemented in VCGen'"
+  | .EPostVC relConst α inst pre epost excessArgs => do
+      let rhs ← betaRevS epost excessArgs.reverse
+      let newTarget ← mkAppNS relConst #[α, inst, pre, rhs]
+      let goal ← goal.replaceTargetDefEq newTarget
+      return .goals [goal]
 
 /-- Emit a VC for a goal that cannot be further decomposed.
     If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper. -/
@@ -218,6 +240,13 @@ meta def unfoldTriple (goal : MVarId) : OptionT SymM MVarId := goal.withContext 
   | .closed => failure
   | .noProgress => return goal
 
+def introsWP (goal : MVarId) : SymM MVarId := do
+  let mut goal := goal
+  if (← goal.getType).isForall then
+    let IntrosResult.goal _ goal' ← Sym.intros goal | failure
+    goal := goal'
+  return goal
+
 /-- Main work loop: decompose the goal repeatedly. -/
 meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← preprocessMVar goal
@@ -231,6 +260,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
+    let goal ← introsWP goal
     let res ← solve goal
     match res with
     | .noProgramOrLatticeFoundInTarget .. =>
@@ -274,33 +304,5 @@ public meta def elabMVCGen' : Tactic := fun _stx => withMainContext do
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen
-
--- Quick test: does mvcgen' decompose a simple ⊑ wp goal?
-@[lspec high] theorem spec_get_StateT_test {m : Type u → Type v} {l e : Type u}
-    [Monad m] [WPMonad m l e]
-    {σ : Type u} (post : σ → σ → l) (epost : e) :
-    Triple (fun s => post s s) (MonadStateOf.get : StateT σ m σ) post epost := by
-  exact ⟨WP.get_StateT_wp post epost⟩
-
--- Check goal shape after preprocessMVar
-#eval show Elab.TermElabM Unit from do
-  let goalTy ← Lean.Elab.Term.elabTerm
-    (← `(∀ post, post ⊑ wp (get >>= fun s => set s : StateM Nat Unit) (fun _ => post) ⟨⟩))
-    none
-  let goal ← mkFreshExprSyntheticOpaqueMVar goalTy
-  let mvarId := goal.mvarId!
-  let preprocessed ← SymM.run do preprocessMVar mvarId
-  let ty ← preprocessed.getType
-  logInfo m!"After preprocessMVar: {ty}"
-  -- Check RHS structure
-  let ty ← instantiateMVars ty
-  match ty with
-  | .forallE _ _ body _ =>
-    let_expr PartialOrder.rel _ _ _pre rhs := body
-      | logInfo m!"Not PartialOrder.rel form: {body}"
-    rhs.withApp fun head _args => do
-      logInfo m!"RHS head: {head}"
-      logInfo m!"RHS head isConst: {head.isConst}"
-  | _ => logInfo m!"Not forall: {ty}"
 
 end Loom

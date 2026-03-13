@@ -112,6 +112,17 @@ instance [CompleteLattice eh] [CompleteLattice et] : CompleteLattice (EPost.cons
         simpa [meet_prop_eq_and] using hq
       simpa [PartialOrder.rel] using hqMeet
 
+theorem EPost.cons_rel [PartialOrder e] [PartialOrder e'] (eposth : e) (epostt : e') (epost : EPost.cons e e') :
+  eposth ⊑ epost.head ->
+  epostt ⊑ epost.tail ->
+  EPost.cons.mk eposth epostt ⊑ epost := by
+  intro hh ht
+  simp_all [PartialOrder.rel]
+
+theorem EPost.nil_rel (epost : EPost.nil) :
+  EPost.nil.mk ⊑ epost := by
+  simp [PartialOrder.rel]
+
 -- instance [PartialOrder l] [PartialOrder e] : PartialOrder (Post l e α) where
 --   rel p q := (∀ a, p.val a ⊑ q.val a) ∧ p.exc ⊑ q.exc
 --   rel_refl := ⟨fun _ => PartialOrder.rel_refl, PartialOrder.rel_refl⟩
