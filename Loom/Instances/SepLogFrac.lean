@@ -193,7 +193,7 @@ theorem entails_hWand {H₁ H₂ Q : hProp} (hle : H₁ ∗ H₂ ⊑ Q) :
   exact hExists'.intro H₂ (hStar'.intro h ∅ hH₂ (hPure'.intro hle)
     (Heap.union_empty h) (Heap.Disjoint.empty_right h))
 
-theorem hWand_mono :
+@[grind] theorem hWand_mono :
   P ⊑ Q →
   H -∗ P ⊑ H -∗ Q := by
   intro hle h ⟨H', ⟨hLeft, hRight, hH', hpure, hunion, hdisj⟩⟩
@@ -202,7 +202,7 @@ theorem hWand_mono :
     exact hExists'.intro H' (hStar'.intro hLeft ∅ hH' (hPure'.intro (PartialOrder.rel_trans hent hle))
       hunion hdisj)
 
-theorem hStar_mono :
+@[grind] theorem hStar_mono :
   P ⊑ Q →
   H ∗ P ⊑ H ∗ Q := by
   intro hle h ⟨h₁, h₂, hH, hP, hunion, hdisj⟩
@@ -235,75 +235,29 @@ structure HeapM α where
   monotone : val.monotone := by grind
 -/
 
-#print HeapM
 
-def HeapM.pickSuchThat (p : α -> hProp) : HeapM α := ⟨fun post _ h =>
-  (∃ a, p a h) ∧ ∀ a, p a h → post a h,
-  by
-    simp [PredTrans.monotone, PartialOrder.rel]
-    grind⟩
+@[grind =] theorem hh (a b : hProp) : (a ⊑ b) = ∀ h, (a h -> b h) := by
+    simp[PartialOrder.rel]
 
-def HeapM.exhale (hp : hProp) : HeapM Unit := ⟨fun post _ => hp ∗ post (),
-  by
-    simp [PredTrans.monotone]
-    intro post post' epost epost' hpost hpost'
-    apply hStar_mono
-    simp_all [PartialOrder.rel]
-    ⟩
+@[grind =] theorem hh_fun (f g : α → hProp) : (f ⊑ g) = ∀ a, f a ⊑ g a := by
+  simp [PartialOrder.rel]
 
-def HeapM.inhale (hp : hProp) : HeapM Unit :=
-⟨fun post _ => hp -∗ post (),
-  by
-    simp [PredTrans.monotone]
-    intro post post' epost epost' hpost hpost'
-    apply hWand_mono
-    simp_all [PartialOrder.rel]
-    ⟩
-
-def HeapM.read (x : Loc) : HeapM Val :=
-  pickSuchThat fun v h => h[x]?.any (·.1 = v)
-
-def HeapM.assign (x : Loc) (v : Val) : HeapM Unit := ⟨do
-  exhale perm(x)
-  inhale (x ↦ v),
-  by
-    simp [PredTrans.monotone]
-    intro post post' epost epost' hpost hpost'
-    apply hStar_mono
-    simp_all [PartialOrder.rel]
-    grind
-    ⟩
-
-def HeapM.alloc (v : Val) : HeapM Loc := ⟨do
-  let newKey ← pickSuchThat (· ∉ ·)
-  inhale (newKey ↦ v)
-  return newKey,
-  by
-    simp [PredTrans.monotone]
-    simp[pickSuchThat]
-    simp[bind,Functor.map, PartialOrder.rel]
-    grind
-    ⟩
-
---- @grind lemma
+@[grind =] theorem hh2 [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α):
+    (pt.monotone) =
+  ∀ post post' epost epost', epost ⊑ epost' → post ⊑ post' → pt post epost ⊑ pt post' epost'
+ := by simp [PredTrans.monotone]
 
 
+
+
+def HeapM.bind (x : HeapM α) (f : α → HeapM β) : HeapM β :=
+  ⟨fun post epost => x.val (fun a => (f a).val post epost) epost,
+  by grind⟩
 
 instance : Monad HeapM where
-  pure a := ⟨fun post _ => post a,
-  by
-     simp only [PredTrans.monotone, PartialOrder.rel]
-     grind
-     ⟩
-  bind x f := ⟨fun post epost => x.val (fun x => (f x).val post epost) epost,
-  by
-    simp [PredTrans.monotone, PartialOrder.rel]
-    intro post post' epost epost' hpost hpost' H
-    have a:= x.property
-    unfold monotone at a
-    simp_all [PredTrans.monotone, PartialOrder.rel]
-    grind
-    ⟩
+  pure a := ⟨fun post _ => post a, by simp [PredTrans.monotone, PartialOrder.rel]; grind⟩
+  bind := HeapM.bind
+
 
 instance  : LawfulMonad (HeapM) where
   map_const := rfl
@@ -316,7 +270,29 @@ instance  : LawfulMonad (HeapM) where
   pure_bind _ _ := rfl
   bind_assoc _ _ _ := rfl
 
+def HeapM.pickSuchThat (p : α -> hProp) : HeapM α := ⟨fun post _ h =>
+  (∃ a, p a h) ∧ ∀ a, p a h → post a h,
+  by grind⟩
 
+def HeapM.exhale (hp : hProp) : HeapM Unit := ⟨fun post _ => hp ∗ post (),
+  by grind⟩
+
+def HeapM.inhale (hp : hProp) : HeapM Unit :=
+⟨fun post _ => hp -∗ post (),
+  by grind⟩
+
+def HeapM.read (x : Loc) : HeapM Val :=
+  pickSuchThat fun v h => h[x]?.any (·.1 = v)
+
+def HeapM.assign (x : Loc) (v : Val) : HeapM Unit := do
+  exhale perm(x)
+  inhale (x ↦ v)
+
+
+def HeapM.alloc (v : Val) : HeapM Loc := do
+  let newKey ← pickSuchThat (· ∉ ·)
+  inhale (newKey ↦ v)
+  return newKey
 
 
 
