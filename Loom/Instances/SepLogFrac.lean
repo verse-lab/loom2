@@ -153,6 +153,25 @@ theorem Heap.Disjoint.assoc_right {h₁ h₂ h₃ : Heap}
       exact h₁_₂₃ x h₁x (by simp [Std.HashMap.contains_union, hy])
     | inr h₂x => exact h₂₃ x h₂x hy
 
+theorem Heap.Disjoint.symm {h₁ h₂ : Heap} (hdisj : h₁.Disjoint h₂) : h₂.Disjoint h₁ := by
+  intro x hx hy
+  exact hdisj x hy hx
+
+theorem Heap.union_comm {h₁ h₂ : Heap} (hdisj : h₁.Disjoint h₂) : h₁.union h₂ = h₂.union h₁ := by
+  apply Heap.ext_getElem?
+  intro x
+  cases eq₁ : h₁[x]? <;> cases eq₂ : h₂[x]?
+  · simp [Std.HashMap.getElem?_union, eq₁, eq₂]
+  · simp [Std.HashMap.getElem?_union, eq₁, eq₂]
+  · simp [Std.HashMap.getElem?_union, eq₁, eq₂]
+  · have c₁ : h₁.contains x := by
+      simp_all
+      grind
+    have c₂ : h₂.contains x := by
+      simp_all
+      grind
+    exact False.elim (hdisj x c₁ c₂)
+
 /-! ## Abstract lemmas about hProp connectives -/
 
 theorem hForall_elim {P : α → hProp} (a : α) :
@@ -227,6 +246,49 @@ theorem hStar_assoc_r {A B C : hProp} : A ∗ (B ∗ C) ⊑ (A ∗ B) ∗ C := b
   have ⟨hdisj₁, hdisj₂⟩ := Heap.Disjoint.assoc_right (hunion₂₃ ▸ hdisj) hdisj₂₃
   exact hStar'.intro (h₁.union h₂) h₃ (hStar'.intro h₁ h₂ hA hB rfl hdisj₁) hC
     (by rw [Heap.union_assoc, hunion₂₃, hunion]) hdisj₂
+
+theorem hStar_empty_elim {H : hProp} : H ∗ ∅ ⊑ H := by
+  intro h ⟨h₁, h₂, hH, hempty, hunion, _⟩
+  have heq : h₂ = ∅ := hempty
+  subst heq
+  rw [Heap.union_empty] at hunion
+  exact hunion ▸ hH
+
+theorem hStar_empty_intro {H : hProp} : H ⊑ H ∗ ∅ := by
+  intro h hH
+  exact hStar'.intro h ∅ hH rfl (Heap.union_empty h) (Heap.Disjoint.empty_right h)
+
+@[simp] theorem hStar_empty (H : hProp) : H ∗ ∅ = H := by
+  funext h
+  apply propext
+  exact ⟨fun hH => hStar_empty_elim h hH, fun hH => hStar_empty_intro h hH⟩
+
+theorem empty_hStar_elim {H : hProp} : ∅ ∗ H ⊑ H := by
+  intro h ⟨h₁, h₂, hempty, hH, hunion, _⟩
+  have heq : h₁ = ∅ := hempty
+  subst heq
+  rw [Heap.empty_union] at hunion
+  exact hunion ▸ hH
+
+theorem empty_hStar_intro {H : hProp} : H ⊑ ∅ ∗ H := by
+  intro h hH
+  exact hStar'.intro ∅ h rfl hH (Heap.empty_union h) (Heap.Disjoint.empty_left h)
+
+@[simp] theorem empty_hStar (H : hProp) : ∅ ∗ H = H := by
+  funext h
+  apply propext
+  exact ⟨fun hH => empty_hStar_elim h hH, fun hH => empty_hStar_intro h hH⟩
+
+theorem hStar_comm_entails {H₁ H₂ : hProp} : H₁ ∗ H₂ ⊑ H₂ ∗ H₁ := by
+  intro h ⟨h₁, h₂, hH₁, hH₂, hunion, hdisj⟩
+  exact hStar'.intro h₂ h₁ hH₂ hH₁
+    (by rw[←Heap.union_comm] <;> assumption)
+    (Heap.Disjoint.symm hdisj)
+
+@[simp] theorem hStar_comm (H₁ H₂ : hProp) : H₁ ∗ H₂ = H₂ ∗ H₁ := by
+  funext h
+  apply propext
+  exact ⟨fun hH => hStar_comm_entails h hH, fun hH => hStar_comm_entails h hH⟩
 
 structure HeapM α where
   predTrans : PredTrans hProp EPost⟨⟩ α
@@ -371,8 +433,9 @@ theorem HeapM.inhale_spec (hp : hProp) :
   intro H
   apply entails_hWand
   apply entails_hWand
-  -- trivial
-  sorry
+  simp
+  rfl
+
 
 theorem HeapM.exhale_spec (hp : hProp) :
   hp ⊑ hp' →
