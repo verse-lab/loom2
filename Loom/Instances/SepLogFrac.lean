@@ -228,34 +228,29 @@ theorem hStar_assoc_r {A B C : hProp} : A ∗ (B ∗ C) ⊑ (A ∗ B) ∗ C := b
   exact hStar'.intro (h₁.union h₂) h₃ (hStar'.intro h₁ h₂ hA hB rfl hdisj₁) hC
     (by rw [Heap.union_assoc, hunion₂₃, hunion]) hdisj₂
 
-abbrev HeapM α := { x : PredTrans hProp EPost⟨⟩ α // x.monotone }
-/-
 structure HeapM α where
   predTrans : PredTrans hProp EPost⟨⟩ α
-  monotone : val.monotone := by grind
--/
+  monotone : predTrans.monotone := by grind
 
-
-@[grind =] theorem hh (a b : hProp) : (a ⊑ b) = ∀ h, (a h -> b h) := by
+@[grind =] theorem le_hProp_eq_forall (a b : hProp) : (a ⊑ b) = ∀ h, (a h -> b h) := by
     simp[PartialOrder.rel]
 
-@[grind =] theorem hh_fun (f g : α → hProp) : (f ⊑ g) = ∀ a, f a ⊑ g a := by
+@[grind =] theorem le_fun_eq_forall (f g : α → hProp) : (f ⊑ g) = ∀ a, f a ⊑ g a := by
   simp [PartialOrder.rel]
 
-@[grind =] theorem hh2 [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α):
+@[grind =] theorem PredTrans.monotone_eq [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α):
     (pt.monotone) =
   ∀ post post' epost epost', epost ⊑ epost' → post ⊑ post' → pt post epost ⊑ pt post' epost'
  := by simp [PredTrans.monotone]
 
-
-
+@[grind! .]
+theorem HeapM.predTrans_monotone (m : HeapM α) : m.predTrans.monotone := m.monotone
 
 def HeapM.bind (x : HeapM α) (f : α → HeapM β) : HeapM β :=
-  ⟨fun post epost => x.val (fun a => (f a).val post epost) epost,
-  by grind⟩
+  { predTrans := fun post epost => x.predTrans (fun a => (f a).predTrans post epost) epost }
 
 instance : Monad HeapM where
-  pure a := ⟨fun post _ => post a, by simp [PredTrans.monotone, PartialOrder.rel]; grind⟩
+  pure a := { predTrans := fun post _ => post a }
   bind := HeapM.bind
 
 
@@ -270,16 +265,14 @@ instance  : LawfulMonad (HeapM) where
   pure_bind _ _ := rfl
   bind_assoc _ _ _ := rfl
 
-def HeapM.pickSuchThat (p : α -> hProp) : HeapM α := ⟨fun post _ h =>
-  (∃ a, p a h) ∧ ∀ a, p a h → post a h,
-  by grind⟩
+def HeapM.pickSuchThat (p : α -> hProp) : HeapM α :=
+  { predTrans := fun post _ h => (∃ a, p a h) ∧ ∀ a, p a h → post a h }
 
-def HeapM.exhale (hp : hProp) : HeapM Unit := ⟨fun post _ => hp ∗ post (),
-  by grind⟩
+def HeapM.exhale (hp : hProp) : HeapM Unit :=
+  { predTrans := fun post _ => hp ∗ post () }
 
 def HeapM.inhale (hp : hProp) : HeapM Unit :=
-⟨fun post _ => hp -∗ post (),
-  by grind⟩
+  { predTrans := fun post _ => hp -∗ post () }
 
 def HeapM.read (x : Loc) : HeapM Val :=
   pickSuchThat fun v h => h[x]?.any (·.1 = v)
@@ -297,7 +290,7 @@ def HeapM.alloc (v : Val) : HeapM Loc := do
 
 
 instance : WPMonad HeapM hProp EPost⟨⟩ where
-  wpTrans x post _ := ∀ʰ H, H -∗ x.val (fun x=> (H ∗ (post x))) epost⟨⟩
+  wpTrans x post _ := ∀ʰ H, H -∗ x.predTrans (fun a => (H ∗ (post a))) epost⟨⟩
   wp_trans_pure x post _   :=
   by
     intro h post' hpost
@@ -312,9 +305,9 @@ instance : WPMonad HeapM hProp EPost⟨⟩ where
     apply hForall_elim H (Q := H -∗ _)
     apply hWand_mono
     simp[bind]
-    apply x.property
+    apply x.monotone
     rfl
-    intro x
+    intro a
     simp
     apply hForall_star_elim
     apply hWand_elim
@@ -323,13 +316,13 @@ instance : WPMonad HeapM hProp EPost⟨⟩ where
   by
     intro post post' epost epost' hpost hpost' H
     apply hForall_intro
-    intro H
-    apply hForall_elim H (Q := H -∗ _)
+    intro H_1
+    apply hForall_elim H_1 (Q := H_1 -∗ _)
     apply hWand_mono
-    apply x.property
+    apply x.monotone
     grind
     simp[PartialOrder.rel]
-    intro x v HH
+    intro a v HH
     simp_all[hStar]
     cases HH with
     |  intro h₁ h₂ hH hP hunion hdisj =>
@@ -359,18 +352,13 @@ theorem HeapM.frame (H pre : hProp) (post : α → hProp) (x : HeapM α) :
     intro heap h_heap
     have step1 := hStar_assoc_r heap h_heap
     have step2 := hStar_mono hwp heap step1
-    have step3 : (x.val (fun v => (H_1 ∗ H) ∗ post v) epost⟨⟩) heap :=
-    hForall_star_elim (H_1 ∗ H) (P := fun H' => H' -∗ x.val (fun v => H' ∗ post v) epost⟨⟩) hWand_elim heap step2
+    have step3 : (x.predTrans (fun v => (H_1 ∗ H) ∗ post v) epost⟨⟩) heap :=
+    hForall_star_elim (H_1 ∗ H) (P := fun H' => H' -∗ x.predTrans (fun v => H' ∗ post v) epost⟨⟩) hWand_elim heap step2
     revert step3
-    apply x.property
+    apply x.monotone
     rfl
     intro v
     exact hStar_assoc_l
-
-
-
-
-
 
 theorem HeapM.inhale_spec (hp : hProp) :
   ⦃ ∅ ⦄ inhale hp ⦃ _, hp ⦄ := by
@@ -385,15 +373,6 @@ theorem HeapM.inhale_spec (hp : hProp) :
   apply entails_hWand
   -- trivial
   sorry
-
-
-
-
-
-
-
-
-
 
 theorem HeapM.exhale_spec (hp : hProp) :
   hp ⊑ hp' →
