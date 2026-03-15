@@ -21,6 +21,22 @@ abbrev hProp := Heap → Prop
 def Heap.Disjoint (h₁ h₂ : Heap) : Prop :=
   ∀ x, h₁.contains x → h₂.contains x → False
 
+
+private theorem List.exists_nat_gt_all : (l : List Nat) → ∃ a : Nat, ∀ x ∈ l, x < a
+  | [] => ⟨0, fun _ h => nomatch h⟩
+  | x :: xs => by
+    obtain ⟨a, ha⟩ := List.exists_nat_gt_all xs
+    exact ⟨Nat.max a (x + 1), fun y hy => by
+      cases hy with
+      | head => grind
+      | tail _ h => have := ha y h; grind⟩
+
+private theorem Heap.exists_not_mem (h : Heap) : ∃ a : Loc, ¬a ∈ h := by
+  obtain ⟨a, ha⟩ := List.exists_nat_gt_all h.keys
+  exact ⟨a, fun hmem => by
+    have hk := (Std.HashMap.mem_keys (m := h)).mpr hmem
+    exact Nat.lt_irrefl a (ha a hk)⟩
+
 private def fullPermVal : { x : Perm // x > 0 ∧ x <= 1 } := by
   refine ⟨1, ?_⟩
   decide
@@ -227,6 +243,14 @@ theorem entails_hWand {H₁ H₂ Q : hProp} (hle : H₁ ∗ H₂ ⊑ Q) :
   intro hle h ⟨h₁, h₂, hH, hP, hunion, hdisj⟩
   exact hStar'.intro h₁ h₂ hH (hle h₂ hP) hunion hdisj
 
+
+theorem hStar_mono' :
+  P ⊑ Q →
+  H ⊑ H' →
+  H ∗ P ⊑ H' ∗ Q := by
+  intro hle hle' h ⟨h₁, h₂, hH, hP, hunion, hdisj⟩
+  exact hStar'.intro h₁ h₂ (hle' h₁ hH) (hle h₂ hP) hunion hdisj
+
 theorem hWand_elim {H Q : hProp} : H ∗ (H -∗ Q) ⊑ Q := by
   intro h ⟨h₁, h₂, hH, ⟨H', ⟨h₃, h₄, hH', hpure, hunion₂, hdisj₂⟩⟩, hunion, hdisj⟩
   cases hpure with
@@ -289,6 +313,27 @@ theorem hStar_comm_entails {H₁ H₂ : hProp} : H₁ ∗ H₂ ⊑ H₂ ∗ H₁
   funext h
   apply propext
   exact ⟨fun hH => hStar_comm_entails h hH, fun hH => hStar_comm_entails h hH⟩
+
+theorem empty_True : ⌜True⌝ʰ = ∅ := by
+  apply funext
+  intro h
+  apply propext
+  constructor
+  · intro h'
+    cases h' with
+    | intro _ => rfl
+  · intro h'
+    simp [hPure]
+    have : h = ∅ := by
+      apply Heap.ext_getElem?
+      simp[EmptyCollection.emptyCollection, hEmpty] at h'
+      simp[h']
+    simp [this]
+    constructor
+    apply True.intro
+
+
+
 
 structure HeapM α where
   predTrans : PredTrans hProp EPost⟨⟩ α
@@ -439,18 +484,112 @@ theorem HeapM.inhale_spec (hp : hProp) :
 
 theorem HeapM.exhale_spec (hp : hProp) :
   hp ⊑ hp' →
-  ⦃ hp ⦄ exhale hp' ⦃ _, ∅ ⦄ := by sorry
+  ⦃ hp ⦄ exhale hp' ⦃ _, ∅ ⦄ :=
+by
+  intro hle
+  simp [exhale]
+  apply Triple.iff.mpr
+  unfold wp
+  unfold wpTrans
+  simp_all[instWPMonadHeapMHPropNil]
+  apply hForall_intro
+  intro H
+  apply entails_hWand
+  grind[←hStar_comm]
 
 theorem HeapM.read_spec (x : Loc) (v : Val) :
-  ⦃ x ↦ v ⦄ read x ⦃ v, ⌜v = v⌝ʰ ∗ x ↦ v ⦄ := by sorry
+  ⦃ x ↦ v ⦄ read x ⦃ v, ⌜v = v⌝ʰ ∗ x ↦ v ⦄ :=
+by
+  simp [read]
+  apply Triple.iff.mpr
+  unfold wp
+  unfold wpTrans
+  simp_all[instWPMonadHeapMHPropNil]
+  apply hForall_intro
+  intro H
+  apply entails_hWand
+  intro heap HH
+  simp[pickSuchThat]
+  constructor
+  · apply Exists.intro v
+    simp_all[hStar]
+    cases HH with
+      | intro h₁ h₂ hH hP hunion hdisj =>
+        simp[hSingle] at hP
+        cases hP with
+          | intro =>
+            rw[←hunion]
+            simp[Std.HashMap.getElem?_union]
+            simp[Option.any]
+            simp[Heap.single]
+  · intro v' hP
+    have vv' : v = v' := by
+      simp_all[hStar]
+      cases HH with
+        | intro h₁ h₂ hTrue hPt hunion hdisj =>
+          cases hPt with
+            | intro =>
+              rw[←hunion] at hP
+              simp[Std.HashMap.getElem?_union] at hP
+              simp[Option.any] at hP
+              simp[Heap.single] at hP
+              apply hP
+    simp[empty_True, ←vv']
+    apply HH
+
+
 
 
 theorem HeapM.assign_spec (x : Loc) (v u : Val) :
   ⦃ x ↦ u ⦄ assign x v ⦃ _, x ↦ v ⦄ := by
-  sorry
+  simp [assign]
+  apply Triple.iff.mpr
+  unfold wp
+  unfold wpTrans
+  simp_all[instWPMonadHeapMHPropNil]
+  apply hForall_intro
+  intro H
+  apply entails_hWand
+  rw[@predTrans]
+  simp[Bind.bind, HeapM.bind]
+  rw[predTrans]
+  simp[inhale, exhale]
+  unfold fullPerm
+  rw[←hStar_comm]
+  apply hStar_mono'
+  · apply entails_hWand
+    simp
+    rfl
+  · intro h hperm
+    constructor
+    apply hperm
 
-#print Triple
+
 
 theorem HeapM.alloc_spec (v : Val) :
-  ⦃ ∅ ⦄ alloc v ⦃ l, l ↦ v ⦄ := by
-  sorry
+  ⦃ ∅ ⦄ alloc v ⦃ l, l ↦ v ⦄ :=
+by
+  simp [alloc]
+  apply Triple.iff.mpr
+  unfold wp
+  unfold wpTrans
+  simp_all[instWPMonadHeapMHPropNil]
+  apply hForall_intro
+  intro H
+  apply entails_hWand
+  rw[@predTrans]
+  simp[Bind.bind, HeapM.bind]
+  rw[@predTrans]
+  simp[pickSuchThat]
+  simp[inhale]
+  simp[Functor.map, HeapM.bind]
+  intro h HH
+  constructor
+  rotate_left
+  intro l Hl
+  apply entails_hWand
+  simp
+  apply hStar_mono
+  rfl
+  apply HH
+  apply Heap.exists_not_mem
