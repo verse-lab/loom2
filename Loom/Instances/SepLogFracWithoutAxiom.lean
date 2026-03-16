@@ -649,7 +649,7 @@ theorem HeapM.read_spec (x : Loc) (v : Val) :
       | intro h₁ h₂ hTrue hPt hunion hdisj =>
         cases hPt
         rw [← hunion] at hP
-        simp [Heap.lookup_addUnion, Option.any, Heap.single, Heap.lookup] at hP
+        simp [Option.any, Heap.lookup] at hP
         rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
         · have heq : (h₁.addUnion (Heap.single x v)) x = some (v, 1) := by
            have key : h₁.addUnion (Heap.single x v) x = some (v, 1) := by
@@ -827,7 +827,7 @@ theorem HeapM.read_frac_spec (x : Loc) (v : Val)
       | intro h₁ h₂ hTrue hPt hunion hdisj =>
         cases hPt
         rw [← hunion] at hP
-        simp [Heap.lookup_addUnion, Option.any, Heap.singleFrac, Heap.lookup] at hP
+        simp [Option.any, Heap.lookup] at hP
         rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
         · have key : h₁.addUnion (Heap.singleFrac x v π.val) x = some (v, π.val) := by
               have h₁x : h₁ x = none := eq₁  -- lookup is definitionally h x
@@ -848,12 +848,16 @@ theorem HeapM.read_frac_spec (x : Loc) (v : Val)
     exact HH
 
 /-! ## Final example -/
+def myPerm : { p : Perm // ValidPerm p } := ⟨⟨1/3, by grind⟩, by change (1/3 : Rat) ≤ 1; grind⟩
+def myPerm' : { p : Perm // ValidPerm p } := ⟨⟨2/3, by grind⟩, by change (2/3 : Rat) ≤ 1; grind⟩
+
+
 
 example (p : Loc) (v : Val) :
     ⦃ ∅ ⦄
     (do HeapM.inhale (p ↦ v)
-        HeapM.exhale (p ↦[halfPerm] v))
-    ⦃ _, p ↦[halfPerm] v ⦄ := by
+        HeapM.exhale (p ↦[myPerm] v))
+    ⦃ _, p ↦[myPerm'] v ⦄ := by
   apply Triple.iff.mpr
   unfold wp wpTrans
   simp_all [instWPMonadHeapMHPropNil]
@@ -863,11 +867,11 @@ example (p : Loc) (v : Val) :
   simp [Bind.bind, HeapM.bind, HeapM.inhale, HeapM.exhale]
   apply entails_hWand
   intro heap HH
-  rw [hSingleFrac_split p v halfPerm halfPerm] at HH
+  rw [hSingleFrac_split p v myPerm myPerm'] at HH
   rotate_right
   ext
-  simp [halfPerm]
-  show (1/2 : Rat) + 1/2 = 1
+  simp [myPerm, myPerm']
+  show (1/3 : Rat) + 2/3 = 1
   grind_linarith
   revert HH heap
   rw[hStar_assoc]
