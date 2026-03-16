@@ -794,6 +794,51 @@ theorem hSingleFrac_combine (x : Loc) (v : Val)
       · have hne : x ≠ y := h_xy
         simp [Heap.lookup_singleFrac_ne hne] at eq₁
 
+/-!
+If two heaps are disjoint and each maps location x to some value with
+the same permission, they must carry the same value
+-/
+theorem hStar_singleFrac_unique
+    {x : Loc} {v w : Val} {π : { p : Perm // ValidPerm p }}
+    {P Q : hProp} {h : Heap}
+    (hP : ((x ↦[π] v) ∗ P) h)
+    (hQ : ((x ↦[π] w) ∗ Q) h) :
+    v = w := by
+  obtain ⟨h₁, h₂, hv, hP', hunion₁, hdisj₁⟩ := hP
+  obtain ⟨h₃, h₄, hw, hQ', hunion₂, hdisj₂⟩ := hQ
+  cases hv; cases hw
+  have lk₁ : h.lookup x = some (v, π.1) ∨
+              ∃ p', h.lookup x = some (v, π.1 + p') := by
+    rw [← hunion₁, Heap.lookup_addUnion]
+    simp [Heap.lookup_singleFrac]
+    rcases eq_h₂ : h₂.lookup x with _ | ⟨w', p'⟩
+    · simp
+    · simp
+      grind
+  have lk₂ : h.lookup x = some (w, π.1) ∨
+              ∃ p', h.lookup x = some (w, π.1 + p') := by
+    rw [← hunion₂, Heap.lookup_addUnion]
+    simp [Heap.lookup_singleFrac]
+    rcases eq_h₄ : h₄.lookup x with _ | ⟨w', p'⟩
+    · simp
+    · simp
+      grind
+  rcases lk₁ with hlk₁ | ⟨p₁, hlk₁⟩ <;>
+  rcases lk₂ with hlk₂ | ⟨p₂, hlk₂⟩ <;>
+  · rw [hlk₁] at hlk₂
+    simp at hlk₂
+    grind
+
+/-! Symmetric variant -/
+theorem hStar_singleFrac_unique' {x : Loc} {v w : Val}
+    {π : { p : Perm // ValidPerm p }} {P Q : hProp} {h : Heap}
+    (hP : (P ∗ (x ↦[π] v)) h)
+    (hQ : (Q ∗ (x ↦[π] w)) h) : v = w := by
+  apply hStar_singleFrac_unique (h := h)
+  · rw [hStar_comm]; exact hP
+  · rw [hStar_comm]; exact hQ
+
+
 theorem HeapM.read_frac_spec (x : Loc) (v : Val)
     (π : { p : Perm // ValidPerm p }) :
     ⦃ x ↦[π] v ⦄ read x ⦃ w, ⌜w = v⌝ʰ ∗ x ↦[π] v ⦄ := by
