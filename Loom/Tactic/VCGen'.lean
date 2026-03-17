@@ -68,8 +68,16 @@ def mkBackwardRuleForIteCached
     return rule
 
 def mkBackwardRuleForLogicCached
-    (_lop : LogicOp) (_as _excessArgs : Array Expr) : VCGenM BackwardRule := do
-  throwError "mkBackwardRuleForLogicCached not yet implemented in VCGen'"
+    (lop : LogicOp) (as excessArgs : Array Expr) : VCGenM BackwardRule := do
+  let s := (← get).logicBackwardRuleCache
+  let asTypes ← (as.mapM Sym.inferType : SymM (Array Expr))
+  let key := (lop.toApplyLemma, asTypes, excessArgs.size)
+  match s[key]? with
+  | some rule => return rule
+  | none =>
+    let rule ← LogicOp.mkBackwardRule lop as excessArgs
+    modify ({ · with logicBackwardRuleCache := s.insert key rule })
+    return rule
 
 /-! ## Goal classification -/
 
@@ -127,18 +135,28 @@ private partial def peelEPostTailChain (curr : Expr) (idx : Nat := 0) : Expr × 
 def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
   match_expr target with
   | PartialOrder.rel α inst pre rhs =>
-    if pre.isConstOf ``True then
-      rhs.withApp fun head args => do
-        match_expr head with
-        | EPost.cons.head =>
-          let some epostArg := args[2]?
-            | return .Unknown
-          let (epostTarget, index) := peelEPostTailChain epostArg
-          let epost ← mkEPostAtIndex epostTarget index
-          return .EPostVC target.getAppFn α inst pre epost (args.extract 3 args.size)
-        | wp => return .WP head args
-        | _ => return .Unknown
-    else return .IntroPre
+
+    if !pre.isConstOf ``True && α.isProp then return .IntroPre
+
+    rhs.withApp fun head args => do
+      match_expr head with
+      | EPost.cons.head =>
+        let some epostArg := args[2]?
+          | return .Unknown
+        let (epostTarget, index) := peelEPostTailChain epostArg
+        let epost ← mkEPostAtIndex epostTarget index
+        return .EPostVC target.getAppFn α inst pre epost (args.extract 3 args.size)
+      | wp => return .WP head args
+      | meet =>
+        let excessArgs := args.drop 4
+        let as := args.extract 2 4
+        return .Lattice .And as excessArgs
+      | himp =>
+        let excessArgs := args.drop 4
+        let as := args.extract 2 4
+        return .Lattice .Imp as excessArgs
+      | _ => return .Unknown
+    -- else return .IntroPre
   | _ => return .Unknown
 
 /-- Main solve step for a goal of the form `pre ⊑ rhs`. -/
@@ -158,8 +176,12 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       return .goals goals
   | .Unknown =>
       return .noProgramOrLatticeFoundInTarget target
-  | .Lattice _lop _as _excessArgs => do
-      throwError "Lattice not yet implemented in VCGen'"
+  | .Lattice lop as excessArgs => do
+      trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
+      let rule ← mkBackwardRuleForLogicCached lop as excessArgs
+      let .goals goals ← rule.apply goal
+        | throwError "Failed to apply logic rule at {indentExpr target}"
+      return .goals goals
   | .WP head args => do
       -- Goal is: pre ⊑ @wp m l errTy monadInst instWP α e post epost
       let_expr wp m l errTy monadInst instWP α e _post _epost :=
@@ -250,12 +272,7 @@ def introsWP (goal : MVarId) : SymM MVarId := do
 /-- Main work loop: decompose the goal repeatedly. -/
 meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← preprocessMVar goal
-  -- (← goal.getType).checkMaxShared
-  let target ← shareCommon <| ←  Sym.etaReduceAll <| ← goal.getType
-  let goal ← goal.replaceTargetDefEq target
-  -- (← goal.getType).checkMaxShared
   let some goal ← unfoldTriple goal |>.run | return ()
-  -- No introsWP — we keep goals in ⊑ form
   let mut worklist := Std.Queue.empty.enqueue goal
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
