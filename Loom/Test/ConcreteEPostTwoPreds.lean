@@ -17,8 +17,8 @@ def throwNatOrString (n : Nat) : M PUnit := do
 @[lspec high]
 theorem spec_throwNatOrString (n : Nat) :
     Triple True (throwNatOrString n) (fun _ => True) epost⟨(· = 7), (· = "inner")⟩ := by
-  rw [Triple.iff]; intro; unfold throwNatOrString
-  mvcgen' <;> rfl
+  rw [Triple.iff]; unfold throwNatOrString;
+  mvcgen' <;> grind
 
 def step (n : Nat) : ExceptT Nat (Except String) PUnit := do
   throwNatOrString n
@@ -32,12 +32,10 @@ def loop (n : Nat) : ExceptT Nat (Except String) PUnit := do
     loop n
 
 def Goal (n : Nat) : Prop :=
-  wp (loop n) (fun _ => True) epost⟨(· = 7), (· = "inner")⟩
+  True ⊑ wp (loop n) (fun _ => True) epost⟨(· = 7), (· = "inner")⟩
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
-
--- set_option trace.Loom.Tactic.vcgen true
 
 def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]

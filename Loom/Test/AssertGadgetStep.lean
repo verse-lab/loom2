@@ -22,7 +22,7 @@ def loop (n : Nat) : StateM Nat Unit := do
   | n + 1 => step n; loop n
 
 def Goal (n : Nat) : Prop :=
-  ∀ s, wp (loop n) (fun _ _ => True) ⟨⟩ s
+  ∀ s, True ⊑ wp (loop n) (fun _ _ => True) ⟨⟩ s
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
@@ -32,7 +32,4 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro s; mvcgen'))
     `(tactic| sorry)
 
-
-#eval runTests [500]
-    -- [400, 500, 600, 700, 800, 900, 1000]
-    -- [1000]
+#eval runTests [1000]

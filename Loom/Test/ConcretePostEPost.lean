@@ -29,7 +29,7 @@ def loop (n : Nat) : StateM Nat Unit := do
   | n + 1 => step n; loop n
 
 def Goal (n : Nat) : Prop :=
-  ∀ s, wp (loop n) (fun _ _ => True) ⟨⟩ s
+  ∀ s, True ⊑ wp (loop n) (fun _ _ => True) ⟨⟩ s
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
