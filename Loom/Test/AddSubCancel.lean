@@ -4,7 +4,7 @@ import Loom.Triple.SpecLemmas
 import Loom.Test.Specs
 import Loom.Tactic.VCGen
 
-open Loom Lean Meta Order
+open Loom Lean Meta Order Std.Do'
 
 -- Spec for MonadStateOf.get (defined in VCGen.lean's test section, replicated here)
 @[lspec high] theorem spec_get_StateT {m : Type u → Type v} {l e : Type u}

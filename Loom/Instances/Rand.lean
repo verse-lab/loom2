@@ -1,5 +1,5 @@
 import Loom.Triple.Basic
-import Loom.WP.SimpLemmas
+import Loom.WP.Lemmas
 import Plausible.Gen
 import Plausible.Testable
 

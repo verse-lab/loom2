@@ -1,14 +1,20 @@
 /-
-Pattern-based spec theorem lookup and backward rule construction for VCGen'.
-Contains the full FindSpec logic plus tryMkBackwardRuleFromSpec.
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
 -/
+module
+
+prelude
 import Lean
-import Loom.Tactic.Attr
-import Loom.Tactic.Logic
-import Loom.Triple.Basic
+public meta import Loom.Tactic.Attr
+public import Loom.Tactic.Logic
+public import Loom.Triple.Basic
 import Loom.Triple.SpecLemmas
 
-namespace Loom.Tactic.Spec
+public section
+
+namespace Std.Do'
 
 open Lean Meta Loom Lean.Order Sym
 open Loom.Tactic.SpecAttr
@@ -86,13 +92,13 @@ def findSpecs (database : SpecTheorems) (e : Expr) :
 /-! ## Backward rule construction from specs -/
 
 /- TODO: what would the proper way? -/
-private def mkStateName (_ty : Expr) : Name := `s
+meta def mkStateName (_ty : Expr) : Name := `s
   -- match ty.const?.map (·.1) with
   -- | some name => "state" ++ name.toString |>.toName
   -- | none => `s
 
 /-- Build the explicit pointwise implication premise used to weaken a concrete `post`. -/
-private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes : Array Expr) : SymM Expr := do
+meta def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes : Array Expr) : SymM Expr := do
   let .forallE _ α _ _ := postTy
     | throwError "expected a postcondition function, got {indentExpr postTy}"
   withLocalDeclD `a α fun a => do
@@ -105,7 +111,7 @@ private def mkPostPointwisePremise (postSpec postTarget postTy : Expr) (ssTypes 
     - `EPost.cons.mk head tail` → mvar for `head ⊑ epostAbstract.head`, recurse on tail
     - `EPost.nil.mk` → trivial via `EPost.nil_rel`
     - Otherwise → single mvar for `epostSpec ⊑ epostAbstract` -/
-partial def decomposeEPostRel (epostSpec epostAbstract : Expr) : SymM Expr := do
+meta partial def decomposeEPostRel (epostSpec epostAbstract : Expr) : SymM Expr := do
   match_expr epostSpec with
   | EPost.cons.mk ehTy _etTy head tail =>
     let absHead ← mkAppM ``EPost.cons.head #[epostAbstract]
@@ -134,7 +140,7 @@ or `WPMonad.wp_econs_bot_rel`. If `pre` is concrete, it is generalized using `Pa
 
 The result stays in `⊑` form: `?pre s1..sn ⊑ wp prog ?post ?epost s1..sn`.
 -/
-private def mkSpecBackwardProof
+meta def mkSpecBackwardProof
     (pre rhs specProof : Expr) (ss ssTypes : Array Expr) : SymM AbstractMVarsResult := do
   /- we start with `pre ⊑ wp prog post epost` where
   1. `pre` represents the Lean expression for `pre`
@@ -229,7 +235,7 @@ Given a spec `pre ⊑ wp prog post epost` where the lattice type is
 - `instWP`: the `WPMonad` instance for the goal monad
 - `excessArgs`: free variables representing state args from `l = σ1 → ... → σn → Prop`
 -/
-def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
+meta def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   (l instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
   -- Instantiate the spec theorem, creating metavars for all universally quantified params
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
@@ -257,7 +263,7 @@ section Test
 
 /-- Test helper: call mkSpecBackwardProof directly and return the type of the result.
     Mirrors `testSpecBackwardProofType` from VCGen.lean but for the new ⊑-form output. -/
-private def testSpecBackwardProofType' (declName : Name)
+private meta def testSpecBackwardProofType' (declName : Name)
     (excessArgTypes : Array Expr) : MetaM Expr := do
   let specThm ← mkSpecTheoremFromConst declName
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
@@ -270,7 +276,7 @@ private def testSpecBackwardProofType' (declName : Name)
   instantiateMVars (← inferType spec)
 
 /-- Test helper: call tryMkBackwardRuleFromSpec and return the backward rule type. -/
-private def testBackwardRule' (declName : Name) (l instWP : Expr)
+private meta def testBackwardRule' (declName : Name) (l instWP : Expr)
     (excessArgs : Array Expr) : MetaM Expr := do
   let specThm ← mkSpecTheoremFromConst declName
   let rule ← SymM.run do
@@ -411,4 +417,6 @@ theorem spec_throw_nestedEPostWithState_test' (post : PUnit → Nat → Prop) :
 
 end Test
 
-end Loom.Tactic.Spec
+end Std.Do'
+
+end -- public section

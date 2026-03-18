@@ -1,5 +1,15 @@
+/-
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
+-/
+module
+
+prelude
 import Lean
-import Loom.LatticeExt
+public import Loom.LatticeExt
+
+public section
 
 open Lean.Order
 
@@ -77,13 +87,12 @@ theorem himp_sound [Frame α] (a b : α) : a ⊓ (a ⇨ b) ⊑ b := by
     (a ⇨ b) s = (a s ⇨ b s) := by
   classical
   unfold himp
-  rw [← fun_sup_eq (c := fun f : σ → β => a ⊓ f ⊑ b)]
-  unfold fun_sup
+  rw [sup_fun_apply]
   apply PartialOrder.rel_antisymm
   ·
     apply sup_le
-    intro y hy
-    rcases hy with ⟨f, hf, rfl⟩
+    intro y ⟨f, hf, hfs⟩
+    rw [← hfs]
     have hsf : a s ⊓ f s ⊑ b s := by
       simpa [meet_fun_apply] using (hf s)
     exact le_sup (c := fun z : β => a s ⊓ z ⊑ b s) hsf
@@ -102,7 +111,7 @@ theorem himp_sound [Frame α] (a b : α) : a ⊓ (a ⇨ b) ⊑ b := by
             (latticeBot_le (b t))
         simpa [meet_fun_apply, f, h] using htb
     have hs : f s = y := by simp [f]
-    exact hs ▸ le_sup (c := fun z : β => ∃ g, a ⊓ g ⊑ b ∧ g s = z) ⟨f, hf, rfl⟩
+    exact le_sup (c := fun z => ∃ g, (a ⊓ g ⊑ b) ∧ g s = z) ⟨f, hf, hs⟩
 
 syntax:60 "(" ident " : " term ")" " ⇨ " term : term
 
@@ -110,3 +119,5 @@ macro_rules
   | `(($n:ident : $a) ⇨ $b) => `((withName $(Lean.quote n.getId) $a) ⇨ $b)
 
 end Loom
+
+end -- public section

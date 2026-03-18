@@ -7,10 +7,8 @@ import Lean
 import Loom.Tactic.VCGen
 import Loom.Test.Driver
 import Loom.Test.Specs
-import Loom.Lawful.State
-import Loom.Lawful.Except
 
-open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
+open Lean Parser Meta Elab Tactic Sym Loom Lean.Order Std.Do'
 
 /-!
 Same benchmark as `vcgen_add_sub_cancel` but using a deep transformer stack.

@@ -2,7 +2,7 @@ import Loom.Triple.SpecLemmas
 
 namespace Loom
 
-open Lean.Order WP
+open Lean.Order Std.Do' WP
 
 universe u v
 

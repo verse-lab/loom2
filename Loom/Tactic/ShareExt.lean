@@ -1,4 +1,16 @@
-import Lean
+/-
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
+-/
+module
+
+prelude
+public import Lean
+public meta import Lean.Meta.Sym.AlphaShareBuilder
+public meta import Lean.Meta.Sym.LooseBVarsS
+
+public section
 
 open Lean Parser Meta Elab Tactic Sym Lean.Order
 
@@ -21,7 +33,7 @@ Similar to `Lean.Expr.instantiateRange`.
 It assumes the input is maximally shared, and ensures the output is too.
 It assumes `beginIdx ≤ endIdx` and `endIdx ≤ subst.size`
 -/
-private def instantiateRangeS' (e : Expr) (beginIdx endIdx : Nat) (subst : Array Expr) : AlphaShareBuilderM Expr :=
+private meta def instantiateRangeS' (e : Expr) (beginIdx endIdx : Nat) (subst : Array Expr) : AlphaShareBuilderM Expr :=
   if _ : beginIdx > endIdx then unreachable! else
   if _ : endIdx > subst.size then unreachable! else
   let n := endIdx - beginIdx
@@ -45,21 +57,21 @@ private def instantiateRangeS' (e : Expr) (beginIdx endIdx : Nat) (subst : Array
         return none
 
 /-- Internal variant of `instantiateS` that runs in `AlphaShareBuilderM`. -/
-private def instantiateS' (e : Expr) (subst : Array Expr) : AlphaShareBuilderM Expr :=
+private meta def instantiateS' (e : Expr) (subst : Array Expr) : AlphaShareBuilderM Expr :=
   instantiateRangeS' e 0 subst.size subst
 
 /--
 Similar to `Lean.Expr.instantiate`.
 It assumes the input is maximally shared, and ensures the output is too.
 -/
-private def instantiateS  (e : Expr) (subst : Array Expr) : SymM Expr :=
+private meta def instantiateS  (e : Expr) (subst : Array Expr) : SymM Expr :=
   liftBuilderM <| instantiateS' e subst
 
 /--
 Beta-reduces `f` applied to reversed arguments `revArgs`, ensuring maximally shared terms.
 `betaRevS f #[a₃, a₂, a₁]` computes the beta-normal form of `f a₁ a₂ a₃`.
 -/
-private partial def betaRevS' (f : Expr) (revArgs : Array Expr) : AlphaShareBuilderM Expr :=
+private meta partial def betaRevS' (f : Expr) (revArgs : Array Expr) : AlphaShareBuilderM Expr :=
   if revArgs.size == 0 then
     return f
   else
@@ -77,7 +89,7 @@ private partial def betaRevS' (f : Expr) (revArgs : Array Expr) : AlphaShareBuil
         mkAppRevRangeS (← instantiateRangeS' e n sz revArgs) 0 n revArgs
     go f 0
 
-public def betaRevS (f : Expr) (revArgs : Array Expr) : SymM Expr :=
+public meta def betaRevS (f : Expr) (revArgs : Array Expr) : SymM Expr :=
   liftBuilderM <| betaRevS' f revArgs
 
 
@@ -193,3 +205,5 @@ public def preprocessMVarEta (mvarId : MVarId) : SymM MVarId := do
   return mvarNew.mvarId!
 
 end Loom
+
+end -- public section

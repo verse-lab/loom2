@@ -1,10 +1,16 @@
 /-
-Pattern-based spec theorem lookup for loom2 tactics.
-Adopts the pattern matching approach from Lean.Elab.Tactic.Do.SpecAttr.
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
 -/
+module
+
+prelude
 import Lean
-import Loom.Tactic.Attr
-import Loom.Triple.Basic
+public import Loom.Tactic.Attr
+public import Loom.Triple.Basic
+
+public section
 
 namespace Loom.Tactic.FindSpec
 
@@ -77,3 +83,5 @@ def findSpecs (database : SpecTheorems) (e : Expr) :
   return .error candidates
 
 end Loom.Tactic.FindSpec
+
+end -- public section

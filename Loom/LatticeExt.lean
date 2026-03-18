@@ -1,16 +1,23 @@
-import Init.Internal.Order
+/-
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
+-/
+module
 
+prelude
+public import Init.Internal.Order
 universe u v w
+@[expose] public section
+
+set_option linter.missingDocs true
 
 open Lean.Order
-
-def withName (_n : Lean.Name) {α : Sort u} (x : α) : α := x
-theorem withName_elim (n : Lean.Name) (x : Prop) (y : Prop) : ((x) -> y) -> ((withName n x) -> y) := id
 
 /-!
 # Additional Complete Lattice Operations
 
-Extensions to Lean.Order.CompleteLattice providing additional operations
+Extensions to `Lean.Order.CompleteLattice` providing additional operations
 needed for program verification.
 -/
 
@@ -23,6 +30,7 @@ variable {α : Type u} [CompleteLattice α]
 /-- Top element of a complete lattice (supremum of all elements) -/
 noncomputable def latticeTop : α := CompleteLattice.sup (fun _ => True)
 
+@[inherit_doc latticeTop]
 notation "⊤" => latticeTop
 
 theorem le_top (x : α) : x ⊑ ⊤ := by
@@ -39,6 +47,7 @@ theorem latticeBot_le (x : α) : latticeBot ⊑ x := by
 /-- Binary meet (infimum) -/
 noncomputable def meet (x y : α) : α := inf (fun z => z = x ∨ z = y)
 
+@[inherit_doc meet]
 infixl:70 " ⊓ " => meet
 
 theorem meet_le_left (x y : α) : x ⊓ y ⊑ x := by
@@ -60,6 +69,7 @@ theorem le_meet (x y z : α) : x ⊑ y → x ⊑ z → x ⊑ y ⊓ z := by
 /-- Binary join (supremum) -/
 noncomputable def join (x y : α) : α := CompleteLattice.sup (fun z => z = x ∨ z = y)
 
+@[inherit_doc join]
 infixl:65 " ⊔ " => join
 
 theorem left_le_join (x y : α) : x ⊑ x ⊔ y := by
@@ -124,6 +134,27 @@ theorem iSup_le {ι : Type v} (f : ι → α) (x : α) : (∀ i, f i ⊑ x) → 
   rw [← hi]
   exact h i
 
+/-- Pointwise characterization of `CompleteLattice.sup` on function lattices:
+`(sup c) s = sup (fun y => ∃ f, c f ∧ f s = y)`. -/
+theorem sup_fun_apply
+    {σ : Type v} {β : Type w} [CompleteLattice β]
+    (c : (σ → β) → Prop) (s : σ) :
+    CompleteLattice.sup c s = CompleteLattice.sup (fun y => ∃ f, c f ∧ f s = y) := by
+  apply PartialOrder.rel_antisymm
+  · -- sup c s ⊑ sup {y | ∃ f ∈ c, f s = y}
+    let g : σ → β := fun t => CompleteLattice.sup (fun y => ∃ f, c f ∧ f t = y)
+    have hg : CompleteLattice.sup c ⊑ g := by
+      apply sup_le
+      intro f hf t
+      apply le_sup
+      exact ⟨f, hf, rfl⟩
+    exact hg s
+  · -- sup {y | ∃ f ∈ c, f s = y} ⊑ sup c s
+    apply sup_le
+    intro y ⟨f, hf, hfs⟩
+    rw [← hfs]
+    exact (le_sup (c := c) hf) s
+
 /-- Pointwise characterization of binary meet on function lattices. -/
 @[simp] theorem meet_fun_apply
     {σ : Type v} {β : Type w} [CompleteLattice β]
@@ -133,19 +164,18 @@ theorem iSup_le {ι : Type v} (f : ι → α) (x : α) : (∀ i, f i ⊑ x) → 
   · apply le_meet
     · exact (meet_le_left a b) s
     · exact (meet_le_right a b) s
-  ·
-    classical
+  · classical
     let f : σ → β := fun t => if t = s then a t ⊓ b t else latticeBot
     have hf_left : f ⊑ a := by
       intro t
-      by_cases h : t = s
-      · simp [f, h, meet_le_left]
+      rcases Classical.propDecidable (t = s) with (h|h)
       · simp [f, h, latticeBot_le]
+      · simp [f, h, meet_le_left]
     have hf_right : f ⊑ b := by
       intro t
-      by_cases h : t = s
-      · simp [f, h, meet_le_right]
+      rcases Classical.propDecidable (t = s) with (h|h)
       · simp [f, h, latticeBot_le]
+      · simp [f, h, meet_le_right]
     have hf_meet : f ⊑ a ⊓ b := le_meet f a b hf_left hf_right
     have hs : f s = a s ⊓ b s := by simp [f]
     exact hs ▸ hf_meet s
@@ -167,52 +197,7 @@ theorem iSup_le {ι : Type v} (f : ι → α) (x : α) : (∀ i, f i ⊑ x) → 
     · exact (left_le_join a b) s
     · exact (right_le_join a b) s
 
--- /-- For function types, the top element evaluates pointwise to top -/
--- theorem latticeTop_fun_apply {σ : Type u} {α : Type u} [CompleteLattice α] (s : σ) :
---     (⊤ : σ → α) s = (⊤ : α) := by
---   apply PartialOrder.rel_antisymm
---   · exact le_top _
---   · apply le_sup
---     exact ⟨fun _ => ⊤, trivial, rfl⟩
-
--- /-- For function types, the bot element evaluates pointwise to bot -/
--- theorem latticeBot_fun_apply {σ : Type u} {α : Type u} [CompleteLattice α] (s : σ) :
---     (latticeBot : σ → α) s = (latticeBot : α) := by
---   apply PartialOrder.rel_antisymm
---   · apply inf_le
---     exact ⟨fun _ => latticeBot, trivial, rfl⟩
---   · exact latticeBot_le _
-
 end LatticeExtensions
-
-/-!
-# LawfulMonadLiftT instances
-
-Effect observation instances for common monad transformers.
--/
-
-instance instLawfulMonadLiftTRefl [Monad m] : LawfulMonadLiftT m m where
-  monadLift_pure := by simp
-  monadLift_bind := by simp
-
-instance instLawfulMonadLiftTStateT [Monad m] [LawfulMonad m] : LawfulMonadLiftT m (StateT σ m) where
-  monadLift_pure := by simp
-  monadLift_bind := by simp
-
-instance instLawfulMonadLiftTReaderT [Monad m] [LawfulMonad m] : LawfulMonadLiftT m (ReaderT σ m) where
-  monadLift_pure := by simp
-  monadLift_bind := by simp
-
-instance instLawfulMonadLiftTExceptT [Monad m] [LawfulMonad m] : LawfulMonadLiftT m (ExceptT ε m) where
-  monadLift_pure := by simp
-  monadLift_bind := by simp
-
-instance instLawfulMonadLiftTTrans [Monad m] [LawfulMonad m]
-  [Monad n] [LawfulMonad n] [MonadLiftT m n] [LawfulMonadLiftT m n]
-  [Monad p] [LawfulMonad p] [MonadLift n p] [LawfulMonadLiftT n p]
-  : LawfulMonadLiftT m p where
-    monadLift_pure := by simp
-    monadLift_bind := by simp
 
 /-!
 # Prop Embedding into Partial Order
@@ -221,27 +206,25 @@ Embedding propositions into a partial order with top and bottom.
 -/
 
 open Classical in
-noncomputable def LE.pure {l : Type u} [CompleteLattice l] : Prop → l := fun p =>
+/-- Pure embedding of propositions into a complete lattice. -/
+noncomputable def CompleteLattice.pure {l : Type u} [CompleteLattice l] : Prop → l := fun p =>
   if p then ⊤ else latticeBot
 
-macro "⌜" p:term "⌝" : term => `(LE.pure $p)
-
-@[app_unexpander LE.pure] def unexpandPure : Lean.PrettyPrinter.Unexpander
-  | `($(_) $p) => `(⌜$p⌝)
-  | _ => throw ()
+@[inherit_doc CompleteLattice.pure]
+notation "⌜" p "⌝" => CompleteLattice.pure p
 
 @[simp]
 theorem trueE (l : Type v) [CompleteLattice l] : ⌜True⌝ = (⊤ : l) := by
-  simp [LE.pure]
+  simp [CompleteLattice.pure]
 
 @[simp]
 theorem falseE (l : Type v) [CompleteLattice l] : ⌜False⌝ = (latticeBot : l) := by
-  simp [LE.pure]
+  simp [CompleteLattice.pure]
 
 open Classical in
 theorem LE.pure_imp {l : Type u} [CompleteLattice l]
   (p₁ p₂ : Prop) : (p₁ → p₂) → ⌜p₁⌝ ⊑ (⌜p₂⌝ : l) := by
-  simp only [LE.pure]
+  simp only [CompleteLattice.pure]
   intro h
   split
   case isTrue hp1 =>
@@ -254,7 +237,7 @@ theorem LE.pure_imp {l : Type u} [CompleteLattice l]
 @[simp]
 theorem LE.pure_intro {l : Type u} [CompleteLattice l]
   (p : Prop) (h : l) : (⌜p⌝ ⊑ h) = (p → ⊤ ⊑ h) := by
-  simp only [LE.pure]
+  simp only [CompleteLattice.pure]
   apply propext
   constructor
   · intro hle hp
@@ -271,11 +254,11 @@ theorem pure_intro_l {l : Type u} [CompleteLattice l] (p : Prop) (x y : l) :
   apply propext
   constructor
   · intro h hp
-    have hxy : x ⊓ ⊤ ⊑ y := by simp only [LE.pure, hp, ↓reduceIte] at h; exact h
+    have hxy : x ⊓ ⊤ ⊑ y := by simp only [CompleteLattice.pure, hp, ↓reduceIte] at h; exact h
     have hx_le_meet : x ⊑ x ⊓ ⊤ := le_meet x x ⊤ PartialOrder.rel_refl (le_top x)
     exact PartialOrder.rel_trans hx_le_meet hxy
   · intro h
-    simp only [LE.pure]
+    simp only [CompleteLattice.pure]
     split
     next hp => exact PartialOrder.rel_trans (meet_le_left x ⊤) (h hp)
     next => exact PartialOrder.rel_trans (meet_le_right x latticeBot) (latticeBot_le _)
@@ -286,11 +269,11 @@ theorem pure_intro_r {l : Type u} [CompleteLattice l] (p : Prop) (x y : l) :
   apply propext
   constructor
   · intro h hp
-    have hxy : ⊤ ⊓ x ⊑ y := by simp only [LE.pure, hp, ↓reduceIte] at h; exact h
+    have hxy : ⊤ ⊓ x ⊑ y := by simp only [CompleteLattice.pure, hp, ↓reduceIte] at h; exact h
     have hx_le_meet : x ⊑ ⊤ ⊓ x := le_meet x ⊤ x (le_top x) PartialOrder.rel_refl
     exact PartialOrder.rel_trans hx_le_meet hxy
   · intro h
-    simp only [LE.pure]
+    simp only [CompleteLattice.pure]
     split
     next hp => exact PartialOrder.rel_trans (meet_le_right ⊤ x) (h hp)
     next => exact PartialOrder.rel_trans (meet_le_left latticeBot x) (latticeBot_le _)
@@ -315,12 +298,10 @@ def propSup (c : Prop → Prop) : Prop := ∃ p, c p ∧ p
 theorem propSup_is_sup (c : Prop → Prop) : is_sup c (propSup c) := by
   intro y
   constructor
-  · -- mp: (propSup c → y) → (∀ z, c z → z → y)
-    intro hsup z hcz hz
+  · intro hsup z hcz hz
     apply hsup
     exact Exists.intro z (And.intro hcz hz)
-  · -- mpr: (∀ z, c z → z → y) → (propSup c → y)
-    intro h ⟨z, hcz, hz⟩
+  · intro h ⟨z, hcz, hz⟩
     exact h z hcz hz
 
 instance : CompleteLattice Prop where
@@ -331,7 +312,6 @@ theorem prop_pre_intro (x y : Prop) : (x → True ⊑ y) → x ⊑ y :=
 
 theorem prop_pre_elim (x : Prop) : x → True ⊑ x :=
   fun hx _ => hx
-
 
 @[simp] theorem iInf_prop_eq_forall {ι : Type u} (f : ι → Prop) :
     (iInf f : Prop) = (∀ i, f i) := by

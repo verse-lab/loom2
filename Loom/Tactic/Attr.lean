@@ -1,17 +1,24 @@
 /-
-Ported from Lean.Elab.Tactic.Do.Attr (lean4 compiler).
-Adapted for Loom.Triple, removed etaPotential machinery.
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
 -/
-import Lean
-import Loom.Triple.Basic
+module
+
+prelude
+public import Lean.Meta.Tactic.Simp
+public import Lean.Meta.Sym.Pattern
+public import Loom.Triple.Basic
+import Init.Syntax
+import Init.While
+
+public section
 
 namespace Loom.Tactic.SpecAttr
 
-open Lean Meta Loom Lean.Order
+open Lean Meta Loom Std.Do' Lean.Order
 
 syntax (name := lspec) "lspec" (ppSpace prio)? : attr
-
-initialize registerTraceClass `Loom.Tactic.lspecAttr
 
 /--
   This attribute should not be used directly.

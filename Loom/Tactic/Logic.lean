@@ -1,8 +1,18 @@
-import Lean
-import Loom.Tactic.Attr
-import Loom.Tactic.ShareExt
-import Loom.WP.SimpLemmas
-import Loom.Frame
+/-
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
+-/
+module
+
+prelude
+public meta import Lean
+public import Loom.Tactic.Attr
+public meta import Loom.Tactic.ShareExt
+public import Loom.WP.Lemmas
+public import Loom.Frame
+
+public section
 
 open Lean Meta Sym Loom Lean.Order
 
@@ -20,27 +30,27 @@ def _root_.Lean.Name.toLogicOp? : Name → Option LogicOp
   | ``himp => some .Imp
   | _ => none
 
-def LogicOp.mkLatticeExpr (as : Array Expr) : LogicOp → MetaM Expr
+meta def LogicOp.mkLatticeExpr (as : Array Expr) : LogicOp → MetaM Expr
   | .And => mkAppM ``meet as
   | .Imp => mkAppM ``himp as
 
 /-- Map a logic operator to its corresponding `*_fun_apply` lemma. -/
-def LogicOp.toApplyLemma : LogicOp → Name
+meta def LogicOp.toApplyLemma : LogicOp → Name
   | .And => ``meet_fun_apply
   | .Imp => ``himp_fun_apply
 
 /-- Map a logic operator to its corresponding proposition-level equivalence lemma. -/
-def LogicOp.toPropLemma : LogicOp → Name
+meta def LogicOp.toPropLemma : LogicOp → Name
   | .And => ``meet_prop_eq_and
   | .Imp => ``himp_prop_eq_imp
 
 /-- Map a logic operator to its `⊑`-form splitting lemma. -/
-def LogicOp.toRelLemma : LogicOp → Name
+meta def LogicOp.toRelLemma : LogicOp → Name
   | .And => ``le_meet       -- le_meet (x y z) : x ⊑ y → x ⊑ z → x ⊑ y ⊓ z
   | .Imp => ``himp_complete  -- himp_complete (x a b) : a ⊓ x ⊑ b → x ⊑ a ⇨ b
 
 /-- Lift an equality `lhs = rhs` to `(lhs args...) = (rhs args...)`. -/
-private def liftEqByArgs (eqPrf : Expr) (args : List Expr) : MetaM Expr := do
+private meta def liftEqByArgs (eqPrf : Expr) (args : List Expr) : MetaM Expr := do
   if args.isEmpty then
     return eqPrf
   let eqTy ← inferType eqPrf
@@ -60,7 +70,7 @@ Example (`lop = .And`, `stepThm = ``meet_fun_apply`, `as = #[a, b]`,
 `ss = [s₁, s₂]`): the resulting proof has type
 `((a ⊓ b) s₁ s₂) = (a s₁ s₂ ⊓ b s₁ s₂)`.
 -/
-partial def LogicOp.mkApplyEq
+meta partial def LogicOp.mkApplyEq
     (stepThm : Name) (lop : LogicOp)
     (as : Array Expr) (ss : List Expr) : MetaM Expr := do
   match ss with
@@ -77,7 +87,7 @@ partial def LogicOp.mkApplyEq
 /-- Like `mkGoalPremiseEq` but only distributes through function applications
     via `*_fun_apply` lemmas, staying at the lattice level (no Prop simplification).
     Returns `((a ⊓ b) s₁...sₙ, (a s₁...sₙ ⊓ b s₁...sₙ), eq)`. -/
-def LogicOp.mkDistributeEq
+meta def LogicOp.mkDistributeEq
     (lop : LogicOp) (as ss : Array Expr) : SymM (Expr × Expr) := do
   let applyLemma := lop.toApplyLemma
   let lat ← lop.mkLatticeExpr as
@@ -103,7 +113,7 @@ For `Imp`, produces:
 ```
 Works for any `CompleteLattice`, not just `Prop`.
 -/
-def LogicOp.mkBackwardRule
+meta def LogicOp.mkBackwardRule
     (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
     : SymM BackwardRule := do
   let as ← as.mapM fun arg => do
@@ -143,7 +153,7 @@ def LogicOp.mkBackwardRule
 section Test
 
 /-- Test helper: run `mkBackwardRuleForLogicRel` and return the generated rule type. -/
-def testLogicBackwardRuleRel
+meta def testLogicBackwardRuleRel
     (lop : LogicOp)
     (as excessArgs : Array Expr) : MetaM Expr := do
   let rule ← SymM.run do lop.mkBackwardRule as excessArgs
@@ -222,3 +232,5 @@ def testLogicBackwardRuleRel
 end Test
 
 end Loom
+
+end -- public section

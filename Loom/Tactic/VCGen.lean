@@ -1,18 +1,22 @@
+/-
+Copyright (c) 2025 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Vladimir Gladshtein, Sebastian Graf
+-/
 import Lean
 import Loom.Tactic.Attr
 import Loom.Tactic.Spec
 import Loom.Tactic.Logic
 import Loom.Triple.Basic
 import Loom.Triple.SpecLemmas
-import Loom.WP.SimpLemmas
+import Loom.WP.Lemmas
 import Loom.Frame
-import Lean.Meta
 import Loom.Tactic.ShareExt
 import Loom.Tactic.Match
 
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 open Loom.Tactic.SpecAttr
-open Loom.Tactic.Spec
+open Std.Do'
 
 namespace Loom
 

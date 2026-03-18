@@ -2,7 +2,7 @@ import Lean
 import Loom.Test.Driver
 import Loom.Tactic.VCGen
 
-open Loom Lean Meta Order
+open Loom Lean Meta Order Std.Do'
 
 /-
 Benchmark for the spec-generalization path where both `post` and `epost` are concrete in

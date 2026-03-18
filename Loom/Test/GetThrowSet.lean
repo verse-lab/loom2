@@ -3,7 +3,7 @@ import Loom.Test.Driver
 import Loom.Test.Specs
 import Loom.Tactic.VCGen
 
-open Loom Lean Meta Order
+open Loom Lean Meta Order Std.Do'
 
 abbrev M := ExceptT String <| StateM Nat
 
