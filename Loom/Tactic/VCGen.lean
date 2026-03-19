@@ -59,16 +59,20 @@ def mkBackwardRuleFromSpecCached (specThm : SpecTheorem)
       return rule
 
 
-def mkBackwardRuleForIteCached
-    (wpHead m l errTy monadInst instWP : Expr)
+open Lean.Elab.Tactic.Do in
+def mkBackwardRuleForSplitCached
+    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instWP : Expr)
     (excessArgs : Array Expr) : VCGenM BackwardRule := do
+  let cacheKey := match splitInfo with
+    | .ite .. => ``ite
+    | .dite .. => ``dite
+    | .matcher matcherApp => matcherApp.matcherName
   let s := (← get).splitBackwardRuleCache
-  match s[(``ite, instWP, excessArgs.size)]? with
+  match s[(cacheKey, instWP, excessArgs.size)]? with
   | some rule => return rule
   | none =>
-    let rule ← mkBackwardRuleForIte wpHead m l errTy monadInst instWP excessArgs
-    let key := (``ite, instWP, excessArgs.size)
-    modify ({ · with splitBackwardRuleCache := s.insert key rule })
+    let rule ← mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instWP excessArgs
+    modify ({ · with splitBackwardRuleCache := s.insert (cacheKey, instWP, excessArgs.size) rule })
     return rule
 
 def mkBackwardRuleForLogicCached
@@ -205,20 +209,19 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         let newTarget ← mkAppNS (mkConst ``PartialOrder.rel) #[l, cl, pre, rhs]
         let goal ← goal.replaceTargetDefEq newTarget
         return .goals [goal]
-      -- Apply registered specifications
-      let f := e.getAppFn
-      if f.isConstOf ``ite || f.isAppOf ``ite then
-        let rule ← mkBackwardRuleForIteCached head m l errTy monadInst instWP excessArgs
+      -- Split ite/dite/match using backward rule
+      if let some info ← liftMetaM <| Lean.Elab.Tactic.Do.getSplitInfo? e then
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
+        let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instWP excessArgs
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply split rule for {indentExpr e}"
-        -- Intro the split condition in each branch with names `if_pos` / `if_neg`
-        let names := [`if_pos, `if_neg]
-        let goals ← goals.zip names |>.mapM fun (g, n) => do
-          let .goal _ g ← Sym.intros g #[n]
-            | throwError "Failed to intro split condition"
+        let goals ← goals.mapM fun g => do
+          let .goal _ g ← Sym.intros g
+            | throwError "Failed to intro split parameters"
           return g
         return .goals goals
+      -- Apply registered specifications
+      let f := e.getAppFn
       if f.isConst || f.isFVar then
         trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
         match ← findSpecs (← read).specThms e with
