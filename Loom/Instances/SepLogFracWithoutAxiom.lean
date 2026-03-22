@@ -8,10 +8,12 @@ abbrev Val  := Int
 /-! ## The Permission Type -/
 
 -- A Permission is a Rational number bundled with a proof that it is strictly positive.
-@[ext]
+@[ext, grind]
 structure Perm where
   val : Rat
-  is_pos : 0 < val
+  is_pos : 0 < val := by grind
+
+attribute [grind] Perm.is_pos
 
 namespace Perm
 
@@ -40,6 +42,7 @@ end Perm
 
 abbrev HeapVal := Val × Perm
 
+/- TODO: should be finite  -/
 -- A Heap is now a pure function, making observational equality identical to structural equality
 def Heap := Loc → Option HeapVal
 
@@ -315,7 +318,18 @@ def hSingle (x : Loc) (v : Val) : hProp := hSingle' x v
 
 notation:70 x " ↦ " v => hSingle x v
 
+/- TODO: rename to Perm.Valid (or Perm.isValid or Perm.valid)
+ * https://leanprover-community.github.io/contribute/naming.html
+ * find similar examples in the standard library
+ -/
+@[grind]
 def ValidPerm (π : Perm) : Prop := π ≤ 1
+
+/- TODO: is it the better way?
+-/
+-- inductive hSingleFrac' (x : Loc) (v : Val) (π : Perm) : Heap → Prop where
+--   | intro (hValid : ValidPerm π) : hSingleFrac' x v π (Heap.singleFrac x v π)
+
 
 inductive hSingleFrac' (x : Loc) (v : Val) (π : { p : Perm // ValidPerm p }) : Heap → Prop where
   | intro : hSingleFrac' x v π (Heap.singleFrac x v π.1)
@@ -335,8 +349,8 @@ instance : EmptyCollection hProp := ⟨hEmpty⟩
 
 /-! ## Permission constants -/
 
-def fullPermVal : { p : Perm // ValidPerm p } := ⟨⟨1, by decide⟩, by trivial⟩
-def halfPerm : { p : Perm // ValidPerm p } := ⟨⟨1/2, by grind⟩, by change (1/2 : Rat) ≤ 1; grind⟩
+def fullPermVal : { p : Perm // ValidPerm p } := ⟨{val := 1}, by trivial⟩
+def halfPerm : { p : Perm // ValidPerm p } := ⟨{val := 1/2}, by simp [ValidPerm]⟩
 
 /-! ## hSingle = hSingleFrac with full perm -/
 
@@ -381,6 +395,7 @@ theorem entails_hWand {H₁ H₂ Q : hProp} (hle : H₁ ∗ H₂ ⊑ Q) :
   exact hExists'.intro H₂ (hStar'.intro h ∅ hH₂ (hPure'.intro hle)
     (Heap.addUnion_empty h) (Heap.Disjoint.empty_right h))
 
+/- TODO: choose an appropriate pattern -/
 @[grind] theorem hWand_mono :
   P ⊑ Q → H -∗ P ⊑ H -∗ Q := by
   intro hle h ⟨H', ⟨hLeft, hRight, hH', hpure, hunion, hdisj⟩⟩
@@ -389,6 +404,7 @@ theorem entails_hWand {H₁ H₂ Q : hProp} (hle : H₁ ∗ H₂ ⊑ Q) :
     exact hExists'.intro H' (hStar'.intro hLeft ∅ hH' (hPure'.intro (PartialOrder.rel_trans hent hle))
       hunion hdisj)
 
+/- TODO: choose an appropriate pattern -/
 @[grind] theorem hStar_mono :
   P ⊑ Q → H ∗ P ⊑ H ∗ Q := by
   intro hle h ⟨h₁, h₂, hH, hP, hunion, hdisj⟩
