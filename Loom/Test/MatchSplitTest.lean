@@ -28,7 +28,9 @@ def loop (n : Nat) : M Unit := do
   | 0 => pure ()
   | n+1 => step; loop n
 
-def Goal (n : Nat) : Prop := ∀ post, post 0 ⊑ wp (loop n) (fun _ => post) epost⟨fun _ _ => False⟩ n
+opaque f : Nat → Nat
+
+def Goal (n : Nat) : Prop := ∀ post, post 0 ⊑ wp (loop n) (fun _ => post) epost⟨fun _ _ => False⟩ (f n)
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
@@ -37,5 +39,6 @@ def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
     `(tactic| (intro post; mvcgen'))
     `(tactic| sorry)
+
 
 #eval runTests [1000]

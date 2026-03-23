@@ -22,6 +22,8 @@ BENCHMARKS = [
     "ConcreteEPostTwoPreds",
     "ConcretePostEPost",
     "DiteSplit",
+    "DiteSplitReduce",
+    "IteSplitReduce",
     "GetThrowSet",
     "MatchSplit",
     "MatchSplitTest",

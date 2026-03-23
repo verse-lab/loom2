@@ -228,8 +228,19 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         let newTarget ← mkAppNS (mkConst ``PartialOrder.rel) #[l, cl, pre, rhs]
         let goal ← goal.replaceTargetDefEq newTarget
         return .goals [goal]
-      -- Split ite/dite/match using backward rule
+      -- Split ite/dite/match
       if let some info ← liftMetaM <| Lean.Elab.Tactic.Do.getSplitInfo? e then
+        -- For matchers, try simpControl to reduce known discriminants
+        if let .matcher .. := info then
+          if let .step e' .. ← (Sym.Simp.simpControl e).run' then
+            trace[Loom.Tactic.vcgen] "simpControl simplified match in {e}"
+            let e' ← shareCommon e'
+            let rhs ← mkAppNS head <| args.set! 6 e'
+            let relArgs := target.getAppArgs
+            let newTarget ← mkAppNS target.getAppFn (relArgs.set! (relArgs.size - 1) rhs)
+            let goal ← goal.replaceTargetDefEq newTarget
+            return .goals [goal]
+        -- Fall back to full split
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
         let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instWP excessArgs
         let .goals goals ← rule.apply goal

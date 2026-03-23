@@ -79,7 +79,7 @@ meta def mkBackwardRuleForSplit
     mkLambdaFVars (#[a] ++ splitFVars ++ ss ++ #[post, epost, pre] ++ subgoalHyps) prf
   let prf ← instantiateMVars prf
   let res ← abstractMVars prf
-  let type ← preprocessExpr (← Sym.inferType res.expr)
+  let type ← preprocessExpr (← Meta.inferType res.expr)
   let prf ← Meta.mkAuxLemma res.paramNames.toList type res.expr
   mkBackwardRuleFromDecl prf
 
