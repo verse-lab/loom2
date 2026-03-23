@@ -21,7 +21,10 @@ BENCHMARKS = [
     "AssertGadgetStep",
     "ConcreteEPostTwoPreds",
     "ConcretePostEPost",
+    "DiteSplit",
     "GetThrowSet",
+    "MatchSplit",
+    "MatchSplitTest",
 ]
 
 DEFAULT_SIZES = list(range(100, 1001, 100))
@@ -400,8 +403,11 @@ def generate_plots(results: dict, baseline: dict | None):
         plt.close(fig)
 
         # Page 3: per-benchmark proof size plots
-        fig, axes = plt.subplots(2, 3, figsize=(18, 8))
-        axes_flat = axes.flatten()
+        nrows3 = (len(bench_names) + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows3, ncols, figsize=(18, 4 * nrows3))
+        if nrows3 == 1:
+            axes = [axes]
+        axes_flat = [ax for row in axes for ax in (row if hasattr(row, '__len__') else [row])]
         fig.suptitle("Proof Size per Benchmark", fontsize=14)
 
         for idx, bench_name in enumerate(bench_names):

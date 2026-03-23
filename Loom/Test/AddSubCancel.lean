@@ -44,6 +44,18 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro post; mvcgen'))
     `(tactic| grind)
 
+example : Goal 1 := by
+  intro post s
+  simp only [loop, step]
+  mvcgen' with grind
+
+#eval
+  runBenchUsingTactic
+    ``Goal [``loop, ``step]
+    `(tactic| (intro post s; mvcgen' with grind))
+    `(tactic| skip)
+    [1000]
+
 #eval
   runBenchUsingTactic
     ``Goal [``loop, ``step]

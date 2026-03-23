@@ -52,7 +52,7 @@ class AssertionLang (l : Type w) where
   /-- The complete lattice instance on the assertion language. -/
   cl : CompleteLattice l
 
-attribute [reducible, instance high] AssertionLang.cl
+attribute [reducible, scoped instance high] AssertionLang.cl
 
 /-- `Prop` is an assertion language via its complete lattice structure. -/
 instance (priority := high) : AssertionLang Prop where
@@ -64,7 +64,7 @@ instance (priority := high) {l : Type u} {σ : Type v} [AssertionLang l] :
   cl := inferInstance
 
 /-- Every assertion language is a partial order. -/
-instance [AssertionLang l] : PartialOrder l := inferInstance
+scoped instance [AssertionLang l] : PartialOrder l := inferInstance
 
 /-- An exception assertion language wraps an `AssertionLang` for exception postcondition types. -/
 class ExceptAssertionLang (e : Type w) where
@@ -72,14 +72,14 @@ class ExceptAssertionLang (e : Type w) where
   as : AssertionLang e
 
 /-- The `CompleteLattice` from `ExcpetAssertionLang`. -/
-instance [ExceptAssertionLang e] : CompleteLattice e := ExceptAssertionLang.as.cl
+scoped instance [ExceptAssertionLang e] : CompleteLattice e := ExceptAssertionLang.as.cl
 
 /-- `Prop` is an exception assertion language. -/
 instance : ExceptAssertionLang Prop where
   as := inferInstance
 
 /-- An exception assertion language is a chain-complete partial order. -/
-instance [ExceptAssertionLang e] : CCPO e where
+scoped instance [ExceptAssertionLang e] : CCPO e where
   has_csup {c} _ := ExceptAssertionLang.as.cl.has_sup c
 
 /-- `EPost.nil` is an exception assertion language (trivial lattice). -/
@@ -299,6 +299,8 @@ theorem StateT.apply_wp {σ : Type u}
   [Monad m] [WPMonad m l el] (x : StateT σ m α)
   (post : α → σ → l) (epost : el) (s : σ) :
     (wp x) post epost s = wp (x.run s) (fun (a, s) => post a s) epost := rfl
+
+set_option trace.Meta.synthInstance true
 
 /-- `ReaderT` lifts a `WPMonad` instance by adding a reader argument. -/
 instance ReaderT.instWPMonad {l : Type v}

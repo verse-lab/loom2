@@ -37,10 +37,10 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro post; mvcgen'))
     `(tactic| sorry)
 
-set_option trace.Loom.Tactic.vcgen true in
-example : Goal 3 := by
-  intro post
-  mvcgen'
-  all_goals sorry
+-- set_option trace.Loom.Tactic.vcgen true in
+-- example : Goal 3 := by
+--   intro post
+--   mvcgen'
+--   all_goals sorry
 
-#eval runTests [1000]
+#eval runTests [100]

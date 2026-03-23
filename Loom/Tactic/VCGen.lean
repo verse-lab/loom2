@@ -17,26 +17,45 @@ import Loom.Tactic.Match
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 open Loom.Tactic.SpecAttr
 open Std.Do'
+open Grind (GrindM)
 
 namespace Loom
 
 initialize registerTraceClass `Loom.Tactic.vcgen
 
+inductive VCGen.dischargeTactic where
+  | none
+  | grind
+  | tactic (tactic : Syntax)
+  deriving Repr
+
+def VCGen.dischargeTactic.isGrind : VCGen.dischargeTactic → Bool
+  | .grind => true
+  | _      => false
+
+def VCGen.dischargeTactic.eval (goal : MVarId) : VCGen.dischargeTactic → MetaM (List MVarId)
+  | .none => return [goal]
+  | .grind => unreachable!
+  | .tactic tac => do
+    let (goals, _) ← runTactic goal tac
+    return goals
+
 /-! ## VCGen monad and caching -/
 
 structure VCGen.Context where
-  specThms : SpecTheorems
+  specThms     : SpecTheorems
   introPreRule : BackwardRule
-  elimPreRule : BackwardRule
+  elimPreRule  : BackwardRule
+  disch        : dischargeTactic := .none
 
 structure VCGen.State where
-  specBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
+  specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   splitBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   logicBackwardRuleCache : Std.HashMap (Name × Array Expr × Nat) BackwardRule := {}
-  invariants : Array MVarId := #[]
-  vcs : Array MVarId := #[]
+  invariants             : Array MVarId := #[]
+  vcs                    : Array MVarId := #[]
 
-abbrev VCGenM := ReaderT VCGen.Context (StateRefT VCGen.State SymM)
+abbrev VCGenM := ReaderT VCGen.Context (StateRefT VCGen.State GrindM)
 
 namespace VCGen
 
@@ -243,49 +262,49 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
 
 /-- Emit a VC for a goal that cannot be further decomposed.
     If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper. -/
-meta def emitVC (goal : MVarId) : VCGenM Unit := do
+meta def emitVC (goal : Grind.Goal) : VCGenM Unit := do
   let mut goal := goal
-  let ty ← goal.getType
+  let ty ← goal.mvarId.getType
   if let some (_, _, Expr.const ``True _, _) := ty.app4? ``PartialOrder.rel then
     let rule := (← read).elimPreRule
-    let .goals [goal'] ← rule.apply goal
+    let .goals [goal'] ← goal.apply rule
       | throwError "Failed to apply elim_pre rule"
     goal := goal'
-  let ty ← goal.getType
-  goal.setKind .syntheticOpaque
-  if ty.isAppOf ``Std.Do.Invariant then
-    modify fun s => { s with invariants := s.invariants.push goal }
-  else
-    modify fun s => { s with vcs := s.vcs.push goal }
+  let disch := (← read).disch
+  let mut goals := [goal.mvarId]
+  match disch with
+  | .grind =>
+    goal ← goal.internalizeAll
+    if let .closed ← goal.grind then goals := []
+  | _ => goals ← disch.eval goal.mvarId
+  for g in goals do g.setKind .syntheticOpaque
+  modify fun s => { s with vcs := s.vcs ++ goals }
 
 /-- Unfold `⦃P⦄ x ⦃Q⦄` into `P ⊑ wp⟦x⟧ Q`. -/
-meta def unfoldTriple (goal : MVarId) : OptionT SymM MVarId := goal.withContext do
-  let type ← goal.getType
+meta def unfoldTriple (goal : Grind.Goal) : OptionT VCGenM Grind.Goal := goal.withContext do
+  let type ← goal.mvarId.getType
   unless type.isAppOf ``Triple do return goal
-  let simpTripleMethod ← mkMethods #[``Triple.iff]
-  let (res, _) ← Simp.SimpM.run (simpGoal (methods := simpTripleMethod) goal)
-  match res with
-  | .goal goal => return goal
-  | .closed => failure
-  | .noProgress => return goal
+  let rule ← mkBackwardRuleFromDecl ``Triple.intro
+  let .goals [goal] ← goal.apply rule | failure
+  return goal
 
-def introsWP (goal : MVarId) : SymM MVarId := do
+def introsWP (goal : Grind.Goal) : VCGenM Grind.Goal := do
   let mut goal := goal
-  if (← goal.getType).isForall then
-    let IntrosResult.goal _ goal' ← Sym.intros goal | failure
+  if (← goal.mvarId.getType).isForall then
+    let .goal _ goal' ← goal.intros #[] | failure
     goal := goal'
   return goal
 
 /-- Main work loop: decompose the goal repeatedly. -/
 meta def work (goal : MVarId) : VCGenM Unit := do
-  let goal ← preprocessMVar goal
+  let goal ← Grind.mkGoal goal
   let some goal ← unfoldTriple goal |>.run | return ()
   let mut worklist := Std.Queue.empty.enqueue goal
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
     let goal ← introsWP goal
-    let res ← solve goal
+    let res ← solve goal.mvarId
     match res with
     | .noProgramOrLatticeFoundInTarget .. =>
       emitVC goal
@@ -296,14 +315,20 @@ meta def work (goal : MVarId) : VCGenM Unit := do
     | .noStrategyForProgram prog =>
       throwError "Did not know how to decompose weakest precondition for {prog}"
     | .goals subgoals =>
-      worklist := worklist.enqueueAll subgoals
+      -- if we have multiple subgoals, before running the VCGen
+      -- we need to share the grind context first.
+      -- TODO: I am afraid of excessive copying of the grind context.
+      let mut grindSharedGoal := goal
+      if (← read).disch.isGrind && subgoals.length > 1 then
+        grindSharedGoal ← goal.internalizeAll
+      worklist := worklist.enqueueAll <| subgoals.map ({ grindSharedGoal with mvarId := · })
 
 public structure Result where
   invariants : Array MVarId
   vcs : Array MVarId
 
 /-- Generate VCs for a goal of the form `Triple pre e post epost`, keeping subgoals in `⊑` form. -/
-public meta partial def main (goal : MVarId) (ctx : Context) : SymM Result := do
+public meta partial def main (goal : MVarId) (ctx : Context) : GrindM Result := do
   let ((), state) ← StateRefT'.run (ReaderT.run (work goal) ctx) {}
   for h : idx in [:state.invariants.size] do
     let mv := state.invariants[idx]
@@ -314,17 +339,44 @@ public meta partial def main (goal : MVarId) (ctx : Context) : SymM Result := do
   return { invariants := state.invariants, vcs := state.vcs }
 
 syntax (name := mvcgen') "mvcgen'"
-  (" [" withoutPosition((simpStar <|> simpErase <|> simpLemma),*,?) " ] ")? : tactic
+  (" [" withoutPosition((simpStar <|> simpErase <|> simpLemma),*,?) " ] ")?
+  (&" with " tactic)?  : tactic
+
+def VCGen.getDischargeTactic (stx : Syntax) : MetaM VCGen.dischargeTactic := do
+  let .some tac := stx[2][1]? | return .none
+  if tac.isMissing then return .none
+  return if tac.getKind == ``Parser.Tactic.grind then
+      .grind
+    else
+    .tactic tac
 
 @[tactic mvcgen']
-public meta def elabMVCGen' : Tactic := fun _stx => withMainContext do
+public meta def VCGen.elab : Tactic := fun stx => withMainContext do
   let ctx ← getSpecTheorems
   let goal ← getMainGoal
-  let { invariants, vcs } ← SymM.run do
+
+  let withClause := stx[2]
+  let hasWithClause := withClause.getNumArgs != 0
+  let mut disch ← getDischargeTactic stx
+  let mut params ← Grind.mkDefaultParams {}
+
+  if let .grind := disch then
+    let grindStx := withClause[1]
+    let `(tactic| grind $config:optConfig $[only%$only]? $[ [$grindParams:grindParam,*] ]? $[=> $_:grindSeq]?) := grindStx
+      | throwUnsupportedSyntax
+    let grindConfig ← elabGrindConfig config
+    params ← mkGrindParams grindConfig only.isSome (grindParams.getD {}).getElems goal
+    -- FIXME: Expose grind's internal simp step limit as a user-facing option instead of hardcoding.
+    -- Grind's `simpCore` uses the default `Simp.Config.maxSteps` (100k) which is too low for large
+    -- unrolled goals (fails around n=400 for GetThrowSet).
+    params := { params with norm := ← params.norm.setConfig { params.norm.config with maxSteps := 10000000 } }
+
+  -- dbg_trace "disch: {repr disch}"
+  let { invariants, vcs } ← Grind.GrindM.run (params := params) do
     let migratedCtx ← migrateSpecTheoremsDatabase ctx
     let introPreRule ← mkBackwardRuleFromDecl ``prop_pre_intro
     let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
-    VCGen.main goal { specThms := migratedCtx, introPreRule, elimPreRule }
+    VCGen.main goal { specThms := migratedCtx, introPreRule, elimPreRule, disch }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen
