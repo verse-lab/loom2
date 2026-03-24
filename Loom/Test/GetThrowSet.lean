@@ -34,13 +34,7 @@ set_option maxHeartbeats 10000000
 
 def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
-    `(tactic| (intro post; mvcgen'))
-    `(tactic| sorry)
+    `(tactic| (intro post; mvcgen' with grind))
+    `(tactic| fail)
 
--- #check spec_throw
--- set_option pp.all true
-
--- set_option trace.Loom.Tactic.vcgen true
-
-
-#eval runTests [1000]
+-- #eval runTests [1000]

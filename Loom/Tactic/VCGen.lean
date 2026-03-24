@@ -13,6 +13,7 @@ import Loom.WP.Lemmas
 import Loom.Frame
 import Loom.Tactic.ShareExt
 import Loom.Tactic.Match
+import Loom.Tactic.VCGenTime
 
 open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
 open Loom.Tactic.SpecAttr
@@ -285,8 +286,9 @@ meta def emitVC (goal : Grind.Goal) : VCGenM Unit := do
   let mut goals := [goal.mvarId]
   match disch with
   | .grind =>
-    goal ← goal.internalizeAll
-    if let .closed ← goal.grind then goals := []
+    match ← goal.timedTryGrind with
+    | none => goals := []
+    | some sub => goals := [sub]
   | _ => goals ← disch.eval goal.mvarId
   for g in goals do g.setKind .syntheticOpaque
   modify fun s => { s with vcs := s.vcs ++ goals }
@@ -331,7 +333,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
       -- TODO: I am afraid of excessive copying of the grind context.
       let mut grindSharedGoal := goal
       if (← read).disch.isGrind && subgoals.length > 1 then
-        grindSharedGoal ← goal.internalizeAll
+        grindSharedGoal ← goal.timedInternalizeAll
       worklist := worklist.enqueueAll <| subgoals.map ({ grindSharedGoal with mvarId := · })
 
 public structure Result where
@@ -340,6 +342,8 @@ public structure Result where
 
 /-- Generate VCs for a goal of the form `Triple pre e post epost`, keeping subgoals in `⊑` form. -/
 public meta partial def main (goal : MVarId) (ctx : Context) : GrindM Result := do
+  let doTime := vcgen.time.get (← getOptions)
+  if doTime then vcgenTimingRef.set {}
   let ((), state) ← StateRefT'.run (ReaderT.run (work goal) ctx) {}
   for h : idx in [:state.invariants.size] do
     let mv := state.invariants[idx]

@@ -22,8 +22,6 @@ BENCHMARKS = [
     "ConcreteEPostTwoPreds",
     "ConcretePostEPost",
     "DiteSplit",
-    "DiteSplitReduce",
-    "IteSplitReduce",
     "GetThrowSet",
     "MatchSplit",
     "MatchSplitTest",
@@ -35,6 +33,8 @@ METRICS = [
     ("total_ms",       "Total"),
     ("vcgen_ms",       "VC Generation"),
     ("discharge_ms",   "Discharging"),
+    ("internalize_ms", "Internalize"),
+    ("grind_ms",       "Grind"),
     ("instantiate_ms", "Instantiate"),
     ("share_ms",       "shareCommon"),
     ("kernel_ms",      "Kernel"),
@@ -90,6 +90,8 @@ def parse_output(size: int, stdout: str) -> dict:
     vcgen_ms = None
     num_vcs = None
     discharge_ms = None
+    internalize_ms = None
+    grind_ms = None
     instantiate_ms = None
     share_ms = None
     kernel_ms = None
@@ -107,6 +109,7 @@ def parse_output(size: int, stdout: str) -> dict:
         # With discharge timing
         m = re.match(
             r"goal_(\d+):\s+(\d+)\s+ms,\s+(\d+)\s+VCs\s+by\s+.+?:\s+(\d+)\s+ms,\s+"
+            r"internalize:\s+(\d+)\s+ms,\s+grind:\s+(\d+)\s+ms,\s+"
             r"instantiate:\s+(\d+)\s+ms,\s+shareCommon:\s+(\d+)\s+ms,\s+kernel:\s+(\d+)\s+ms"
             r"(?:,\s+proofSize:\s+(\d+))?"
             r"(?:,\s+proofSizeShared:\s+(\d+))?",
@@ -116,18 +119,21 @@ def parse_output(size: int, stdout: str) -> dict:
             vcgen_ms = int(m.group(2))
             num_vcs = int(m.group(3))
             discharge_ms = int(m.group(4))
-            instantiate_ms = int(m.group(5))
-            share_ms = int(m.group(6))
-            kernel_ms = int(m.group(7))
-            if m.group(8):
-                proof_size = int(m.group(8))
-            if m.group(9):
-                proof_size_shared = int(m.group(9))
+            internalize_ms = int(m.group(5))
+            grind_ms = int(m.group(6))
+            instantiate_ms = int(m.group(7))
+            share_ms = int(m.group(8))
+            kernel_ms = int(m.group(9))
+            if m.group(10):
+                proof_size = int(m.group(10))
+            if m.group(11):
+                proof_size_shared = int(m.group(11))
             continue
 
         # Without discharge timing (0 VCs)
         m = re.match(
             r"goal_(\d+):\s+(\d+)\s+ms,\s+(\d+)\s+VCs,\s+"
+            r"internalize:\s+(\d+)\s+ms,\s+grind:\s+(\d+)\s+ms,\s+"
             r"instantiate:\s+(\d+)\s+ms,\s+shareCommon:\s+(\d+)\s+ms,\s+kernel:\s+(\d+)\s+ms"
             r"(?:,\s+proofSize:\s+(\d+))?"
             r"(?:,\s+proofSizeShared:\s+(\d+))?",
@@ -137,18 +143,23 @@ def parse_output(size: int, stdout: str) -> dict:
             vcgen_ms = int(m.group(2))
             num_vcs = int(m.group(3))
             discharge_ms = 0
-            instantiate_ms = int(m.group(4))
-            share_ms = int(m.group(5))
-            kernel_ms = int(m.group(6))
-            if m.group(7):
-                proof_size = int(m.group(7))
-            if m.group(8):
-                proof_size_shared = int(m.group(8))
+            internalize_ms = int(m.group(4))
+            grind_ms = int(m.group(5))
+            instantiate_ms = int(m.group(6))
+            share_ms = int(m.group(7))
+            kernel_ms = int(m.group(8))
+            if m.group(9):
+                proof_size = int(m.group(9))
+            if m.group(10):
+                proof_size_shared = int(m.group(10))
             continue
 
     if vcgen_ms is None:
         return {"size": size, "status": "parse_error", "raw_output": stdout[:1000]}
 
+    _intern = internalize_ms or 0
+    _grind = grind_ms or 0
+    discharge_other_ms = max(0, discharge_ms - _intern - _grind)
     total_ms = (unfold_ms or 0) + vcgen_ms + discharge_ms + instantiate_ms + share_ms + kernel_ms
     return {
         "size": size,
@@ -157,6 +168,9 @@ def parse_output(size: int, stdout: str) -> dict:
         "vcgen_ms": vcgen_ms,
         "num_vcs": num_vcs,
         "discharge_ms": discharge_ms,
+        "internalize_ms": _intern,
+        "grind_ms": _grind,
+        "discharge_other_ms": discharge_other_ms,
         "instantiate_ms": instantiate_ms,
         "share_ms": share_ms,
         "kernel_ms": kernel_ms,
@@ -260,13 +274,15 @@ def copy_current_to_baseline():
 COMPONENT_METRICS = [
     ("unfold_ms",      "Unfolding"),
     ("vcgen_ms",       "VC Generation"),
-    ("discharge_ms",   "Discharging"),
+    ("internalize_ms", "Internalize"),
+    ("grind_ms",       "Grind"),
+    ("discharge_other_ms", "Discharge (other)"),
     ("instantiate_ms", "Instantiate"),
     ("share_ms",       "shareCommon"),
     ("kernel_ms",      "Kernel"),
 ]
 
-COMPONENT_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"]
+COMPONENT_COLORS = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7"]
 
 
 def generate_plots(results: dict, baseline: dict | None):

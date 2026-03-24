@@ -25,22 +25,23 @@ def step (v : Nat) : M Unit := do
 def loop (n : Nat) : M Unit := do
   match n with
   | 0 => pure ()
-  | n+1 => step n; loop n
+  | n+1 => step (n+1); loop n
 
-def Goal (n : Nat) : Prop := ∀ post, post 0 ⊑ wp (loop n) (fun _ => post) epost⟨fun _ _ => False⟩ 0
+def Goal (n : Nat) : Prop := ∀ post, post n ⊑ wp (loop n) (fun _ => post) epost⟨fun _ _ => False⟩ 0
 
 set_option maxRecDepth 10000
 set_option maxHeartbeats 10000000
 
 def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
-    `(tactic| (intro post; mvcgen'))
-    `(tactic| sorry)
+    `(tactic| (intro post; mvcgen' with grind))
+    `(tactic| fail)
 
--- set_option trace.Loom.Tactic.vcgen true in
+-- -- set_option trace.Loom.Tactic.vcgen true in
 -- example : Goal 3 := by
 --   intro post
+--   simp only [loop, step]
 --   mvcgen'
 --   all_goals sorry
 
-#eval runTests [100]
+-- #eval runTests [1000]

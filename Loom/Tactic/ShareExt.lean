@@ -9,6 +9,8 @@ prelude
 public import Lean
 public meta import Lean.Meta.Sym.AlphaShareBuilder
 public meta import Lean.Meta.Sym.LooseBVarsS
+public meta import Lean.Meta.Sym.Grind
+public meta import Loom.Tactic.VCGenTime
 
 public section
 
@@ -169,41 +171,41 @@ Instantiates metavariables, unfold reducible, and applies `shareCommon`.
 def preprocessExpr (e : Expr) : SymM Expr := do
   shareCommon (← unfoldReducibleEta (← instantiateMVars e))
 
-/--
-Helper function that removes gaps, instantiate metavariables, and applies `shareCommon`.
-Gaps are `none` cells at `lctx.decls`. In `SymM`, we assume these cells don't exist.
--/
-def preprocessLCtxEta (lctx : LocalContext) : SymM LocalContext := do
-  let auxDeclToFullName := lctx.auxDeclToFullName
-  let mut fvarIdToDecl := {}
-  let mut decls := {}
-  let mut index := 0
-  for decl in lctx do
-    let decl ← match decl with
-      | .cdecl _ fvarId userName type bi kind =>
-        let type ← preprocessExpr type
-        pure <| LocalDecl.cdecl index fvarId userName type bi kind
-      | .ldecl _ fvarId userName type value nondep kind =>
-        let type ← preprocessExpr type
-        let value ← preprocessExpr value
-        pure <| LocalDecl.ldecl index fvarId userName type value nondep kind
-    index := index + 1
-    decls := decls.push (some decl)
-    fvarIdToDecl := fvarIdToDecl.insert decl.fvarId decl
-  return { fvarIdToDecl, decls, auxDeclToFullName }
-
-/--
-Instantiates assigned metavariables, applies `shareCommon`, and eliminates holes (aka `none` cells)
-in the local context.
--/
-public def preprocessMVarEta (mvarId : MVarId) : SymM MVarId := do
-  let mvarDecl ← mvarId.getDecl
-  let lctx ← preprocessLCtxEta mvarDecl.lctx
-  let type ← preprocessExpr mvarDecl.type
-  let mvarNew ← mkFreshExprMVarAt lctx mvarDecl.localInstances type .syntheticOpaque mvarDecl.userName
-  mvarId.assign mvarNew
-  return mvarNew.mvarId!
-
 end Loom
+
+open Lean Meta Grind in
+/-- Like `internalizeAll`, but records timing when `vcgen.time` is set. -/
+public meta def Lean.Meta.Grind.Goal.timedInternalizeAll (goal : Grind.Goal) : GrindM Grind.Goal := do
+  let g ← if Loom.vcgen.time.get (← getOptions) then do
+    let (g, ns) ← Loom.timeNs goal.internalizeAll
+    Loom.addInternalizeTime ns
+    pure g
+  else
+    goal.internalizeAll
+  pure g
+
+open Lean Meta Grind in
+/-- Like `grind`, but records timing when `vcgen.time` is set. -/
+public meta def Lean.Meta.Grind.Goal.timedGrind (goal : Grind.Goal) : GrindM GrindResult := do
+  if Loom.vcgen.time.get (← getOptions) then
+    let (res, ns) ← Loom.timeNs goal.grind
+    Loom.addGrindSolveTime ns
+    pure res
+  else
+    goal.grind
+
+open Lean Meta Grind in
+/-- Try to discharge `goal` with grind. `internalizeAll` reassigns the goal's
+    mvar to a fresh metavar; if grind fails we restore the MCtx so the
+    proof term built by the caller stays intact.
+    Returns `none` if grind closed the goal, or `some mvarId` for the unsolved goal. -/
+public meta def Lean.Meta.Grind.Goal.timedTryGrind (goal : Grind.Goal) : GrindM (Option MVarId) := do
+  let savedMCtx ← getMCtx
+  let goal ← goal.timedInternalizeAll
+  match ← goal.timedGrind with
+  | .closed => return none
+  | .failed .. =>
+    setMCtx savedMCtx
+    return some goal.mvarId
 
 end -- public section

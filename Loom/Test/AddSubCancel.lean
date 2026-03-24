@@ -41,24 +41,25 @@ set_option maxHeartbeats 10000000
 
 def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
-    `(tactic| (intro post; mvcgen'))
-    `(tactic| grind)
+    `(tactic| (intro post; mvcgen' with grind))
+    `(tactic| fail)
 
-example : Goal 1 := by
-  intro post s
-  simp only [loop, step]
-  mvcgen' with grind
+-- example : Goal 1 := by
+--   intro post s
+--   simp only [loop, step]
+--   mvcgen' with grind
 
-#eval
-  runBenchUsingTactic
-    ``Goal [``loop, ``step]
-    `(tactic| (intro post s; mvcgen' with grind))
-    `(tactic| skip)
-    [1000]
 
-#eval
-  runBenchUsingTactic
-    ``Goal [``loop, ``step]
-    `(tactic| (intro post s; mvcgen'))
-    `(tactic| grind)
-    [1000]
+-- #eval
+--   runBenchUsingTactic
+--     ``Goal [``loop, ``step]
+--     `(tactic| (intro post s; mvcgen' with grind))
+--     `(tactic| skip)
+--     [1000]
+
+-- #eval
+--   runBenchUsingTactic
+--     ``Goal [``loop, ``step]
+--     `(tactic| (intro post s; mvcgen'))
+--     `(tactic| grind)
+--     [1000]

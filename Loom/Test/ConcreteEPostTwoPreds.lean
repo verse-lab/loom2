@@ -39,7 +39,7 @@ set_option maxHeartbeats 10000000
 
 def runTests := runBenchUsingTactic
     ``Goal [``loop, ``step]
-    `(tactic| mvcgen')
-    `(tactic| sorry)
+    `(tactic| mvcgen' with grind)
+    `(tactic| fail)
 
-#eval runTests [1000]
+-- #eval runTests [1000]
