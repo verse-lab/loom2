@@ -231,10 +231,10 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         return .goals [goal]
       -- Split ite/dite/match
       if let some info ← liftMetaM <| Lean.Elab.Tactic.Do.getSplitInfo? e then
-        -- For matchers, try simpControl to reduce known discriminants
+        -- For matchers, try reduceRecMatcher? to reduce known discriminants
         if let .matcher .. := info then
-          if let .step e' .. ← (Sym.Simp.simpControl e).run' then
-            trace[Loom.Tactic.vcgen] "simpControl simplified match in {e}"
+          if let some e' ← liftMetaM <| Lean.Meta.reduceRecMatcher? e then
+            trace[Loom.Tactic.vcgen] "reduceRecMatcher simplified match in {e}"
             let e' ← shareCommon e'
             let rhs ← mkAppNS head <| args.set! 6 e'
             let relArgs := target.getAppArgs
