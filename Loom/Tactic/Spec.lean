@@ -24,11 +24,11 @@ open Loom.Tactic.SpecAttr
 /-- Extract the program expression from a spec conclusion (Triple or ⊑ wp form). -/
 private def selectProg (type : Expr) : MetaM (Expr × Unit) := do
   let type ← whnfR type
-  if type.isAppOfArity ``Triple 10 then
-    return (type.getArg! 7, ())
+  if type.isAppOfArity ``Triple 12 then
+    return (type.getArg! 9, ())
   else if type.isAppOfArity ``PartialOrder.rel 4 then
     let rhs := type.getArg! 3
-    let_expr wp _m _l _e _monad _wpInst _α prog _post _epost := rhs
+    let_expr wp _m _l _e _monad _instAL _instEAL _wpInst _α prog _post _epost := rhs
       | throwError "RHS of ⊑ is not a wp application{indentExpr rhs}"
     return (prog, ())
   else
@@ -148,7 +148,7 @@ meta def mkSpecBackwardProof
   3. `specProof` represents the Lean expression for the proof of the spec `pre ⊑ wp prog post epost`
   4. `ss` represents the Lean expressions for the state variables `s1`, `s2`, ..., `sn`
   5. `_ssTypes` represents the Lean types for the state variables `s1`, `s2`, ..., `sn` -/
-  let_expr wp _m _l _e _monadInst _instWP _α prog postSpec epostSpec := rhs
+  let_expr wp _m _l _e _monadInst _instAL _instEAL _instWP _α prog postSpec epostSpec := rhs
     | throwError "target not a wp application {rhs}"
   let mut postAbstract := postSpec.consumeMData
   let mut epostAbstract := epostSpec.consumeMData
@@ -242,7 +242,7 @@ meta def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   let_expr PartialOrder.rel l' _cl' pre rhs := specType
     | throwError "target not a partial order ⊑ application {specType}"
   guard <| ← isDefEqGuarded l l'
-  let_expr wp _m' _ _ _monadInst' instWP' _α _e' _post _epost := rhs
+  let_expr wp _m' _ _ _monadInst' _instAL' _instEAL' instWP' _α _e' _post _epost := rhs
     | throwError "target not a wp application {rhs}"
   guard <| ← isDefEqGuarded instWP instWP'
   -- Use local excess-state binders so explicit post premises can be re-lifted to `⊑`.
@@ -291,7 +291,9 @@ private meta def testBackwardRule' (declName : Name) (l instWP : Expr)
   let l := mkSort 0
   let errTy := mkConst ``EPost.nil
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let instAL ← synthInstance (mkApp (mkConst ``AssertionLang [.zero]) l)
+  let instEAL ← synthInstance (mkApp (mkConst ``ExceptAssertionLang [.zero]) errTy)
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, instAL, instEAL])
   let ty ← testBackwardRule' ``WPMonad.wp_bind l instWP #[]
   logInfo m!"Test 1' (Id, n=0): {ty}"
 
@@ -302,7 +304,9 @@ private meta def testBackwardRule' (declName : Name) (l instWP : Expr)
   let l ← mkArrow nat (mkSort 0)
   let errTy := mkConst ``EPost.nil
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let instAL ← synthInstance (mkApp (mkConst ``AssertionLang [.zero]) l)
+  let instEAL ← synthInstance (mkApp (mkConst ``ExceptAssertionLang [.zero]) errTy)
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, instAL, instEAL])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule' ``WPMonad.wp_bind l instWP #[s]
     logInfo m!"Test 2' (StateM Nat, n=1): {ty}"
@@ -377,7 +381,9 @@ theorem spec_get_StateM_test' (post : Nat → Nat → Prop) (epost : EPost.nil) 
   let l ← mkArrow nat (mkSort 0)
   let errTy := mkConst ``EPost.nil
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let instAL ← synthInstance (mkApp (mkConst ``AssertionLang [.zero]) l)
+  let instEAL ← synthInstance (mkApp (mkConst ``ExceptAssertionLang [.zero]) errTy)
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, instAL, instEAL])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule' ``spec_get_StateM_test' l instWP #[s]
     logInfo m!"Test F' (get_StateT, StateM Nat, n=1): {ty}"
@@ -394,7 +400,9 @@ theorem spec_set_StateM_test' (v : Nat) (post : PUnit → Nat → Prop) (epost :
   let l ← mkArrow nat (mkSort 0)
   let errTy := mkConst ``EPost.nil
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
+  let instAL ← synthInstance (mkApp (mkConst ``AssertionLang [.zero]) l)
+  let instEAL ← synthInstance (mkApp (mkConst ``ExceptAssertionLang [.zero]) errTy)
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, instAL, instEAL])
   withLocalDeclD `s nat fun s => do
     let ty ← testBackwardRule' ``spec_set_StateM_test' l instWP #[s]
     logInfo m!"Test G' (set_StateT, StateM Nat, n=1): {ty}"

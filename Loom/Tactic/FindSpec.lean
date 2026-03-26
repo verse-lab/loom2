@@ -20,11 +20,11 @@ open Loom.Tactic.SpecAttr
 /-- Extract the program expression from a spec conclusion (Triple or ⊑ wp form). -/
 private def selectProg (type : Expr) : MetaM (Expr × Unit) := do
   let type ← whnfR type
-  if type.isAppOfArity ``Triple 10 then
-    return (type.getArg! 7, ())
+  if type.isAppOfArity ``Triple 12 then
+    return (type.getArg! 9, ())
   else if type.isAppOfArity ``PartialOrder.rel 4 then
     let rhs := type.getArg! 3
-    let_expr wp _m _l _e _monad _wpInst _α prog _post _epost := rhs
+    let_expr wp _m _l _e _monad _instAL _instEAL _wpInst _α prog _post _epost := rhs
       | throwError "RHS of ⊑ is not a wp application{indentExpr rhs}"
     return (prog, ())
   else

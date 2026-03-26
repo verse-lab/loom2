@@ -81,7 +81,7 @@ def mkBackwardRuleFromSpecCached (specThm : SpecTheorem)
 
 open Lean.Elab.Tactic.Do in
 def mkBackwardRuleForSplitCached
-    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instWP : Expr)
+    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instAL instEAL instWP : Expr)
     (excessArgs : Array Expr) : VCGenM BackwardRule := do
   let cacheKey := match splitInfo with
     | .ite .. => ``ite
@@ -91,7 +91,7 @@ def mkBackwardRuleForSplitCached
   match s[(cacheKey, instWP, excessArgs.size)]? with
   | some rule => return rule
   | none =>
-    let rule ← mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instWP excessArgs
+    let rule ← mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instAL instEAL instWP excessArgs
     modify ({ · with splitBackwardRuleCache := s.insert (cacheKey, instWP, excessArgs.size) rule })
     return rule
 
@@ -211,17 +211,17 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         | throwError "Failed to apply logic rule at {indentExpr target}"
       return .goals goals
   | .WP head args => do
-      -- Goal is: pre ⊑ @wp m l errTy monadInst instWP α e post epost
-      let_expr wp m l errTy monadInst instWP α e _post _epost :=
-        mkAppN head <| args.take 9
+      -- Goal is: pre ⊑ @wp m l errTy monadInst instAL instEAL instWP α e post epost
+      let_expr wp m l errTy monadInst instAL instEAL instWP α e _post _epost :=
+        mkAppN head <| args.take 11
         | return .noProgramOrLatticeFoundInTarget target
-      let excessArgs := args.extract 9 args.size
+      let excessArgs := args.extract 11 args.size
       -- Non-dependent let-expressions
       let f := e.getAppFn
       if let .letE _x _ty val body _nonDep := f then
         let body' ← Sym.instantiateRevBetaS body #[val]
         let e' ← mkAppRevS body' e.getAppRevArgs
-        let wp ← mkAppS₉ head m l errTy monadInst instWP α e' _post _epost
+        let wp ← mkAppS₁₁ head m l errTy monadInst instAL instEAL instWP α e' _post _epost
         let rhs ← mkAppNS wp excessArgs
         -- Rebuild the ⊑ goal with the new RHS
         let_expr PartialOrder.rel l cl pre _rhs := target
@@ -236,14 +236,14 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
           if let some e' ← liftMetaM <| Lean.Meta.reduceRecMatcher? e then
             trace[Loom.Tactic.vcgen] "reduceRecMatcher simplified match in {e}"
             let e' ← shareCommon e'
-            let rhs ← mkAppNS head <| args.set! 6 e'
+            let rhs ← mkAppNS head <| args.set! 8 e'
             let relArgs := target.getAppArgs
             let newTarget ← mkAppNS target.getAppFn (relArgs.set! (relArgs.size - 1) rhs)
             let goal ← goal.replaceTargetDefEq newTarget
             return .goals [goal]
         -- Fall back to full split
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
-        let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instWP excessArgs
+        let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWP excessArgs
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply split rule for {indentExpr e}"
         let goals ← goals.mapM fun g => do
