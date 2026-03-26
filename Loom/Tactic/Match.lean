@@ -20,7 +20,7 @@ Uses `SplitInfo.withAbstract` to introduce abstract fvars for the split componen
 then `SplitInfo.splitWith` to build the splitting proof. Hypothesis types are
 discovered via `rwIfOrMatcher` inside the splitter telescope. -/
 meta def mkBackwardRuleForSplit
-    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instWP : Expr)
+    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instAL instEAL instWP : Expr)
     (excessArgs : Array Expr) : SymM BackwardRule := do
   let mTy ← Sym.inferType m
   let some aTy := if mTy.isForall then some mTy.bindingDomain! else none
@@ -42,7 +42,7 @@ meta def mkBackwardRuleForSplit
     withLocalDeclD `post (← shareCommon (← mkArrow a l)) fun post => do
     withLocalDeclD `epost errTy fun epost => do
     let mkWP (prog : Expr) : Expr :=
-      mkAppN (mkAppN wpHead #[m, l, errTy, monadInst, instWP, a, prog, post, epost]) ss
+      mkAppN (mkAppN wpHead #[m, l, errTy, monadInst, instAL, instEAL, instWP, a, prog, post, epost]) ss
     let l' ← Sym.inferType (mkWP abstractProg)
     withLocalDeclD `pre l' fun pre => do
     let sampleGoal ← mkAppM ``PartialOrder.rel #[pre, mkWP abstractProg]
@@ -65,7 +65,7 @@ meta def mkBackwardRuleForSplit
           -- pattern (e.g., `Nat.zero` instead of `discr`), which is required for
           -- `rwMatcher` to discharge the equality hypotheses of congr equation theorems.
           -- For ite/dite, `bodyType` equals `mkGoal abstractProg` so this is equivalent.
-          let prog := bodyType.getArg! 3 |>.getArg! 6
+          let prog := bodyType.getArg! 3 |>.getArg! 8
           let res ← rwIfOrMatcher idx prog
           if res.proof?.isNone then
             throwError "mkBackwardRuleForSplit: rwIfOrMatcher failed for alt {idx}"
@@ -93,28 +93,30 @@ open Lean.Elab.Tactic.Do Std.Do'
     get the `SplitInfo` from `prog`, call `mkBackwardRuleForSplit`, and return
     the generated backward rule type. -/
 private meta def testSplitBackwardRule
-    (m l errTy monadInst instWP : Expr) (prog : Expr) (excessArgs : Array Expr)
+    (m l errTy monadInst instAL instEAL instWP : Expr) (prog : Expr) (excessArgs : Array Expr)
     : MetaM Expr := do
   let some splitInfo ← getSplitInfo? prog
     | throwError "testSplitBackwardRule: no split info for {indentExpr prog}"
   let wpHead := mkConst ``wp [.zero, .zero, .zero, .zero]
   let rule ← SymM.run do
-    mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instWP excessArgs
+    mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instAL instEAL instWP excessArgs
   inferType rule.expr
 
 /-- Set up StateM Nat monad infrastructure and run a test body. -/
-private meta def withStateMNat (k : Expr → Expr → Expr → Expr → Expr → MetaM α) : MetaM α := do
+private meta def withStateMNat (k : Expr → Expr → Expr → Expr → Expr → Expr → Expr → MetaM α) : MetaM α := do
   let nat := mkConst ``Nat
   let m ← mkAppM ``StateM #[nat]
   let l ← mkArrow nat (mkSort 0)
   let errTy := mkConst ``EPost.nil
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
-  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM])
-  k m l errTy monadM instWP
+  let instAL ← synthInstance (mkApp (mkConst ``AssertionLang [.zero]) l)
+  let instEAL ← synthInstance (mkApp (mkConst ``ExceptAssertionLang [.zero]) errTy)
+  let instWP ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, l, errTy, monadM, instAL, instEAL])
+  k m l errTy monadM instAL instEAL instWP
 
 -- Test 1: ite split for StateM Nat
 -- `ite c (alt₁ : StateM Nat Unit) (alt₂ : StateM Nat Unit)` with 1 excess arg
-#eval! show MetaM Unit from withStateMNat fun m l errTy monadInst instWP => do
+#eval! show MetaM Unit from withStateMNat fun m l errTy monadInst instAL instEAL instWP => do
   let nat := mkConst ``Nat
   let mUnit ← mkAppM ``StateM #[nat, mkConst ``Unit]
   withLocalDeclD `c (mkSort 0) fun c => do
@@ -124,12 +126,12 @@ private meta def withStateMNat (k : Expr → Expr → Expr → Expr → Expr →
   withLocalDeclD `s nat fun s => do
     -- @ite (StateM Nat Unit) c inst alt₁ alt₂
     let prog := mkAppN (mkConst ``ite [.succ .zero]) #[mUnit, c, inst, alt₁, alt₂]
-    let ty ← testSplitBackwardRule m l errTy monadInst instWP prog #[s]
+    let ty ← testSplitBackwardRule m l errTy monadInst instAL instEAL instWP prog #[s]
     logInfo m!"Test 1 (ite, StateM Nat, n=1): {ty}"
 
 -- Test 2: dite split for StateM Nat
 -- `dite c (alt₁ : c → StateM Nat Unit) (alt₂ : ¬c → StateM Nat Unit)` with 1 excess arg
-#eval! show MetaM Unit from withStateMNat fun m l errTy monadInst instWP => do
+#eval! show MetaM Unit from withStateMNat fun m l errTy monadInst instAL instEAL instWP => do
   let nat := mkConst ``Nat
   let mUnit ← mkAppM ``StateM #[nat, mkConst ``Unit]
   withLocalDeclD `c (mkSort 0) fun c => do
@@ -142,7 +144,7 @@ private meta def withStateMNat (k : Expr → Expr → Expr → Expr → Expr →
   withLocalDeclD `s nat fun s => do
     -- @dite (StateM Nat Unit) c inst alt₁ alt₂
     let prog := mkAppN (mkConst ``dite [.succ .zero]) #[mUnit, c, inst, alt₁, alt₂]
-    let ty ← testSplitBackwardRule m l errTy monadInst instWP prog #[s]
+    let ty ← testSplitBackwardRule m l errTy monadInst instAL instEAL instWP prog #[s]
     logInfo m!"Test 2 (dite, StateM Nat, n=1): {ty}"
 
 -- Test 3: Nat.casesOn matcher for StateM Nat
@@ -154,7 +156,7 @@ private noncomputable def matchProg (v : Nat) (alt₁ : StateM Nat Unit) (alt₂
   | 0 => alt₁
   | n+1 => alt₂ n
 
-#eval! show MetaM Unit from withStateMNat fun m l errTy monadInst instWP => do
+#eval! show MetaM Unit from withStateMNat fun m l errTy monadInst instAL instEAL instWP => do
   let nat := mkConst ``Nat
   let mUnit ← mkAppM ``StateM #[nat, mkConst ``Unit]
   withLocalDeclD `v nat fun v => do
@@ -164,7 +166,7 @@ private noncomputable def matchProg (v : Nat) (alt₁ : StateM Nat Unit) (alt₂
   withLocalDeclD `s nat fun s => do
     -- Build the match expression by unfolding `matchProg`
     let prog ← whnf (mkAppN (mkConst ``matchProg) #[v, alt₁, alt₂])
-    let ty ← testSplitBackwardRule m l errTy monadInst instWP prog #[s]
+    let ty ← testSplitBackwardRule m l errTy monadInst instAL instEAL instWP prog #[s]
     logInfo m!"Test 3 (match Nat, StateM Nat, n=1): {ty}"
 
 end Test

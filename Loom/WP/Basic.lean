@@ -48,53 +48,15 @@ variable {m : Type u → Type z}
 
 /-- An assertion language is a type equipped with a `CompleteLattice` structure,
 used as the carrier for pre- and postconditions. -/
-class AssertionLang (l : Type w) where
-  /-- The complete lattice instance on the assertion language. -/
-  cl : CompleteLattice l
+class abbrev AssertionLang (l : Type w) := CompleteLattice l
 
-attribute [reducible, scoped instance high] AssertionLang.cl
-
-/-- `Prop` is an assertion language via its complete lattice structure. -/
-instance (priority := high) : AssertionLang Prop where
-  cl := inferInstance
-
-/-- Function types into an assertion language are again assertion languages (pointwise). -/
-instance (priority := high) {l : Type u} {σ : Type v} [AssertionLang l] :
-    AssertionLang (σ → l) where
-  cl := inferInstance
-
-/-- Every assertion language is a partial order. -/
-scoped instance [AssertionLang l] : PartialOrder l := inferInstance
-
-/-- An exception assertion language wraps an `AssertionLang` for exception postcondition types. -/
-class ExceptAssertionLang (e : Type w) where
-  /-- The underlying assertion language. -/
-  as : AssertionLang e
-
-/-- The `CompleteLattice` from `ExcpetAssertionLang`. -/
-scoped instance [ExceptAssertionLang e] : CompleteLattice e := ExceptAssertionLang.as.cl
-
-/-- `Prop` is an exception assertion language. -/
-instance : ExceptAssertionLang Prop where
-  as := inferInstance
+/-- An exception assertion language is a type equipped with a `CompleteLattice` structure,
+used for exception postcondition types. -/
+class abbrev ExceptAssertionLang (e : Type w) := CompleteLattice e
 
 /-- An exception assertion language is a chain-complete partial order. -/
 scoped instance [ExceptAssertionLang e] : CCPO e where
-  has_csup {c} _ := ExceptAssertionLang.as.cl.has_sup c
-
-/-- `EPost.nil` is an exception assertion language (trivial lattice). -/
-instance : ExceptAssertionLang EPost.nil where
-  as := ⟨inferInstance⟩
-
-/-- `EPost.cons` of exception assertion languages is again an exception assertion language. -/
-instance (priority := high) [ExceptAssertionLang eh] [ExceptAssertionLang et] :
-    ExceptAssertionLang (EPost.cons eh et) where
-  as := ⟨inferInstance⟩
-
-/-- Function types into an assertion language form an exception assertion language. -/
-instance (priority := high) {ε : Type u} {l : Type v} [AssertionLang l] :
-    ExceptAssertionLang (ε → l) where
-  as := ⟨inferInstance⟩
+  has_csup {c} _ := CompleteLattice.has_sup c
 
 /-!
 ## WPMonad Typeclass
@@ -110,7 +72,7 @@ satisfying:
 /-- Weakest precondition monad: a monad `m` with a sound interpretation as predicate
 transformers over assertion language `l` with exception postconditions `el`. -/
 class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (el : outParam (Type w'))
-    [Monad m] extends LawfulMonad m, AssertionLang l, ExceptAssertionLang el where
+    [Monad m] [AssertionLang l] [ExceptAssertionLang el] extends LawfulMonad m where
   /-- The weakest precondition transformer for a monadic program. -/
   wpTrans : m α → PredTrans l el α
   /-- Soundness of `pure`: the postcondition applied to `x` implies the WP of `pure x`. -/
@@ -123,10 +85,10 @@ class WPMonad (m : Type u → Type v) (l : outParam (Type w)) (el : outParam (Ty
 
 /-- Compute the weakest precondition of `x` for normal postcondition `post` and
 exception postcondition `epost`. -/
-def wp [Monad m] [WPMonad m l el] {α} (x : m α) (post : α → l) (epost : el) : l :=
+def wp [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] {α} (x : m α) (post : α → l) (epost : el) : l :=
   WPMonad.wpTrans x post epost
 
-@[simp, grind =] theorem WPMonad.wp_impl_eq_wp [Monad m] [WPMonad m l el] {α} (x : m α) :
+@[simp, grind =] theorem WPMonad.wp_impl_eq_wp [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] {α} (x : m α) :
   WPMonad.wpTrans x = wp x := rfl
 
 /-!
@@ -136,47 +98,47 @@ One-directional consequences of the `WPMonad` axioms for `pure`, `bind`, monoton
 and weakening.
 -/
 
-theorem WPMonad.wp_pure [Monad m] [WPMonad m l el] (x : α) (post : α → l) (epost : el) :
+theorem WPMonad.wp_pure [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : α) (post : α → l) (epost : el) :
   post x ⊑ wp (pure (f := m) x) post epost := by apply wp_trans_pure x
 
-theorem WPMonad.wp_bind [Monad m] [WPMonad m l el] (x : m α) (f : α → m β)
+theorem WPMonad.wp_bind [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α) (f : α → m β)
   (post : β → l) (epost : el) :
     wp x (fun x => wp (f x) post epost) epost ⊑ wp (x >>= f) post epost := by
   apply wp_trans_bind x f
 
-theorem WPMonad.wp_cons [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_cons [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post post' : α → l) (epost : el) (h : post ⊑ post') :
     wp x post epost ⊑ wp x post' epost := by
   solve_by_elim [WPMonad.wp_trans_monotone, PartialOrder.rel_refl]
 
-theorem WPMonad.wp_cons_econs [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_cons_econs [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post post' : α → l) (epost epost' : el) (h : post ⊑ post') (h' : epost ⊑ epost') :
     wp x post epost ⊑ wp x post' epost' := by
   exact WPMonad.wp_trans_monotone x post post' epost epost' h' h
 
-theorem WPMonad.wp_econs [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_econs [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post : α → l) (epost epost' : el) (h' : epost ⊑ epost') :
     wp x post epost ⊑ wp x post epost' := by
   solve_by_elim [WPMonad.wp_trans_monotone, PartialOrder.rel_refl]
 
-theorem WPMonad.wp_econs_bot [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_econs_bot [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post : α → l) (epost : el) :
     wp x post ⊥ ⊑ wp x post epost := by
   solve_by_elim [WPMonad.wp_econs, bot_le]
 
-theorem WPMonad.wp_cons_rel [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_cons_rel [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post post' : α → l) (epost : el) (h : post ⊑ post') {pre : l}
     (h' : pre ⊑ wp x post epost) :
     pre ⊑ wp x post' epost :=
   PartialOrder.rel_trans h' (WPMonad.wp_cons x post post' epost h)
 
-theorem WPMonad.wp_econs_rel [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_econs_rel [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post : α → l) (epost epost' : el) (h : epost ⊑ epost') {pre : l}
     (h' : pre ⊑ wp x post epost) :
     pre ⊑ wp x post epost' :=
   PartialOrder.rel_trans h' (WPMonad.wp_econs x post epost epost' h)
 
-theorem WPMonad.wp_econs_bot_rel [Monad m] [WPMonad m l el] (x : m α)
+theorem WPMonad.wp_econs_bot_rel [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : m α)
   (post : α → l) (epost : el) {pre : l} (h : pre ⊑ wp x post ⊥) :
     pre ⊑ wp x post epost :=
   PartialOrder.rel_trans h (WPMonad.wp_econs_bot x post epost)
@@ -189,7 +151,7 @@ equality from `Std.Do` cannot be proven with our current axioms since `wp_bind` 
 gives one direction (`⊑`).
 -/
 
-theorem WPMonad.wp_map [Monad m] [WPMonad m l el] (f : α → β) (x : m α) :
+theorem WPMonad.wp_map [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (f : α → β) (x : m α) :
   ∀ post epost, wp x (fun a => post (f a)) epost ⊑ wp (f <$> x) post epost := by
   intro post epost
   rw [← bind_pure_comp]
@@ -198,14 +160,14 @@ theorem WPMonad.wp_map [Monad m] [WPMonad m l el] (f : α → β) (x : m α) :
   apply WPMonad.wp_cons
   intro a; exact WPMonad.wp_trans_pure (f a) post epost
 
-theorem WPMonad.wp_map' [Monad m] [WPMonad m l el] (f : α → β) (x : m α) :
+theorem WPMonad.wp_map' [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (f : α → β) (x : m α) :
   ∀ post post' epost (_ : post = fun a => post' (f a)),
     wp x post epost ⊑ wp (f <$> x) post' epost := by
   intro post post' epost h
   subst h
   apply wp_map
 
-theorem WPMonad.wp_seq [Monad m] [WPMonad m l el] (f : m (α → β)) (x : m α) :
+theorem WPMonad.wp_seq [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (f : m (α → β)) (x : m α) :
   ∀ post epost,
     wp f (fun g => wp x (fun a => post (g a)) epost) epost ⊑
       wp (f <*> x) post epost := by
@@ -243,7 +205,7 @@ theorem apply_pushExcept {α ε l el}
 
 /-- `ExceptT` lifts a `WPMonad` instance by adding an exception postcondition layer. -/
 instance ExceptT.instWPMonad {l : Type v}
-  [Monad m] [WPMonad m l el] :
+  [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] :
     WPMonad (ExceptT ε m) l (EPost.cons (ε → l) el) where
   wpTrans x := PredTrans.pushExcept (wp x.run)
   wp_trans_pure x := fun post epost =>
@@ -272,7 +234,7 @@ instance ExceptT.instWPMonad {l : Type v}
 
 @[simp, grind =]
 theorem ExceptT.apply_wp {α ε l el}
-  [Monad m] [WPMonad m l el] (x : ExceptT ε m α)
+  [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : ExceptT ε m α)
   (post : α → l) (epost : EPost.cons (ε → l) el) :
     (wp x) post epost = wp x.run (epost.pushExcept post) epost.tail := by
   rw [show wp x post epost = PredTrans.pushExcept (wp x.run) post epost by rfl]
@@ -280,7 +242,7 @@ theorem ExceptT.apply_wp {α ε l el}
 
 /-- `StateT` lifts a `WPMonad` instance by adding a state argument. -/
 instance (priority := low) StateT.instWPMonad {el : Type v} {σ : Type u} {l : Type w}
-  [Monad m] [WPMonad m l el] :
+  [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] :
     WPMonad (StateT σ m) (σ → l) el where
   wpTrans x := pushArg (wp <| x.run ·)
   wp_trans_pure x := fun post epost s =>
@@ -296,15 +258,28 @@ instance (priority := low) StateT.instWPMonad {el : Type v} {σ : Type u} {l : T
 
 @[simp, grind =]
 theorem StateT.apply_wp {σ : Type u}
-  [Monad m] [WPMonad m l el] (x : StateT σ m α)
+  [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : StateT σ m α)
   (post : α → σ → l) (epost : el) (s : σ) :
     (wp x) post epost s = wp (x.run s) (fun (a, s) => post a s) epost := rfl
 
-set_option trace.Meta.synthInstance true
+-- set_option trace.Meta.synthInstance true
+
+/-
+ -- CompleteLattice el
+
+    -->
+
+    WPMonad (ReaderT ?ρ ?m) (?ρ → ?l) el
+
+    -->
+
+    WPMonad (ReaderT ?ρ (ReaderT ?ρ ?m)) (?ρ → (?ρ → ?l)) el
+
+-/
 
 /-- `ReaderT` lifts a `WPMonad` instance by adding a reader argument. -/
 instance ReaderT.instWPMonad {l : Type v}
-  [Monad m] [WPMonad m l el] :
+  [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] :
     WPMonad (ReaderT ρ m) (ρ → l) el where
   wpTrans x := fun post epost r => wp (x.run r) (fun a => post a r) epost
   wp_trans_pure x := fun post epost r =>
@@ -323,7 +298,7 @@ instance ReaderT.instWPMonad {l : Type v}
 
 @[simp, grind =]
 theorem ReaderT.apply_wp {ρ : Type u}
-  [Monad m] [WPMonad m l el] (x : ReaderT ρ m α)
+  [Monad m] [AssertionLang l] [ExceptAssertionLang el] [WPMonad m l el] (x : ReaderT ρ m α)
   (post : α → ρ → l) (epost : el) (r : ρ) :
     (wp x) post epost r = wp (x.run r) (fun a => post a r) epost := rfl
 

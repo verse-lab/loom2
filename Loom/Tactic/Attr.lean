@@ -51,13 +51,14 @@ instance : Hashable SpecProof where
 
 private def tripleToWpProof? (proof type : Expr) : MetaM (Expr × Expr) := do
   let type ← whnfR type
-  if type.isAppOfArity ``Triple 10 then
+  if type.isAppOfArity ``Triple 12 then
     let .const _ lvls := type.getAppFn
       | return (proof, type)
-    let_expr Triple m l e α monad instWP pre x post epost := type
-      | return (proof, type)
+    let args := type.getAppArgs
+    -- Triple inductive param order:  m l e α Monad AL EAL WPMonad pre x post epost
+    -- Triple.iff theorem param order: m l e Monad AL EAL WPMonad α x pre post epost
     let tripleIff := mkAppN (mkConst ``Triple.iff lvls)
-      #[m, l, e, monad, instWP, α, x, pre, post, epost]
+      #[args[0]!, args[1]!, args[2]!, args[4]!, args[5]!, args[6]!, args[7]!, args[3]!, args[9]!, args[8]!, args[10]!, args[11]!]
     let proof ← mkAppM ``Iff.mp #[tripleIff, proof]
     let type ← instantiateMVars (← inferType proof)
     return (proof, type)
@@ -124,11 +125,11 @@ private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM
   let (xs, _, type) ← withSimpGlobalConfig (forallMetaTelescopeReducing type)
   let type ← whnfR type
   let prog ←
-    if type.isAppOfArity ``Triple 10 then
-      pure (type.getArg! 7)
+    if type.isAppOfArity ``Triple 12 then
+      pure (type.getArg! 9)
     else if type.isAppOfArity ``PartialOrder.rel 4 then do
       let rhs := type.getArg! 3
-      let_expr wp _m _l _e _monad _wpInst _α prog _post _epost := rhs
+      let_expr wp _m _l _e _monad _instAL _instEAL _wpInst _α prog _post _epost := rhs
         | throwError "RHS of ⊑ is not a wp application{indentExpr rhs}"
       pure prog
     else

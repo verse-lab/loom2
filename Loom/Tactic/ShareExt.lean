@@ -124,6 +124,12 @@ meta def mkAppS₈ [Monad m] [Internal.MonadShareCommon m] (f a₁ a₂ a₃ a�
 meta def mkAppS₉ [Monad m] [Internal.MonadShareCommon m] (f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉ : Expr) : m Expr := do
   mkAppS (← mkAppS₈ f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈) a₉
 
+meta def mkAppS₁₀ [Monad m] [Internal.MonadShareCommon m] (f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉ a₁₀ : Expr) : m Expr := do
+  mkAppS (← mkAppS₉ f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉) a₁₀
+
+meta def mkAppS₁₁ [Monad m] [Internal.MonadShareCommon m] (f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉ a₁₀ a₁₁ : Expr) : m Expr := do
+  mkAppS (← mkAppS₁₀ f a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉ a₁₀) a₁₁
+
 namespace Loom
 
 /--
