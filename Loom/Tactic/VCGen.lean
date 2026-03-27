@@ -293,13 +293,14 @@ meta def emitVC (goal : Grind.Goal) : VCGenM Unit := do
   for g in goals do g.setKind .syntheticOpaque
   modify fun s => { s with vcs := s.vcs ++ goals }
 
-/-- Unfold `⦃P⦄ x ⦃Q⦄` into `P ⊑ wp⟦x⟧ Q`. -/
-meta def unfoldTriple (goal : Grind.Goal) : OptionT VCGenM Grind.Goal := goal.withContext do
+/-- Unfold `⦃P⦄ x ⦃Q⦄` into `P ⊑ wp⟦x⟧ Q`. Returns the original goal if not a Triple. -/
+meta def unfoldTriple (goal : Grind.Goal) : VCGenM Grind.Goal := goal.withContext do
   let type ← goal.mvarId.getType
   unless type.isAppOf ``Triple do return goal
   let rule ← mkBackwardRuleFromDecl ``Triple.intro
-  let .goals [goal] ← goal.apply rule | failure
-  return goal
+  match ← goal.apply rule with
+  | .goals [goal'] => return goal'
+  | _ => return goal
 
 def introsWP (goal : Grind.Goal) : VCGenM Grind.Goal := do
   let mut goal := goal
@@ -311,12 +312,15 @@ def introsWP (goal : Grind.Goal) : VCGenM Grind.Goal := do
 /-- Main work loop: decompose the goal repeatedly. -/
 meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← Grind.mkGoal goal
-  let some goal ← unfoldTriple goal |>.run | return ()
+  let goal ← unfoldTriple goal
   let mut worklist := Std.Queue.empty.enqueue goal
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let goal ← introsWP goal
+    let mut goal ← introsWP goal
+    -- Unfold Triple goals that arise from subgoals (e.g., loop invariant specs)
+    goal ← unfoldTriple goal
+    goal ← introsWP goal
     let res ← solve goal.mvarId
     match res with
     | .noProgramOrLatticeFoundInTarget .. =>
