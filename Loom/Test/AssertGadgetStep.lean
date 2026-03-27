@@ -4,7 +4,7 @@ import Loom.Test.Specs
 import Loom.Triple.Gadget
 import Loom.Tactic.VCGen
 
-open Loom Lean Meta Order Std.Do'
+open Loom Lean Meta Order Lean.Order Std.Do'
 
 attribute [lspec high] Spec.assertGadget
 

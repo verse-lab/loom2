@@ -18,7 +18,7 @@ open Lean Order Std.Do' Lean.Order
 namespace Loom
 
 universe u v
-variable {m : Type u → Type v} {l : Type u} {e : Type u} [Monad m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
+variable {m : Type u → Type v} {Pred : Type u} {EPred : Type u} [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
 
 set_option linter.unusedVariables false in
 
@@ -26,12 +26,12 @@ set_option linter.unusedVariables false in
 
 The `name` parameter is used by VCGen to name the introduced hypothesis. The `as` parameter
 is the assertion to be checked. At runtime, `assertGadget` is simply `pure ⟨⟩`. -/
-def assertGadget [Monad m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e] (name : Name) (as : l) : m PUnit := pure ⟨⟩
+def assertGadget [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred] (name : Name) (as : Pred) : m PUnit := pure ⟨⟩
 
 /-- Specification for `assertGadget`: the precondition requires both the assertion `as` and
 the Heyting implication `as ⇨ post ⟨⟩`, ensuring the assertion holds and the postcondition
 follows from it. -/
-theorem Spec.assertGadget (name : Name) (as : l) [Frame l] :
+theorem Spec.assertGadget (name : Name) (as : Pred) [Frame Pred] :
   Triple (m := m) (as ⊓ (as ⇨ post ⟨⟩)) (Loom.assertGadget name as) post epost := by
   simpa [Loom.assertGadget] using
     (Triple.pure (m := m) (pre := as ⊓ himp as (post ⟨⟩)) (post := post) (epost := epost)

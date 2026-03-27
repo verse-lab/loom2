@@ -11,9 +11,7 @@ public import Loom.LatticeExt
 
 public section
 
-open Lean.Order
-
-namespace Loom
+namespace Lean.Order
 
 universe u
 
@@ -26,7 +24,7 @@ We keep `CompleteLattice` as a parameter (instead of extending it), so the class
 adds the frame law.
 -/
 class Frame (α : Type u) [CompleteLattice α] : Prop where
-  inf_sup (a : α) (s : α → Prop) :
+  meet_sup (a : α) (s : α → Prop) :
     a ⊓ CompleteLattice.sup s =
       CompleteLattice.sup (fun y => ∃ x, s x ∧ y = a ⊓ x)
 
@@ -35,7 +33,7 @@ Heyting implication in a frame, defined as the join of all `x` such that `a ⊓ 
 -/
 noncomputable def himp (a b : α) : α := CompleteLattice.sup (fun x => a ⊓ x ⊑ b)
 
-infixr:60 " ⇨ " => himp
+scoped infixr:60 " ⇨ " => himp
 
 /-- `a ⇨ b` is the least upper bound of `{x | a ⊓ x ⊑ b}` by definition. -/
 theorem himp_spec (a b : α) : is_sup (fun x : α => a ⊓ x ⊑ b) (a ⇨ b) := by
@@ -55,7 +53,7 @@ Soundness direction (`a ⊓ (a ⇨ b) ⊑ b`) from the frame distributivity law.
 theorem himp_sound [Frame α] (a b : α) : a ⊓ (a ⇨ b) ⊑ b := by
   let s : α → Prop := fun x => a ⊓ x ⊑ b
   change a ⊓ CompleteLattice.sup s ⊑ b
-  rw [Frame.inf_sup (α := α) (a := a) (s := s)]
+  rw [Frame.meet_sup (α := α) (a := a) (s := s)]
   apply sup_le
   intro y hy
   rcases hy with ⟨x, hx, rfl⟩
@@ -118,6 +116,6 @@ syntax:60 "(" ident " : " term ")" " ⇨ " term : term
 macro_rules
   | `(($n:ident : $a) ⇨ $b) => `((withName $(Lean.quote n.getId) $a) ⇨ $b)
 
-end Loom
+end Lean.Order
 
 end -- public section
