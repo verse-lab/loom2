@@ -12,7 +12,7 @@ universe u v w
 
 set_option linter.missingDocs true
 
-open Lean.Order
+namespace Lean.Order
 
 /-!
 # Additional Complete Lattice Operations
@@ -31,7 +31,7 @@ variable {α : Type u} [CompleteLattice α]
 noncomputable def latticeTop : α := CompleteLattice.sup (fun _ => True)
 
 @[inherit_doc latticeTop]
-notation "⊤" => latticeTop
+scoped notation "⊤" => latticeTop
 
 theorem le_top (x : α) : x ⊑ ⊤ := by
   apply le_sup
@@ -48,7 +48,7 @@ theorem latticeBot_le (x : α) : latticeBot ⊑ x := by
 noncomputable def meet (x y : α) : α := inf (fun z => z = x ∨ z = y)
 
 @[inherit_doc meet]
-infixl:70 " ⊓ " => meet
+scoped infixl:70 " ⊓ " => meet
 
 theorem meet_le_left (x y : α) : x ⊓ y ⊑ x := by
   apply inf_le
@@ -70,7 +70,7 @@ theorem le_meet (x y z : α) : x ⊑ y → x ⊑ z → x ⊑ y ⊓ z := by
 noncomputable def join (x y : α) : α := CompleteLattice.sup (fun z => z = x ∨ z = y)
 
 @[inherit_doc join]
-infixl:65 " ⊔ " => join
+scoped infixl:65 " ⊔ " => join
 
 theorem left_le_join (x y : α) : x ⊑ x ⊔ y := by
   apply le_sup
@@ -205,23 +205,25 @@ end LatticeExtensions
 Embedding propositions into a partial order with top and bottom.
 -/
 
-open Classical in
+attribute [local instance] Classical.propDecidable in
 /-- Pure embedding of propositions into a complete lattice. -/
 noncomputable def CompleteLattice.pure {l : Type u} [CompleteLattice l] : Prop → l := fun p =>
   if p then ⊤ else latticeBot
 
 @[inherit_doc CompleteLattice.pure]
-notation "⌜" p "⌝" => CompleteLattice.pure p
+scoped notation "⌜" p "⌝" => CompleteLattice.pure p
 
+attribute [local instance] Classical.propDecidable in
 @[simp]
 theorem trueE (l : Type v) [CompleteLattice l] : ⌜True⌝ = (⊤ : l) := by
   simp [CompleteLattice.pure]
 
+attribute [local instance] Classical.propDecidable in
 @[simp]
 theorem falseE (l : Type v) [CompleteLattice l] : ⌜False⌝ = (latticeBot : l) := by
   simp [CompleteLattice.pure]
 
-open Classical in
+attribute [local instance] Classical.propDecidable in
 theorem LE.pure_imp {l : Type u} [CompleteLattice l]
   (p₁ p₂ : Prop) : (p₁ → p₂) → ⌜p₁⌝ ⊑ (⌜p₂⌝ : l) := by
   simp only [CompleteLattice.pure]
@@ -234,6 +236,7 @@ theorem LE.pure_imp {l : Type u} [CompleteLattice l]
   case isFalse =>
     exact latticeBot_le _
 
+attribute [local instance] Classical.propDecidable in
 @[simp]
 theorem LE.pure_intro {l : Type u} [CompleteLattice l]
   (p : Prop) (h : l) : (⌜p⌝ ⊑ h) = (p → ⊤ ⊑ h) := by
@@ -248,6 +251,7 @@ theorem LE.pure_intro {l : Type u} [CompleteLattice l]
     next hp => exact himp hp
     next => exact latticeBot_le _
 
+attribute [local instance] Classical.propDecidable in
 @[simp]
 theorem pure_intro_l {l : Type u} [CompleteLattice l] (p : Prop) (x y : l) :
   (x ⊓ ⌜ p ⌝ ⊑ y) = (p → x ⊑ y) := by
@@ -263,6 +267,7 @@ theorem pure_intro_l {l : Type u} [CompleteLattice l] (p : Prop) (x y : l) :
     next hp => exact PartialOrder.rel_trans (meet_le_left x ⊤) (h hp)
     next => exact PartialOrder.rel_trans (meet_le_right x latticeBot) (latticeBot_le _)
 
+attribute [local instance] Classical.propDecidable in
 @[simp]
 theorem pure_intro_r {l : Type u} [CompleteLattice l] (p : Prop) (x y : l) :
   (⌜ p ⌝ ⊓ x ⊑ y) = (p → x ⊑ y) := by
@@ -339,3 +344,5 @@ theorem prop_pre_elim (x : Prop) : x → True ⊑ x :=
     cases hab with
     | inl ha => exact (left_le_join a b) ha
     | inr hb => exact (right_le_join a b) hb
+
+end Lean.Order
