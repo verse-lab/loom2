@@ -194,7 +194,7 @@ theorem hStar_assoc_r {A B C : hProp} : A ∗ (B ∗ C) ⊑ (A ∗ B) ∗ C := b
   exact hStar'.intro (h₁.union h₂) h₃ (hStar'.intro h₁ h₂ hA hB rfl hdisj₁) hC
     (by rw [Heap.union_assoc, hunion₂₃, hunion]) hdisj₂
 
-/-! ## WPMonad instance -/
+/-! ## WP instance -/
 
 
 /-! ## HashMap helper lemmas -/
@@ -297,7 +297,7 @@ def HeapM.alloc (v : Val) : HeapM Loc := do
 
 private theorem HeapM.wp_ok {x : HeapM α} {s s' : Heap} {a : α}
     (h : x s = .ok (a, s')) :
-    @wp HeapM _ _ _ _ StateT.instWPMonad α x post epost s = post a s' := by
+    @wp HeapM _ _ _ _ StateT.instWP α x post epost s = post a s' := by
   simp only [wp]; rw [h]
 
 /-! ## Layer 2: Inner specs with frame -/
@@ -347,10 +347,10 @@ theorem HeapM.alloc_inner (v : Val) (H : hProp) (epost : PUnit × eProp) :
 
 /-! ## Layer 3: Outer separation logic specs -/
 
-instance : WPMonad HeapM hProp (PUnit × eProp) where
+instance : WP HeapM hProp (PUnit × eProp) where
   wp x post epost := ∀ʰ H, H -∗ wp x (fun x => H ∗ post x) epost
   wp_pure x post epost := by
-    simp [WPMonad.wp_pure]
+    simp [WP.wp_pure]
     apply PartialOrder.rel_antisymm
     { exact PartialOrder.rel_trans (by apply hForall_elim; rfl)
         (PartialOrder.rel_trans hWand_hPure_true_elim hStar_hPure_true_left) }
@@ -360,26 +360,26 @@ instance : WPMonad HeapM hProp (PUnit × eProp) where
     apply hForall_intro; intro H
     apply hForall_elim H (Q := H -∗ _)
     apply hWand_mono
-    apply PartialOrder.rel_trans; rotate_left; apply WPMonad.wp_bind
-    apply WPMonad.wp_cons; intro x; simp
+    apply PartialOrder.rel_trans; rotate_left; apply WP.wp_bind
+    apply WP.wp_consequence; intro x; simp
     apply hForall_star_elim H (Q := wp _ _ _)
     exact hWand_elim
-  wp_cons x post post' epost h := by
+  wp_consequence x post post' epost h := by
     apply hForall_intro; intro H
     apply hForall_elim H (Q := H -∗ _)
-    apply hWand_mono; apply WPMonad.wp_cons; intro x; simp
+    apply hWand_mono; apply WP.wp_consequence; intro x; simp
     apply hStar_mono; apply h
 
 def HeapM.frame (H pre : hProp) (post : α → hProp) (epost : PUnit × eProp) (x : HeapM α) :
   Triple pre x post epost →
   Triple (H ∗ pre) x (fun x => H ∗ post x) epost := by
-  simp [Triple.iff]; rw [wp]; simp [instWPMonadHeapMHPropProdPUnitEProp]; intro hwp
+  simp [Triple.iff]; rw [wp]; simp [instWPHeapMHPropProdPUnitEProp]; intro hwp
   apply hForall_intro; intro K
   apply entails_hWand
   -- Goal: K ∗ (H ∗ pre) ⊑ wp x (fun a => K ∗ (H ∗ post a)) epost
   have hwp' := PartialOrder.rel_trans hwp (hForall_elim (K ∗ H) PartialOrder.rel_refl)
   have step1 := PartialOrder.rel_trans (hStar_mono hwp') hWand_elim
-  have step2 := @WPMonad.wp_cons HeapM _ _ _ _ StateT.instWPMonad _ x
+  have step2 := @WP.wp_consequence HeapM _ _ _ _ StateT.instWP _ x
     (fun a => (K ∗ H) ∗ post a) (fun a => K ∗ (H ∗ post a)) epost (fun a => hStar_assoc_l)
   intro heap hKHpre
   exact step2 heap (step1 heap (hStar_assoc_r heap hKHpre))

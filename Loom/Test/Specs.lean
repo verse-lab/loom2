@@ -8,25 +8,25 @@ universe u v
 
 @[lspec]
 theorem Spec.MonadState_get_StateT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {σ : Type u} (post : σ → σ → l) (epost : e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {σ : Type u} (post : σ → σ → Pred) (epost : EPred) :
     Triple (fun s => post s s) (get (m := StateT σ m)) post epost := by
-  simpa using (Spec.get_StateT (m := m) (l := l) (e := e) (σ := σ) (epost := epost) post)
+  simpa using (Spec.get_StateT (m := m) (Pred := Pred) (EPred := EPred) (σ := σ) (epost := epost) post)
 
 @[lspec]
 theorem Spec.MonadState_set_StateT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {σ : Type u} {s : σ} (post : PUnit → σ → l) (epost : e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {σ : Type u} {s : σ} (post : PUnit → σ → Pred) (epost : EPred) :
     Triple (fun _ => post ⟨⟩ s) (set (m := StateT σ m) s) post epost := by
-  apply Spec.set_StateT (m := m) (l := l) (e := e) (σ := σ) (epost := epost)
+  apply Spec.set_StateT (m := m) (Pred := Pred) (EPred := EPred) (σ := σ) (epost := epost)
 
 @[lspec]
 theorem Spec.MonadState_get_ExceptT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {ε : Type u} (post : σ → l) (epost : EPost.cons (ε → l) e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {ε : Type u} (post : σ → Pred) (epost : EPost.cons (ε → Pred) EPred) :
     Triple (wp (MonadLift.monadLift (n := ExceptT ε m) (get : m σ)) post epost)
       (get : ExceptT ε m σ) post epost := by
   apply Triple.iff.mpr
@@ -35,9 +35,9 @@ theorem Spec.MonadState_get_ExceptT
 
 @[lspec]
 theorem Spec.MonadStateOf_get_ReaderT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {ρ : Type u} (post : σ → ρ → l) (epost : e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {ρ : Type u} (post : σ → ρ → Pred) (epost : EPred) :
     Triple (wp (MonadLift.monadLift (n := ReaderT ρ m) (get : m σ)) post epost)
       (MonadStateOf.get : ReaderT ρ m σ) post epost := by
   apply Triple.iff.mpr
@@ -46,9 +46,9 @@ theorem Spec.MonadStateOf_get_ReaderT
 
 @[lspec]
 theorem Spec.MonadStateOf_get_ExceptT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {ε : Type u} (post : σ → l) (epost : EPost.cons (ε → l) e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {ε : Type u} (post : σ → Pred) (epost : EPost.cons (ε → Pred) EPred) :
     Triple (wp (MonadLift.monadLift (n := ExceptT ε m) (MonadStateOf.get : m σ)) post epost)
       (MonadStateOf.get : ExceptT ε m σ) post epost := by
   apply Triple.iff.mpr
@@ -58,9 +58,9 @@ theorem Spec.MonadStateOf_get_ExceptT
 
 @[lspec]
 theorem Spec.MonadStateOf_get_StateT_lift
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {σ' : Type u} (post : σ → σ' → l) (epost : e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {σ' : Type u} (post : σ → σ' → Pred) (epost : EPred) :
     Triple (wp (MonadLift.monadLift (n := StateT σ' m) (get : m σ)) post epost)
       (MonadStateOf.get (σ := σ) : StateT σ' m σ) post epost := by
   apply Triple.iff.mpr
@@ -71,9 +71,9 @@ theorem Spec.MonadStateOf_get_StateT_lift
 
 @[lspec]
 theorem Spec.MonadStateOf_set_ExceptT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {ε : Type u} {s : σ} (post : PUnit → l) (epost : EPost.cons (ε → l) e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {ε : Type u} {s : σ} (post : PUnit → Pred) (epost : EPost.cons (ε → Pred) EPred) :
     Triple (wp (MonadLift.monadLift (n := ExceptT ε m) (set (m := m) s)) post epost)
       (set (m := ExceptT ε m) s) post epost := by
   apply Triple.iff.mpr
@@ -83,9 +83,9 @@ theorem Spec.MonadStateOf_set_ExceptT
 
 @[lspec]
 theorem Spec.MonadStateOf_set_ReaderT
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {ρ : Type u} {s : σ} (post : PUnit → ρ → l) (epost : e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {ρ : Type u} {s : σ} (post : PUnit → ρ → Pred) (epost : EPred) :
     Triple (wp (MonadLift.monadLift (n := ReaderT ρ m) (set (m := m) s)) post epost)
       (set (m := ReaderT ρ m) s) post epost := by
   apply Triple.iff.mpr
@@ -94,9 +94,9 @@ theorem Spec.MonadStateOf_set_ReaderT
 
 @[lspec]
 theorem Spec.MonadStateOf_set_StateT_lift
-    {m : Type u → Type v} {l : Type u} {e : Type u}
-    [Monad m] [MonadStateOf σ m] [AssertionLang l] [ExceptAssertionLang e] [WPMonad m l e]
-    {σ' : Type u} {s : σ} (post : PUnit → σ' → l) (epost : e) :
+    {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
+    [Monad m] [MonadStateOf σ m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    {σ' : Type u} {s : σ} (post : PUnit → σ' → Pred) (epost : EPred) :
     Triple (wp (MonadLift.monadLift (n := StateT σ' m) (set (m := m) s)) post epost)
       (set (m := StateT σ' m) s) post epost := by
   apply Triple.iff.mpr

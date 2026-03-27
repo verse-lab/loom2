@@ -55,8 +55,8 @@ private def tripleToWpProof? (proof type : Expr) : MetaM (Expr × Expr) := do
     let .const _ lvls := type.getAppFn
       | return (proof, type)
     let args := type.getAppArgs
-    -- Triple inductive param order:  m l e α Monad AL EAL WPMonad pre x post epost
-    -- Triple.iff theorem param order: m l e Monad AL EAL WPMonad α x pre post epost
+    -- Triple inductive param order:  m l e α Monad AL EAL WP pre x post epost
+    -- Triple.iff theorem param order: m l e Monad AL EAL WP α x pre post epost
     let tripleIff := mkAppN (mkConst ``Triple.iff lvls)
       #[args[0]!, args[1]!, args[2]!, args[4]!, args[5]!, args[6]!, args[7]!, args[3]!, args[9]!, args[8]!, args[10]!, args[11]!]
     let proof ← mkAppM ``Iff.mp #[tripleIff, proof]
