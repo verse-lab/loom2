@@ -34,27 +34,19 @@ monad transformer stack. For example, `ExceptT Nat (ExceptT String (StateM σ))`
 namespace Std.Do'
 
 /-- The empty exception postcondition type, used when a monad has no exception layers. -/
-inductive EPost.nil : Type where
-  /-- The unique inhabitant of the empty exception postcondition. -/
-  | mk
+structure EPost.nil : Type
 
 /-- A cons cell pairing a head exception postcondition type `eh` with a tail `et`.
 
 For a monad with exception type `ε` over lattice `l`, the head `eh` is typically `ε → l`
 and the tail `et` tracks remaining exception layers. -/
-inductive EPost.cons (eh : Type u) (et : Type v) where
-  /-- Construct an exception postcondition from a head and tail. -/
-  | mk : eh → et → EPost.cons eh et
+structure EPost.cons (eh : Type u) (et : Type v) where
+  /-- The head exception postcondition. -/
+  head : eh
+  /-- The tail exception postconditions. -/
+  tail : et
 
-/-- Project the head exception postcondition from a cons cell. -/
-@[simp]
-def EPost.cons.head : EPost.cons eh et → eh
-  | .mk head _ => head
-
-/-- Project the tail exception postconditions from a cons cell. -/
-@[simp]
-def EPost.cons.tail : EPost.cons eh et → et
-  | .mk _ tail => tail
+attribute [simp] EPost.cons.head EPost.cons.tail
 
 /-!
 ## Partial Order and Complete Lattice Instances
@@ -74,102 +66,44 @@ instance : PartialOrder EPost.nil where
 instance : CompleteLattice EPost.nil where
   has_sup _ := ⟨EPost.nil.mk, fun _ => ⟨fun _ _ _ => trivial, fun _ => trivial⟩⟩
 
-/-- Componentwise partial order on `EPost.cons`: both head and tail must be ordered. -/
+/-- Componentwise partial order on `EPost.cons`, via `PProd`. -/
 instance [PartialOrder eh] [PartialOrder et] : PartialOrder (EPost.cons eh et) where
-  rel p q := (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail)
-  rel_refl := by
-    intro p
-    have h : p.head ⊑ p.head ∧ p.tail ⊑ p.tail := by
-      exact And.intro PartialOrder.rel_refl PartialOrder.rel_refl
-    simpa [meet_prop_eq_and] using h
-  rel_trans := by
-    intro p q r h1 h2
-    have h1' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
-      simpa [meet_prop_eq_and] using h1
-    have h2' : q.head ⊑ r.head ∧ q.tail ⊑ r.tail := by
-      simpa [meet_prop_eq_and] using h2
-    have h : p.head ⊑ r.head ∧ p.tail ⊑ r.tail := by
-      exact And.intro
-        (PartialOrder.rel_trans h1'.1 h2'.1)
-        (PartialOrder.rel_trans h1'.2 h2'.2)
-    simpa [meet_prop_eq_and] using h
-  rel_antisymm := by
-    intro p q h1 h2
-    have h1' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
-      simpa [meet_prop_eq_and] using h1
-    have h2' : q.head ⊑ p.head ∧ q.tail ⊑ p.tail := by
-      simpa [meet_prop_eq_and] using h2
-    cases p; cases q; congr 1
-    · exact PartialOrder.rel_antisymm h1'.1 h2'.1
-    · exact PartialOrder.rel_antisymm h1'.2 h2'.2
+  rel p q := (⟨p.head, p.tail⟩ : eh ×' et) ⊑ ⟨q.head, q.tail⟩
+  rel_refl := PartialOrder.rel_refl
+  rel_trans h1 h2 := PartialOrder.rel_trans h1 h2
+  rel_antisymm := fun {p q} h1 h2 => by
+    have := PartialOrder.rel_antisymm (α := eh ×' et) h1 h2
+    cases p; cases q; cases this; rfl
 
-/-- Componentwise complete lattice on `EPost.cons`: suprema are taken componentwise. -/
+/-- Componentwise complete lattice on `EPost.cons`, via `PProd`. -/
 instance [CompleteLattice eh] [CompleteLattice et] : CompleteLattice (EPost.cons eh et) where
-  has_sup c := by
-    let supHead : eh := CompleteLattice.sup (fun x => ∃ p, c p ∧ p.head = x)
-    let supTail : et := CompleteLattice.sup (fun x => ∃ p, c p ∧ p.tail = x)
-    refine ⟨EPost.cons.mk supHead supTail, ?_⟩
-    intro q; constructor
-    · intro hq p hp
-      have hq' : supHead ⊑ q.head ∧ supTail ⊑ q.tail := by
-        have hqMeet : (supHead ⊑ q.head) ⊓ (supTail ⊑ q.tail) := by
-          simpa [PartialOrder.rel] using hq
-        simpa [meet_prop_eq_and] using hqMeet
-      have hpq : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
-        exact And.intro
-          (PartialOrder.rel_trans (le_sup _ ⟨p, hp, rfl⟩) hq'.1)
-          (PartialOrder.rel_trans (le_sup _ ⟨p, hp, rfl⟩) hq'.2)
-      have hpqMeet : (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail) := by
-        simpa [meet_prop_eq_and] using hpq
-      simpa [PartialOrder.rel] using hpqMeet
-    · intro h
-      have hq : supHead ⊑ q.head ∧ supTail ⊑ q.tail := by
-        constructor
-        · apply sup_le; rintro _ ⟨p, hp, rfl⟩
-          have hpq : p ⊑ q := h p hp
-          have hpq' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
-            have hpqMeet : (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail) := by
-              simpa [PartialOrder.rel] using hpq
-            simpa [meet_prop_eq_and] using hpqMeet
-          exact hpq'.1
-        · apply sup_le; rintro _ ⟨p, hp, rfl⟩
-          have hpq : p ⊑ q := h p hp
-          have hpq' : p.head ⊑ q.head ∧ p.tail ⊑ q.tail := by
-            have hpqMeet : (p.head ⊑ q.head) ⊓ (p.tail ⊑ q.tail) := by
-              simpa [PartialOrder.rel] using hpq
-            simpa [meet_prop_eq_and] using hpqMeet
-          exact hpq'.2
-      have hqMeet : (supHead ⊑ q.head) ⊓ (supTail ⊑ q.tail) := by
-        simpa [meet_prop_eq_and] using hq
-      simpa [PartialOrder.rel] using hqMeet
+  has_sup c :=
+    let c' : (eh ×' et) → Prop := fun p => c ⟨p.1, p.2⟩
+    let ⟨sup, hsup⟩ := CompleteLattice.has_sup c'
+    ⟨⟨sup.1, sup.2⟩, fun q =>
+      ⟨fun hq p hp => (hsup ⟨q.head, q.tail⟩).mp hq ⟨p.head, p.tail⟩ hp,
+       fun h => (hsup ⟨q.head, q.tail⟩).mpr fun pp hpp => h ⟨pp.1, pp.2⟩ hpp⟩⟩
 
 /-!
 ## Ordering Lemmas
 -/
 
-/-- Construct an ordering proof for `EPost.cons` from component orderings. -/
-@[grind .] theorem EPost.cons.mk_rel [PartialOrder eh] [PartialOrder et]
-    {h1 h2 : eh} {t1 t2 : et} (hh : h1 ⊑ h2) (ht : t1 ⊑ t2) :
-    EPost.cons.mk h1 t1 ⊑ EPost.cons.mk h2 t2 :=
-  (meet_prop_eq_and _ _).mpr ⟨hh, ht⟩
-
 /-- Extract a head ordering from an `EPost.cons` ordering. -/
 @[grind .] theorem EPost.cons.rel_head [PartialOrder eh] [PartialOrder et]
     {p q : EPost.cons eh et} (h : p ⊑ q) : p.head ⊑ q.head :=
-  ((meet_prop_eq_and _ _).mp h).1
+  h.1
 
 /-- Extract a tail ordering from an `EPost.cons` ordering. -/
 @[grind .] theorem EPost.cons.rel_tail [PartialOrder eh] [PartialOrder et]
     {p q : EPost.cons eh et} (h : p ⊑ q) : p.tail ⊑ q.tail :=
-  ((meet_prop_eq_and _ _).mp h).2
+  h.2
 
 /-- An `EPost.cons` value is below another if both components are below. -/
 theorem EPost.cons_rel [PartialOrder e] [PartialOrder e'] (eposth : e) (epostt : e') (epost : EPost.cons e e') :
     eposth ⊑ epost.head →
     epostt ⊑ epost.tail →
-    EPost.cons.mk eposth epostt ⊑ epost := by
-  intro hh ht
-  simp_all [PartialOrder.rel]
+    EPost.cons.mk eposth epostt ⊑ epost :=
+  fun hh ht => ⟨hh, ht⟩
 
 /-- The unique `EPost.nil` value is below any `EPost.nil` value. -/
 theorem EPost.nil_rel (epost : EPost.nil) :
