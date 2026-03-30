@@ -13,6 +13,7 @@ structure Perm where
   val : Rat
   is_pos : 0 < val := by grind
 
+
 attribute [grind] Perm.is_pos
 
 namespace Perm
@@ -20,54 +21,102 @@ namespace Perm
 instance : Inhabited Perm where
   default := ⟨1, by decide⟩
 
--- Allow Lean to transparently read a Perm as a Rat
 instance : Coe Perm Rat := ⟨Perm.val⟩
 
--- Addition inherently preserves positivity
-instance : Add Perm where
+@[reducible] instance : Add Perm where
   add p₁ p₂ := ⟨p₁.val + p₂.val, by grind [p₁.is_pos, p₂.is_pos]⟩
 
-instance : LE Perm where
+@[reducible] instance : LE Perm where
   le p₁ p₂ := p₁.val ≤ p₂.val
 
-instance : OfNat Perm 1 where
+@[reducible] instance : OfNat Perm 1 where
   ofNat := ⟨1, by decide⟩
 
 instance : BEq Perm where
   beq p₁ p₂ := p₁.val == p₂.val
 
+instance : DecidableLE Perm :=
+  fun p₁ p₂ => inferInstanceAs (Decidable (p₁.val ≤ p₂.val))
+
+@[reducible, grind]
+def IsValid (π : Perm) : Prop := π ≤ 1
+
+instance (π : Perm) : Decidable π.IsValid :=
+  inferInstanceAs (Decidable (π ≤ 1))
+
+@[simp, grind] theorem le_def (p₁ p₂ : Perm) : (p₁ ≤ p₂) = (p₁.val ≤ p₂.val) := rfl
+
+@[simp, grind] theorem isValid_def (π : Perm) : π.IsValid = (π.val ≤ 1) := by
+  unfold IsValid
+  show (π.val ≤ (1 : Perm).val) = (π.val ≤ 1)
+  rfl
+
+@[grind] theorem Perm.isValid_iff_rat (π : Perm) : π.IsValid ↔ π.val ≤ (1 : Rat) := by
+  constructor <;> intro h <;> exact h
+
+@[simp, grind] theorem Perm.add_val (p₁ p₂ : Perm) : (p₁ + p₂).val = p₁.val + p₂.val := rfl
+
+@[simp, grind] theorem Perm.one_val : (1 : Perm).val = 1 := rfl
+
+@[grind =] theorem Perm.mk_eq_mk (v₁ v₂ : Rat) (h₁ h₂) :
+    ((⟨v₁, h₁⟩ : Perm) = ⟨v₂, h₂⟩) = (v₁ = v₂) := by
+  simp [Perm.ext_iff]
+
+@[grind =] theorem Perm.mk_add_mk_eq_mk (v₁ v₂ v₃ : Rat) (h₁ h₂ h₃) :
+    ((⟨v₁, h₁⟩ : Perm) + ⟨v₂, h₂⟩ = ⟨v₃, h₃⟩) = (v₁ + v₂ = v₃) := by
+  simp [Perm.ext_iff, Perm.add_val]
+
+@[grind =] theorem Perm.mk_le_mk (v₁ v₂ : Rat) (h₁ h₂) :
+    ((⟨v₁, h₁⟩ : Perm) ≤ ⟨v₂, h₂⟩) = (v₁ ≤ v₂) := rfl
 end Perm
 
 /-! ## Heap Definitions (Function-Based) -/
 
 abbrev HeapVal := Val × Perm
 
-/- TODO: should be finite  -/
--- A Heap is now a pure function, making observational equality identical to structural equality
-def Heap := Loc → Option HeapVal
+/- finite Heap -/
+def Heap := { f : Loc → Option HeapVal // ∃ bound : List Loc, ∀ l, l ∉ bound → f l = none }
 
-instance : EmptyCollection Heap := ⟨fun _ => none⟩
+instance : EmptyCollection Heap := ⟨⟨fun _ => none, ⟨[], by simp⟩⟩⟩
 instance : Inhabited Heap := ⟨∅⟩
 
 abbrev hProp := Heap → Prop
 
 /-! ## Heap operations -/
 
-def Heap.lookup (h : Heap) (x : Loc) : Option HeapVal := h x
-def Heap.contains (h : Heap) (x : Loc) : Bool := (h x).isSome
-def Heap.remove (h : Heap) (x : Loc) : Heap := fun y => if x = y then none else h y
-def Heap.addUnion (h₁ h₂ : Heap) : Heap := fun x =>
-  match h₁ x, h₂ x with
-  | some (v, p₁), some (_, p₂) => some (v, p₁ + p₂)
-  | some e, none => some e
-  | none, some e => some e
-  | none, none   => none
-def Heap.single (x : Loc) (v : Val) : Heap := fun y => if x = y then some (v, 1) else none
-def Heap.singleFrac (x : Loc) (v : Val) (π : Perm) : Heap := fun y => if x = y then some (v, π) else none
+def Heap.lookup (h : Heap) (x : Loc) : Option HeapVal := h.val x
+def Heap.contains (h : Heap) (x : Loc) : Bool := (h.val x).isSome
+
+def Heap.remove (h : Heap) (x : Loc) : Heap :=
+  ⟨fun y => if x = y then none else h.val y,
+   let ⟨bound, hb⟩ := h.property
+   ⟨bound, fun l hl => by simp [hb l hl]⟩⟩
+
+def Heap.addUnion (h₁ h₂ : Heap) : Heap :=
+  ⟨fun x =>
+    match h₁.val x, h₂.val x with
+    | some (v, p₁), some (_, p₂) => some (v, p₁ + p₂)
+    | some e, none => some e
+    | none, some e => some e
+    | none, none   => none,
+   let ⟨b₁, hb₁⟩ := h₁.property
+   let ⟨b₂, hb₂⟩ := h₂.property
+   ⟨b₁ ++ b₂, fun l hl => by
+     have hl₁ : l ∉ b₁ := fun h => hl (List.mem_append_left _ h)
+     have hl₂ : l ∉ b₂ := fun h => hl (List.mem_append_right _ h)
+     simp [hb₁ l hl₁, hb₂ l hl₂]⟩⟩
+
+def Heap.single (x : Loc) (v : Val) : Heap :=
+  ⟨fun y => if x = y then some (v, 1) else none,
+   ⟨[x], fun l hl => by grind⟩⟩
+
+def Heap.singleFrac (x : Loc) (v : Val) (π : Perm) : Heap :=
+  ⟨fun y => if x = y then some (v, π) else none,
+   ⟨[x], fun l hl => by grind⟩⟩
 
 @[ext]
 theorem Heap.ext_lookup {h₁ h₂ : Heap} (h : ∀ x : Loc, h₁.lookup x = h₂.lookup x) : h₁ = h₂ := by
-  funext x; exact h x
+  apply Subtype.ext; funext x; exact h x
 
 /-! ## Lookup simp lemmas -/
 
@@ -91,10 +140,8 @@ theorem Heap.lookup_singleFrac_ne {x y : Loc} (hne : x ≠ y) (v : Val) (π : Pe
 
 theorem Heap.contains_of_lookup {h : Heap} {x : Loc} {v : HeapVal}
     (hlk : h.lookup x = some v) : h.contains x = true := by
-  -- Swap to the equivalent lookup syntax, then rewrite using your hypothesis
-  change (h.lookup x).isSome = true
-  simp [hlk]
-
+  change (h.val x).isSome = true
+  simp [Heap.lookup] at hlk; simp [hlk]
 
 /-! ## Remove lemmas -/
 
@@ -107,7 +154,6 @@ theorem Heap.lookup_remove_ne {k x : Loc} (hne : k ≠ x) (h : Heap) :
 
 /-! ## addUnion lookup -/
 
--- This evaluates strictly via definitional equality now!
 @[simp] theorem Heap.lookup_addUnion (h₁ h₂ : Heap) (x : Loc) :
     (h₁.addUnion h₂).lookup x =
       match h₁.lookup x, h₂.lookup x with
@@ -236,7 +282,6 @@ theorem Heap.addUnion_assoc (a b c : Heap) :
         change (p₁.val + p₂.val) + p₃.val = p₁.val + (p₂.val + p₃.val)
         grind
 
-
 theorem Heap.Disjoint.empty_left (h : Heap) : Heap.Disjoint ∅ h := by
   intro x v₁ p₁ v₂ p₂ eq₁ eq₂; simp at eq₁
 
@@ -259,7 +304,6 @@ theorem Heap.addUnion_comm {h₁ h₂ : Heap} (hdisj : h₁.Disjoint h₂) :
       change (p₁.val + p₂.val) = (p₂.val + p₁.val)
       grind
 
-
 theorem Heap.addUnion_eq_empty (a b : Heap) :
     a.addUnion b = ∅ → a = ∅ ∧ b = ∅ := by
   intro h
@@ -268,10 +312,52 @@ theorem Heap.addUnion_eq_empty (a b : Heap) :
     simp only [Heap.lookup_addUnion, Heap.lookup_empty] at hl
     rcases eq_a : a.lookup x with _ | ⟨v₁, p₁⟩ <;> rcases eq_b : b.lookup x with _ | ⟨v₂, p₂⟩ <;> simp_all
 
-/-- In our model, heaps are finitely constructed using `empty`, `single`, and `addUnion`.
-    Because they only populate finite locations, they do not exhaust the infinite domain
-    of `Nat`. Thus, asserting the existence of an empty location is logically safe. -/
-axiom Heap.exists_not_contained (h : Heap) : ∃ a : Loc, h.contains a = false
+theorem List.foldl_max_mono : ∀ (a b : Nat), a <= b -> x ≤ List.foldl max a tl ->  x ≤ List.foldl max b tl :=
+  by
+  induction tl with
+  | nil => grind
+  | cons hd tl ih =>
+    simp [List.foldl]
+    intro a b
+    intro h
+    cases Classical.em (a ≤ hd) with
+    | inl hmax => simp [hmax]; grind
+    | inr hmax =>
+      have := ih hd (max b hd) (by grind)
+      grind
+
+theorem List.le_foldl_max (x : Nat) (tl : List Nat) : x ≤ tl.foldl max x := by
+  induction tl generalizing x with
+  | nil => simp
+  | cons hd tl ih =>
+    simp [List.foldl]
+    calc x ≤ max x hd := Nat.le_max_left x hd
+         _ ≤ tl.foldl max (max x hd) := ih _
+
+theorem List.mem_le_foldl_max {l : List Nat} {x : Nat} (h : x ∈ l) :
+    x ≤ l.foldl max 0 := by
+  induction l with
+  | nil => grind
+  | cons hd tl ih =>
+    simp [List.foldl]
+    cases List.mem_cons.mp h with
+    | inl heq =>
+      subst heq
+      simp[List.le_foldl_max]
+    | inr htl =>
+      have := ih htl
+      apply List.foldl_max_mono 0
+      grind
+      assumption
+
+theorem Heap.exists_not_contained (h : Heap) : ∃ a : Loc, h.contains a = false := by
+  obtain ⟨f, bound, hb⟩ := h
+  refine ⟨bound.foldl max 0 + 1, ?_⟩
+  simp [Heap.contains]
+  apply hb
+  intro hmem
+  have := List.mem_le_foldl_max hmem
+  omega
 
 /-! ## hProp connectives -/
 
@@ -318,23 +404,12 @@ def hSingle (x : Loc) (v : Val) : hProp := hSingle' x v
 
 notation:70 x " ↦ " v => hSingle x v
 
-/- TODO: rename to Perm.Valid (or Perm.isValid or Perm.valid)
- * https://leanprover-community.github.io/contribute/naming.html
- * find similar examples in the standard library
- -/
-@[grind]
-def ValidPerm (π : Perm) : Prop := π ≤ 1
+/-- Fractional points-to: the validity proof lives in the constructor,
+    so callers just pass a bare `Perm`. -/
+inductive hSingleFrac' (x : Loc) (v : Val) (π : Perm) : Heap → Prop where
+  | intro (hValid : π.IsValid) : hSingleFrac' x v π (Heap.singleFrac x v π)
 
-/- TODO: is it the better way?
--/
--- inductive hSingleFrac' (x : Loc) (v : Val) (π : Perm) : Heap → Prop where
---   | intro (hValid : ValidPerm π) : hSingleFrac' x v π (Heap.singleFrac x v π)
-
-
-inductive hSingleFrac' (x : Loc) (v : Val) (π : { p : Perm // ValidPerm p }) : Heap → Prop where
-  | intro : hSingleFrac' x v π (Heap.singleFrac x v π.1)
-
-def hSingleFrac (x : Loc) (v : Val) (π : { p : Perm // ValidPerm p }) : hProp :=
+def hSingleFrac (x : Loc) (v : Val) (π : Perm) : hProp :=
   hSingleFrac' x v π
 
 notation:70 x " ↦[" π "] " v => hSingleFrac x v π
@@ -349,17 +424,26 @@ instance : EmptyCollection hProp := ⟨hEmpty⟩
 
 /-! ## Permission constants -/
 
-def fullPermVal : { p : Perm // ValidPerm p } := ⟨{val := 1}, by trivial⟩
-def halfPerm : { p : Perm // ValidPerm p } := ⟨{val := 1/2}, by simp [ValidPerm]⟩
+@[reducible] def Perm.full : Perm := { val :=1 }
+@[reducible] def Perm.half : Perm := { val := 1/2 }
+@[reducible] def Perm.third : Perm := { val := 1/3 }
+@[reducible] def Perm.twoThirds : Perm := { val := 2/3 }
 
 /-! ## hSingle = hSingleFrac with full perm -/
 
 theorem hSingle_eq_hSingleFrac (x : Loc) (v : Val) :
-    (x ↦ v) = (x ↦[fullPermVal] v) := by
+    (x ↦ v) = (x ↦[1] v) := by
   funext h; apply propext
   constructor
-  · intro hp; cases hp; exact hSingleFrac'.intro
+  · intro hp; cases hp; exact hSingleFrac'.intro (by trivial)
   · intro hp; cases hp; exact hSingle'.intro
+
+/-! ## Validity of hSingleFrac -/
+
+/-- Extracting validity from a fractional points-to assertion. -/
+theorem hSingleFrac_isValid {x : Loc} {v : Val} {π : Perm} {h : Heap}
+    (hp : hSingleFrac x v π h) : π.IsValid := by
+  cases hp; assumption
 
 /-! ## Abstract lemmas about hProp connectives -/
 
@@ -395,8 +479,7 @@ theorem entails_hWand {H₁ H₂ Q : hProp} (hle : H₁ ∗ H₂ ⊑ Q) :
   exact hExists'.intro H₂ (hStar'.intro h ∅ hH₂ (hPure'.intro hle)
     (Heap.addUnion_empty h) (Heap.Disjoint.empty_right h))
 
-/- TODO: choose an appropriate pattern -/
-@[grind] theorem hWand_mono :
+@[grind .] theorem hWand_mono :
   P ⊑ Q → H -∗ P ⊑ H -∗ Q := by
   intro hle h ⟨H', ⟨hLeft, hRight, hH', hpure, hunion, hdisj⟩⟩
   cases hpure with
@@ -404,8 +487,7 @@ theorem entails_hWand {H₁ H₂ Q : hProp} (hle : H₁ ∗ H₂ ⊑ Q) :
     exact hExists'.intro H' (hStar'.intro hLeft ∅ hH' (hPure'.intro (PartialOrder.rel_trans hent hle))
       hunion hdisj)
 
-/- TODO: choose an appropriate pattern -/
-@[grind] theorem hStar_mono :
+@[grind .] theorem hStar_mono :
   P ⊑ Q → H ∗ P ⊑ H ∗ Q := by
   intro hle h ⟨h₁, h₂, hH, hP, hunion, hdisj⟩
   exact hStar'.intro h₁ h₂ hH (hle h₂ hP) hunion hdisj
@@ -634,7 +716,7 @@ theorem HeapM.exhale_spec (hp : hProp) :
   grind [← hStar_comm]
 
 theorem HeapM.read_spec (x : Loc) (v : Val) :
-  ⦃ x ↦ v ⦄ read x ⦃ v, ⌜v = v⌝ʰ ∗ x ↦ v ⦄ := by
+  ⦃ x ↦ v ⦄ read x ⦃ v', ⌜v = v'⌝ʰ ∗ x ↦ v ⦄ := by
   simp [read]
   apply Triple.iff.mpr
   unfold wp wpTrans
@@ -667,28 +749,25 @@ theorem HeapM.read_spec (x : Loc) (v : Val) :
         rw [← hunion] at hP
         simp [Option.any, Heap.lookup] at hP
         rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
-        · have heq : (h₁.addUnion (Heap.single x v)) x = some (v, 1) := by
-           have key : h₁.addUnion (Heap.single x v) x = some (v, 1) := by
-              have h₁x : h₁ x = none := eq₁  -- lookup is definitionally h x
-              simp [Heap.addUnion, Heap.single, h₁x]
-           rw [key] at hP
-           simp at hP
-           grind
+        · have key : (h₁.addUnion (Heap.single x v)).lookup x = some (v, 1) := by
+            have h₁x : h₁.val x = none := eq₁
+            simp [Heap.lookup, Heap.addUnion, Heap.single, h₁x]
+          simp [Heap.lookup] at key
+          rw [key] at hP
+          simp at hP
           grind
         · have eq₂ : (Heap.single x v).lookup x = some (v, 1) := by
             simp [Heap.lookup_single]
           have ⟨hval, _⟩ := hdisj x v₁ p₁ v 1 eq₁ eq₂
-          -- hval : v₁ = v
-          have h₁x : h₁ x = some (v₁, p₁) := eq₁
-          have key : h₁.addUnion (Heap.single x v) x = some (v₁, p₁ + 1) := by
-            simp [Heap.addUnion, Heap.single, h₁x]
+          have h₁x : h₁.val x = some (v₁, p₁) := eq₁
+          have key : (h₁.addUnion (Heap.single x v)).lookup x = some (v₁, p₁ + 1) := by
+            simp [Heap.lookup, Heap.addUnion, Heap.single, h₁x]
+          simp [Heap.lookup] at key
           rw [key] at hP
           simp at hP
-          -- hP : v₁ = v'
           grind
     simp [empty_True, ← vv']
     exact HH
-
 
 theorem HeapM.assign_spec (x : Loc) (v u : Val) :
   ⦃ x ↦ u ⦄ assign x v ⦃ _, x ↦ v ⦄ := by
@@ -736,14 +815,15 @@ theorem HeapM.alloc_spec (v : Val) :
 /-! ## Fractional permission theorems -/
 
 theorem hSingleFrac_split (x : Loc) (v : Val)
-    (π₁ π₂ : { p : Perm // ValidPerm p })
-    (hsum : π₁.1 + π₂.1 = 1) :
+    (π₁ π₂ : Perm)
+    (hv₁ : π₁.IsValid) (hv₂ : π₂.IsValid)
+    (hsum : π₁ + π₂ = 1) :
     (x ↦ v) = ((x ↦[π₁] v) ∗ (x ↦[π₂] v)) := by
   funext h; apply propext
   constructor
   · intro hp; cases hp
-    refine hStar'.intro (Heap.singleFrac x v π₁.1) (Heap.singleFrac x v π₂.1)
-      hSingleFrac'.intro hSingleFrac'.intro ?_ ?_
+    refine hStar'.intro (Heap.singleFrac x v π₁) (Heap.singleFrac x v π₂)
+      (hSingleFrac'.intro hv₁) (hSingleFrac'.intro hv₂) ?_ ?_
     · apply Heap.ext_lookup; intro y
       rw [Heap.lookup_addUnion]
       by_cases h_xy : x = y
@@ -757,7 +837,7 @@ theorem hSingleFrac_split (x : Loc) (v : Val)
         simp at eq₁ eq₂
         obtain ⟨rfl, rfl⟩ := eq₁
         obtain ⟨rfl, rfl⟩ := eq₂
-        exact ⟨rfl, by simp [hsum]; trivial⟩
+        exact ⟨rfl, by simp [hsum]⟩
       · have hne : x ≠ y := h_xy
         simp [Heap.lookup_singleFrac_ne hne] at eq₁
   · intro ⟨h₁, h₂, hf₁, hf₂, hunion, _⟩
@@ -773,15 +853,16 @@ theorem hSingleFrac_split (x : Loc) (v : Val)
     subst this; exact hSingle'.intro
 
 theorem hSingleFrac_combine (x : Loc) (v : Val)
-    (π₁ π₂ : { p : Perm // ValidPerm p })
-    (hle : π₁.1 + π₂.1 ≤ 1) :
+    (π₁ π₂ : Perm)
+    (hv₁ : π₁.IsValid) (hv₂ : π₂.IsValid)
+    (hle : (π₁ + π₂).IsValid) :
     ((x ↦[π₁] v) ∗ (x ↦[π₂] v)) =
-    (x ↦[⟨π₁.1 + π₂.1, hle⟩] v) := by
+    (x ↦[π₁ + π₂] v) := by
   funext h; apply propext
   constructor
   · intro ⟨h₁, h₂, hf₁, hf₂, hunion, _⟩
     cases hf₁; cases hf₂
-    have : h = Heap.singleFrac x v (π₁.1 + π₂.1) := by
+    have : h = Heap.singleFrac x v (π₁ + π₂) := by
       apply Heap.ext_lookup; intro y
       rw [← hunion, Heap.lookup_addUnion]
       by_cases h_xy : x = y
@@ -789,10 +870,10 @@ theorem hSingleFrac_combine (x : Loc) (v : Val)
         simp
       · have hne : x ≠ y := h_xy
         simp [Heap.lookup_singleFrac_ne hne]
-    subst this; exact hSingleFrac'.intro
+    subst this; exact hSingleFrac'.intro hle
   · intro hp; cases hp
-    refine hStar'.intro (Heap.singleFrac x v π₁.1) (Heap.singleFrac x v π₂.1)
-      hSingleFrac'.intro hSingleFrac'.intro ?_ ?_
+    refine hStar'.intro (Heap.singleFrac x v π₁) (Heap.singleFrac x v π₂)
+      (hSingleFrac'.intro hv₁) (hSingleFrac'.intro hv₂) ?_ ?_
     · apply Heap.ext_lookup; intro y
       rw [Heap.lookup_addUnion]
       by_cases h_xy : x = y
@@ -815,7 +896,7 @@ If two heaps are disjoint and each maps location x to some value with
 the same permission, they must carry the same value
 -/
 theorem hStar_singleFrac_unique
-    {x : Loc} {v w : Val} {π : { p : Perm // ValidPerm p }}
+    {x : Loc} {v w : Val} {π : Perm}
     {P Q : hProp} {h : Heap}
     (hP : ((x ↦[π] v) ∗ P) h)
     (hQ : ((x ↦[π] w) ∗ Q) h) :
@@ -823,16 +904,16 @@ theorem hStar_singleFrac_unique
   obtain ⟨h₁, h₂, hv, hP', hunion₁, hdisj₁⟩ := hP
   obtain ⟨h₃, h₄, hw, hQ', hunion₂, hdisj₂⟩ := hQ
   cases hv; cases hw
-  have lk₁ : h.lookup x = some (v, π.1) ∨
-              ∃ p', h.lookup x = some (v, π.1 + p') := by
+  have lk₁ : h.lookup x = some (v, π) ∨
+              ∃ p', h.lookup x = some (v, π + p') := by
     rw [← hunion₁, Heap.lookup_addUnion]
     simp [Heap.lookup_singleFrac]
     rcases eq_h₂ : h₂.lookup x with _ | ⟨w', p'⟩
     · simp
     · simp
       grind
-  have lk₂ : h.lookup x = some (w, π.1) ∨
-              ∃ p', h.lookup x = some (w, π.1 + p') := by
+  have lk₂ : h.lookup x = some (w, π) ∨
+              ∃ p', h.lookup x = some (w, π + p') := by
     rw [← hunion₂, Heap.lookup_addUnion]
     simp [Heap.lookup_singleFrac]
     rcases eq_h₄ : h₄.lookup x with _ | ⟨w', p'⟩
@@ -847,16 +928,15 @@ theorem hStar_singleFrac_unique
 
 /-! Symmetric variant -/
 theorem hStar_singleFrac_unique' {x : Loc} {v w : Val}
-    {π : { p : Perm // ValidPerm p }} {P Q : hProp} {h : Heap}
+    {π : Perm} {P Q : hProp} {h : Heap}
     (hP : (P ∗ (x ↦[π] v)) h)
     (hQ : (Q ∗ (x ↦[π] w)) h) : v = w := by
   apply hStar_singleFrac_unique (h := h)
   · rw [hStar_comm]; exact hP
   · rw [hStar_comm]; exact hQ
 
-
 theorem HeapM.read_frac_spec (x : Loc) (v : Val)
-    (π : { p : Perm // ValidPerm p }) :
+    (π : Perm) (hv : π.IsValid) :
     ⦃ x ↦[π] v ⦄ read x ⦃ w, ⌜w = v⌝ʰ ∗ x ↦[π] v ⦄ := by
   simp [read]
   apply Triple.iff.mpr
@@ -877,8 +957,8 @@ theorem HeapM.read_frac_spec (x : Loc) (v : Val)
       rw [← hunion, Heap.lookup_addUnion]
       rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
       · simp [Heap.lookup_singleFrac]
-      · have eq₂ : (Heap.singleFrac x v π).lookup x = some (v, π.1) := by simp [Heap.lookup_singleFrac]
-        have ⟨hval, _⟩ := hdisj x v₁ p₁ v π.1 eq₁ eq₂
+      · have eq₂ : (Heap.singleFrac x v π).lookup x = some (v, π) := by simp [Heap.lookup_singleFrac]
+        have ⟨hval, _⟩ := hdisj x v₁ p₁ v π eq₁ eq₂
         subst hval
         simp [eq₂]
   · intro v' hP
@@ -890,18 +970,20 @@ theorem HeapM.read_frac_spec (x : Loc) (v : Val)
         rw [← hunion] at hP
         simp [Option.any, Heap.lookup] at hP
         rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
-        · have key : h₁.addUnion (Heap.singleFrac x v π.val) x = some (v, π.val) := by
-              have h₁x : h₁ x = none := eq₁  -- lookup is definitionally h x
-              simp [Heap.addUnion, Heap.singleFrac, h₁x]
-          simp [key] at hP
+        · have key : (h₁.addUnion (Heap.singleFrac x v π)).lookup x = some (v, π) := by
+            have h₁x : h₁.val x = none := eq₁
+            simp [Heap.lookup, Heap.addUnion, Heap.singleFrac, h₁x]
+          simp [Heap.lookup] at key
+          rw [key] at hP
+          simp at hP
           apply hP
-        · have eq₂ : (Heap.singleFrac x v π.val).lookup x = some (v, π.val) := by
+        · have eq₂ : (Heap.singleFrac x v π).lookup x = some (v, π) := by
             simp [Heap.lookup_singleFrac]
-          have ⟨hval, _⟩ := hdisj x v₁ p₁ v π.val eq₁ eq₂
-          -- hval : v₁ = v
-          have h₁x : h₁ x = some (v₁, p₁) := eq₁
-          have key : h₁.addUnion (Heap.singleFrac x v π.val) x = some (v₁, p₁ + π.val) := by
-            simp [Heap.addUnion, Heap.singleFrac, h₁x]
+          have ⟨hval, _⟩ := hdisj x v₁ p₁ v π eq₁ eq₂
+          have h₁x : h₁.val x = some (v₁, p₁) := eq₁
+          have key : (h₁.addUnion (Heap.singleFrac x v π)).lookup x = some (v₁, p₁ + π) := by
+            simp [Heap.lookup, Heap.addUnion, Heap.singleFrac, h₁x]
+          simp [Heap.lookup] at key
           rw [key] at hP
           simp at hP
           grind
@@ -909,16 +991,13 @@ theorem HeapM.read_frac_spec (x : Loc) (v : Val)
     exact HH
 
 /-! ## Final example -/
-def myPerm : { p : Perm // ValidPerm p } := ⟨⟨1/3, by grind⟩, by change (1/3 : Rat) ≤ 1; grind⟩
-def myPerm' : { p : Perm // ValidPerm p } := ⟨⟨2/3, by grind⟩, by change (2/3 : Rat) ≤ 1; grind⟩
 
-
-
+#check @Perm.ext
 example (p : Loc) (v : Val) :
     ⦃ ∅ ⦄
     (do HeapM.inhale (p ↦ v)
-        HeapM.exhale (p ↦[myPerm] v))
-    ⦃ _, p ↦[myPerm'] v ⦄ := by
+        HeapM.exhale (p ↦[Perm.third] v))
+    ⦃ _, p ↦[Perm.twoThirds] v ⦄ := by
   apply Triple.iff.mpr
   unfold wp wpTrans
   simp_all [instWPMonadHeapMHPropNil]
@@ -928,12 +1007,10 @@ example (p : Loc) (v : Val) :
   simp [Bind.bind, HeapM.bind, HeapM.inhale, HeapM.exhale]
   apply entails_hWand
   intro heap HH
-  rw [hSingleFrac_split p v myPerm myPerm'] at HH
+  rw [hSingleFrac_split p v Perm.third Perm.twoThirds
+    (by grind) (by grind)] at HH
   rotate_right
-  ext
-  simp [myPerm, myPerm']
-  show (1/3 : Rat) + 2/3 = 1
-  grind_linarith
+  grind
   revert HH heap
   rw[hStar_assoc]
   simp [hStar_comm]
