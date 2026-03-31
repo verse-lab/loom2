@@ -13,9 +13,12 @@ import Loom.WP.Lemmas
 import Loom.Frame
 import Loom.Tactic.ShareExt
 import Loom.Tactic.Match
+import Loom.Tactic.Intros
 import Loom.Tactic.VCGenTime
 
-open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
+
+
+open Lean Parser Meta Elab Tactic Sym Loom Lean.Order Lean.Meta.Sym
 open Loom.Tactic.SpecAttr
 open Std.Do'
 open Grind (GrindM)
@@ -23,6 +26,7 @@ open Grind (GrindM)
 namespace Loom
 
 initialize registerTraceClass `Loom.Tactic.vcgen
+initialize registerTraceClass `Loom.Tactic.vcgen.canon
 
 inductive VCGen.dischargeTactic where
   | none
@@ -45,8 +49,9 @@ def VCGen.dischargeTactic.eval (goal : MVarId) : VCGen.dischargeTactic → MetaM
 
 structure VCGen.Context where
   specThms     : SpecTheorems
-  introPreRule : BackwardRule
+  introRules   : IntroRules
   elimPreRule  : BackwardRule
+  simpMethods  : Option Sym.Simp.Methods := none
   disch        : dischargeTactic := .none
 
 structure VCGen.State where
@@ -184,26 +189,20 @@ def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
         let as := args.extract 2 4
         return .Lattice .Imp as excessArgs
       | _ => return .Unknown
-    -- else return .IntroPre
   | _ => return .Unknown
 
 /-- Main solve step for a goal of the form `pre ⊑ rhs`. -/
 def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
-  let target ← goal.getType
+  let mut target ← goal.getType
+  if target.hasExprMVar then target ← instantiateMVars target
   let kind ← classifyGoalKind target
   match kind with
   | .TrivialTrue => do
       throwError "TrivialTrue not yet implemented in VCGen'"
   | .IntroPre => do
-      let rule := (← read).introPreRule
-      let .goals goals ← rule.apply goal
-        | throwError "Failed to apply intro_pre rule"
-      let goals ← goals.mapM fun g => do
-        let .goal _ g ← Sym.intros g | throwError "Failed to intro pre"
-        return g
-      return .goals goals
-  | .Unknown =>
-      return .noProgramOrLatticeFoundInTarget target
+      let goal ← Grind.mkGoal goal
+      let goal ← introMeetPre (← read).introRules goal
+      return .goals [goal.mvarId]
   | .Lattice lop as excessArgs => do
       trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
       let rule ← mkBackwardRuleForLogicCached lop as excessArgs
@@ -230,10 +229,10 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         let goal ← goal.replaceTargetDefEq newTarget
         return .goals [goal]
       -- Split ite/dite/match
-      if let some info ← liftMetaM <| Lean.Elab.Tactic.Do.getSplitInfo? e then
+      if let some info ← Do.getSplitInfo? e then
         -- For matchers, try reduceRecMatcher? to reduce known discriminants
         if let .matcher .. := info then
-          if let some e' ← liftMetaM <| Lean.Meta.reduceRecMatcher? e then
+          if let some e' ← reduceRecMatcher? e then
             trace[Loom.Tactic.vcgen] "reduceRecMatcher simplified match in {e}"
             let e' ← shareCommon e'
             let rhs ← mkAppNS head <| args.set! 8 e'
@@ -271,6 +270,20 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       let newTarget ← mkAppNS relConst #[α, inst, pre, rhs]
       let goal ← goal.replaceTargetDefEq newTarget
       return .goals [goal]
+  | _ =>
+    -- Try simplifying with simp methods before giving up
+    let goalType ← goal.getType
+    trace[Loom.Tactic.vcgen.canon] "goalType: {goalType}"
+    let goalType ← canon goalType
+    trace[Loom.Tactic.vcgen.canon] "goalType after canon: {goalType}"
+    let goal ← goal.replaceTargetDefEq goalType
+    if let some methods := (← read).simpMethods then
+      match ← Sym.simpGoal goal methods with
+      | .closed => return .goals []
+      | .goal goal' => return .goals [goal']
+      | .noProgress => pure ()
+    return .noProgramOrLatticeFoundInTarget target
+
 
 /-- Emit a VC for a goal that cannot be further decomposed.
     If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper. -/
@@ -293,30 +306,18 @@ meta def emitVC (goal : Grind.Goal) : VCGenM Unit := do
   for g in goals do g.setKind .syntheticOpaque
   modify fun s => { s with vcs := s.vcs ++ goals }
 
-/-- Unfold `⦃P⦄ x ⦃Q⦄` into `P ⊑ wp⟦x⟧ Q`. -/
-meta def unfoldTriple (goal : Grind.Goal) : OptionT VCGenM Grind.Goal := goal.withContext do
-  let type ← goal.mvarId.getType
-  unless type.isAppOf ``Triple do return goal
-  let rule ← mkBackwardRuleFromDecl ``Triple.intro
-  let .goals [goal] ← goal.apply rule | failure
-  return goal
-
-def introsWP (goal : Grind.Goal) : VCGenM Grind.Goal := do
-  let mut goal := goal
-  if (← goal.mvarId.getType).isForall then
-    let .goal _ goal' ← goal.intros #[] | failure
-    goal := goal'
-  return goal
-
 /-- Main work loop: decompose the goal repeatedly. -/
 meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← Grind.mkGoal goal
-  let some goal ← unfoldTriple goal |>.run | return ()
+  let rules := (← read).introRules
+  let goal ← unfoldTriple rules goal
   let mut worklist := Std.Queue.empty.enqueue goal
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let goal ← introsWP goal
+    let mut goal ← introsWP goal
+    -- Unfold Triple goals that arise from subgoals (e.g., loop invariant specs)
+    goal ← unfoldTriple rules goal
     let res ← solve goal.mvarId
     match res with
     | .noProgramOrLatticeFoundInTarget .. =>
@@ -354,44 +355,94 @@ public meta partial def main (goal : MVarId) (ctx : Context) : GrindM Result := 
   return { invariants := state.invariants, vcs := state.vcs }
 
 syntax (name := mvcgen') "mvcgen'"
-  (" [" withoutPosition((simpStar <|> simpErase <|> simpLemma),*,?) " ] ")?
-  (&" with " tactic)?  : tactic
+  (" [" withoutPosition((simpStar <|> simpErase <|> simpLemma),*,?) "] ")?
+  (&" simplifying_assumptions" (ppSpace colGt ident)? (" [" ident,* "]")?)?
+  (&" with " tactic)? : tactic
 
-def VCGen.getDischargeTactic (stx : Syntax) : MetaM VCGen.dischargeTactic := do
-  let .some tac := stx[2][1]? | return .none
+def elabDischTactic (withClause : Syntax) : MetaM VCGen.dischargeTactic := do
+  let .some tac := withClause[1]? | return .none
   if tac.isMissing then return .none
-  return if tac.getKind == ``Parser.Tactic.grind then
-      .grind
-    else
-    .tactic tac
+  return if tac.getKind == ``Parser.Tactic.grind then .grind else .tactic tac
+
+/-- Parse grind configuration from the `with grind ...` clause and build `Grind.Params`.
+Overrides the internal simp step limit to accommodate large unrolled goals. -/
+private meta def elabGrindParams (grindStx : Syntax) (goal : MVarId) : TacticM Grind.Params := do
+  let `(tactic| grind $config:optConfig $[only%$only]? $[ [$grindParams:grindParam,*] ]? $[=> $_:grindSeq]?) := grindStx
+    | throwUnsupportedSyntax
+  let grindConfig ← elabGrindConfig config
+  let params ← mkGrindParams grindConfig only.isSome (grindParams.getD {}).getElems goal
+  -- FIXME: Expose grind's internal simp step limit as a user-facing option instead of hardcoding.
+  -- Grind's `simpCore` uses the default `Simp.Config.maxSteps` (100k) which is too low for large
+  -- unrolled goals (fails around n=400 for GetThrowSet).
+  return { params with norm := ← params.norm.setConfig { params.norm.config with maxSteps := 10000000 } }
+
+
+-- /--
+/--
+Build `Sym.Simp.Methods` from a variant name and extra theorems.
+Supports the anonymous (default) variant. Named variants require a public
+`elabSimpMethods` API in `Lean.Elab.Tactic.Grind.Sym` (see TODO below).
+-/
+private meta def elabSymSimpParts
+    (variantId? : Option (TSyntax `ident))
+    (extraIds? : Option (Array (TSyntax `ident)))
+    : TacticM Sym.Simp.Methods := do
+  let variantName := variantId?.map (·.getId) |>.getD .anonymous
+  if !variantName.isAnonymous then
+    -- TODO: `resolveExtraTheorems`, `elabVariant`, and `elabSymSimproc` in
+    -- `Lean.Elab.Tactic.Grind.Sym` are module-private (non-`public section`).
+    -- To support named variants here, we need a public API such as:
+    --   `public def elabSymSimp (syn : Syntax) : GrindTacticM (Sym.Simp.Methods × ...)`
+    -- exposed from that module, plus a lightweight `GrindTacticM` runner
+    -- (the simproc elaborators only use `CoreM`/`MetaM` capabilities).
+    throwError "named Sym.simp variants are not yet supported in `mvcgen'`; \
+      use `mvcgen' simplifying_assumptions [thm₁, thm₂, ...]` with the default variant instead"
+  -- Resolve extra theorems (local hypotheses first, then global constants)
+  let mut extraThms : Array Simp.Theorem := #[]
+  if let some ids := extraIds? then
+    for id in ids do
+      let declName ← realizeGlobalConstNoOverload id
+      extraThms := extraThms.push (← Simp.mkTheoremFromDecl declName)
+  -- Build methods
+  let pre := Simp.simpControl >> Simp.simpArrowTelescope
+  let mut post : Sym.Simp.Simproc := Simp.evalGround
+  if !extraThms.isEmpty then
+
+    let mut thms : Simp.Theorems := {}
+    for thm in extraThms do thms := thms.insert thm
+    post := post >> thms.rewrite
+  return { pre, post }
+
+private meta def elabSimplifyingAssumptions (simpClause : Syntax) : OptionT TacticM Sym.Simp.Methods := do
+  if simpClause.getNumArgs == 0 then failure
+  dbg_trace "simpClause: {simpClause}"
+  let variantId? := if simpClause[1].getNumArgs != 0 then some ⟨simpClause[1][0]⟩ else none
+  let extraIds? := if simpClause[2].getNumArgs != 0
+    then some (simpClause[2][1].getSepArgs.map (⟨·⟩)) else none
+  trace[Loom.Tactic.vcgen] "elabSimplifyingAssumptions: {variantId?}, {extraIds?}"
+  elabSymSimpParts variantId? extraIds?
 
 @[tactic mvcgen']
 public meta def VCGen.elab : Tactic := fun stx => withMainContext do
   let ctx ← getSpecTheorems
   let goal ← getMainGoal
 
-  let withClause := stx[2]
+  let withClause := stx[3]
   let hasWithClause := withClause.getNumArgs != 0
-  let mut disch ← getDischargeTactic stx
+  let mut disch ← elabDischTactic withClause
   let mut params ← Grind.mkDefaultParams {}
 
   if let .grind := disch then
     let grindStx := withClause[1]
-    let `(tactic| grind $config:optConfig $[only%$only]? $[ [$grindParams:grindParam,*] ]? $[=> $_:grindSeq]?) := grindStx
-      | throwUnsupportedSyntax
-    let grindConfig ← elabGrindConfig config
-    params ← mkGrindParams grindConfig only.isSome (grindParams.getD {}).getElems goal
-    -- FIXME: Expose grind's internal simp step limit as a user-facing option instead of hardcoding.
-    -- Grind's `simpCore` uses the default `Simp.Config.maxSteps` (100k) which is too low for large
-    -- unrolled goals (fails around n=400 for GetThrowSet).
-    params := { params with norm := ← params.norm.setConfig { params.norm.config with maxSteps := 10000000 } }
+    params ← elabGrindParams grindStx goal
 
+  let simpMethods ← elabSimplifyingAssumptions stx[2]
   -- dbg_trace "disch: {repr disch}"
   let { invariants, vcs } ← Grind.GrindM.run (params := params) do
     let migratedCtx ← migrateSpecTheoremsDatabase ctx
-    let introPreRule ← mkBackwardRuleFromDecl ``prop_pre_intro
+    let introRules ← IntroRules.mk'
     let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
-    VCGen.main goal { specThms := migratedCtx, introPreRule, elimPreRule, disch }
+    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen

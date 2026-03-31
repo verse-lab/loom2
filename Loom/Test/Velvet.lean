@@ -95,13 +95,10 @@ theorem repeat_inv_simple (f : Unit → β → m (ForInStep β))
 
 set_option linter.unusedVariables false in
 def invariantGadget (inv : Pred) : m PUnit := pure ⟨⟩
-@[simp] theorem invariantGadget_eq (inv : Pred) : invariantGadget (m := m) inv = pure ⟨⟩ := rfl
 set_option linter.unusedVariables false in
 def decreasingGadget (measure : Nat) : m PUnit := pure ⟨⟩
-@[simp] theorem decreasingGadget_eq (measure : Nat) : decreasingGadget (m := m) measure = pure ⟨⟩ := rfl
 set_option linter.unusedVariables false in
 def onDoneGadget {α : Type _} (done : α) : m PUnit := pure ⟨⟩
-@[simp] theorem onDoneGadget_eq {α : Type _} (done : α) : onDoneGadget (m := m) done = pure ⟨⟩ := rfl
 
 /-- Spec for `repeat do` loops (`forIn Loop.mk`). -/
 @[lspec]
@@ -111,47 +108,203 @@ theorem Spec.forIn_loop
     (step : ∀ b, Triple (inv b) (f () b)
       (fun | ForInStep.yield b' => inv b' ⊓ ⌜ measure b' < measure b ⌝
            | ForInStep.done b' => inv b' ⊓ doneWith b') eInv) :
-    Triple (inv init) (forIn Loop.mk init f)
+    Triple (inv init) (forIn Loop.mk init fun u b => do
+      invariantGadget (inv b)
+      decreasingGadget (measure b)
+      onDoneGadget (doneWith b)
+      f u b)
       (fun b => inv b ⊓ doneWith b) eInv :=
-  repeat_inv_split f inv doneWith measure eInv init step
+  sorry
+
+private def foldInvariants (invs : Array (Lean.TSyntax `term)) : Lean.MacroM (Lean.TSyntax `term) := do
+  if invs.isEmpty then `(True)
+  else
+    let mut result := invs[0]!
+    for i in [1:invs.size] do
+      result ← `($result ⊓ $(invs[i]!))
+    return result
+
+syntax "while' " termBeforeDo
+  (" invariant " termBeforeDo)*
+  " decreasing " termBeforeDo
+  (" done_with " termBeforeDo)?
+  " do " doSeq : doElem
+
+macro_rules
+  | `(doElem| while' $cond $[ invariant $invs]* decreasing $m done_with $d do $body) => do
+    let inv ← foldInvariants invs
+    `(doElem| repeat do
+      invariantGadget $inv
+      decreasingGadget $m
+      onDoneGadget $d
+      if $cond then $body else break)
+
+macro_rules
+  | `(doElem| while' $cond $[ invariant $invs]* decreasing $m do $body) => do
+    let inv ← foldInvariants invs
+    `(doElem| repeat do
+      invariantGadget $inv
+      decreasingGadget $m
+      onDoneGadget (¬ $cond)
+      if $cond then $body else break)
+
 
 end Loops
 
+section WhileParseTest
+
+/-- Test that `while'` macro parses nested loops with multiple invariants. -/
+def whileParseTest (xs : List Nat) : Option Nat := do
+  let mut sum := 0
+  let mut rest := xs
+  while' rest.length > 0
+  invariant sum + rest.foldl (· + ·) 0 = xs.foldl (· + ·) 0
+  invariant rest.length ≤ xs.length
+  decreasing rest.length
+  do
+    match rest with
+    | [] => break  -- unreachable but needed for exhaustiveness
+    | x :: tl =>
+      sum := sum + x
+      rest := tl
+  return sum
+
+/-- Test nested while' loops. -/
+def whileNested : Option Nat := do
+  let mut i := 0
+  let mut total := 0
+  while' i < 3
+  invariant i ≤ 3
+  decreasing 3 - i
+  do
+    let mut j := 0
+    while' j < 2
+    invariant j ≤ 2
+    decreasing 2 - j
+    do
+      total := total + 1
+      j := j + 1
+    i := i + 1
+  return total
+
+/-- Test while' with done_with annotation. -/
+def whileDoneWith (n : Nat) : Option Nat := do
+  let mut k := n
+  while' k > 0
+  invariant k ≤ n
+  decreasing k
+  done_with k = 0
+  do
+    k := k - 1
+  return k
+
+#eval whileParseTest [1, 2, 3, 4]
+#eval whileNested
+#eval whileDoneWith 5
+
+end WhileParseTest
+
+
 section InsertionSort
 
-def insertionSort (input : List Nat) : Option (List Nat) := do
-  let mut sorted : List Nat := []
-  let mut unsorted := input
-  repeat do
-    invariantGadget (sorted.length + unsorted.length = input.length)
-    decreasingGadget unsorted.length
-    onDoneGadget (unsorted = [])
-    match unsorted with
-    | [] => break
-    | x :: rest =>
-      let mut left_rev : List Nat := []
-      let mut right := sorted
-      repeat do
-        invariantGadget (left_rev.reverse ++ right = sorted)
-        decreasingGadget right.length
-        onDoneGadget True
-        match right with
-        | [] => break
-        | y :: ys =>
-          if x ≤ y then break
-          left_rev := y :: left_rev
-          right := ys
-      sorted := left_rev.reverse ++ [x] ++ right
-      unsorted := rest
-  return sorted
+-- @[simp]
+-- theorem Array.replicate_get (n : Nat) [Inhabited α] (a : α) (i : Nat) (_ : i < n := by omega) :
+--   (Array.replicate n a)[i]! = a := by
+--   rw [getElem!_pos, Array.getElem_replicate]; grind
+
+-- @[simp]
+-- theorem Array.modify_get (a : Array α) [Inhabited α] (i j : Nat) (f : α -> α) :
+--   (a.modify i f)[j]! = if j < a.size then if j = i then f a[j]! else a[j]! else default := by
+--   grind
+
+def Array.toMultiset (arr : Array α) [BEq α] : (α → Nat) := fun a => arr.count a
+
+@[grind .]
+theorem Array.multiset_swap [Inhabited α] [BEq α]
+(arr: Array α) (idx₁ idx₂: Nat) (h_idx₁: idx₁ < arr.size) (h_idx₂: idx₂ < arr.size) :
+  ((arr.set! idx₂ arr[idx₁]!).set! idx₁ arr[idx₂]!).toMultiset = arr.toMultiset := by
+    sorry
 
 
-theorem insertionSort_spec (input : List Nat) :
-    ⦃ True ⦄ insertionSort input ⦃ result, result.Pairwise (· ≤ ·) ∧ result.Perm input ⦄ := by
-  simp only [insertionSort, invariantGadget_eq, decreasingGadget_eq, onDoneGadget_eq, pure_bind]
-  mvcgen' -- TODO: gadgets in spec body for automatic inv/measure/doneWith extraction
-          -- blocked on backward rule higher-order unification
+def insertionSort (arr : Array Nat) : Option (Array Nat) := do
+    let mut arr := arr
+    let arr₀ := arr
+    let arr_size := arr.size
+    let mut n := 1
+    while' n ≠ arr.size
+    invariant arr.size = arr_size
+    invariant 1 ≤ n ∧ n ≤ arr.size
+    invariant ∀ i j, 0 ≤ i ∧ i < j ∧ j <= n - 1 → arr[i]! ≤ arr[j]!
+    invariant arr.toMultiset = arr₀.toMultiset
+    decreasing arr.size - n
+    do
+      let mut mind := n
+      while' mind ≠ 0
+      invariant arr.size = arr_size
+      invariant mind ≤ n
+      invariant ∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ n ∧ j ≠ mind → arr[i]! ≤ arr[j]!
+      invariant arr.toMultiset = arr₀.toMultiset
+      decreasing mind
+      do
+        if arr[mind]! < arr[mind - 1]! then
+          let tmp := arr[mind - 1]!
+          arr := arr.set! (mind - 1) arr[mind]!
+          arr := arr.set! mind tmp
+        mind := mind - 1
+      n := n + 1
+    return arr
 
-#eval insertionSort [3, 1, 4, 1, 5, 9, 2, 6]
+@[grind .]
+theorem foo (a b : Prop) : a -> b -> a ⊓ b := by
+  sorry
+
+@[grind .]
+theorem foo2 (a : Prop) : a -> ⌜ a ⌝ := by sorry
+
+-- set_option trace.profiler true
+
+-- #check Sym.mkMethods
+
+set_option trace.Loom.Tactic.vcgen.canon true
+
+theorem foo' : (MProd.mk a b).fst = a := by rfl
+
+theorem insertionSort_spec (arr₀ : Array Nat) :
+    ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
+      (arr.toMultiset = arr₀.toMultiset) ⊓
+      ∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]! ⦄ := by
+  simp only [insertionSort]
+  mvcgen' simplifying_assumptions with grind
+
+
+def Goal (_n : Nat) := ∀ arr₀, ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
+      (arr.toMultiset = arr₀.toMultiset) ⊓
+      (∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]!) ⦄
+
+#eval runBenchUsingTactic ``Goal [] `(tactic| (intro arr₀; simp only [insertionSort]; mvcgen' with grind)) `(tactic| fail) [0]
 
 end InsertionSort
+
+section TestIntroMeetPre
+
+/-- Test that `introMeetPre` decomposes meet preconditions into separate hypotheses. -/
+theorem test_introMeetPre_simple :
+    ⦃ (1 = 1) ⊓ (2 = 2) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
+  mvcgen'
+
+/-- Test with nested meets: (a ⊓ b) ⊓ c. -/
+theorem test_introMeetPre_nested :
+    ⦃ (1 = 1) ⊓ (2 = 2) ⊓ (3 = 3) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
+  mvcgen'
+
+/-- Test with True ⊓ b — True should be eliminated. -/
+theorem test_introMeetPre_true_left :
+    ⦃ True ⊓ (1 = 1) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
+  mvcgen' with grind
+
+/-- Test plain (non-meet) pre. -/
+theorem test_introMeetPre_plain :
+    ⦃ (1 = 1 : Prop) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
+  mvcgen' with grind
+
+end TestIntroMeetPre

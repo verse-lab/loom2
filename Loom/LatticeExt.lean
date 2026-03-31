@@ -318,6 +318,19 @@ theorem prop_pre_intro (x y : Prop) : (x → True ⊑ y) → x ⊑ y :=
 theorem prop_pre_elim (x : Prop) : x → True ⊑ x :=
   fun hx _ => hx
 
+/-- Intro the left component of a meet precondition: `a ⊓ b ⊑ c` becomes `a → b ⊑ c`. -/
+theorem meet_pre_intro (a b c : Prop) : (a → b ⊑ c) → a ⊓ b ⊑ c :=
+  fun h hab => h ((meet_le_left a b) hab) ((meet_le_right a b) hab)
+
+/-- Intro the right component of a meet precondition: `a ⊓ b ⊑ c` becomes `a → b ⊑ c`. -/
+theorem meet_pre_intro' (a b c : Prop) : (b → a ⊑ c) → a ⊓ b ⊑ c :=
+  sorry
+
+
+/-- Eliminate `True` from the left of a meet precondition. -/
+theorem true_meet_pre_elim (b c : Prop) : b ⊑ c → True ⊓ b ⊑ c :=
+  fun h hab => h ((meet_le_right True b) hab)
+
 @[simp] theorem iInf_prop_eq_forall {ι : Type u} (f : ι → Prop) :
     (iInf f : Prop) = (∀ i, f i) := by
   apply propext

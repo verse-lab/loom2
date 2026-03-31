@@ -21,7 +21,7 @@ def step : M Unit := do
   let s ← get
   match s with
   | 0 => throw "s is zero"
-  | n+1 => set n
+  | n+1 => set (3 * n)
 
 def loop (n : Nat) : M Unit := do
   match n with
@@ -39,12 +39,13 @@ def runTests := runBenchUsingTactic
     `(tactic| (intro post st; mvcgen'))
     `(tactic| sorry)
 
--- #time
--- def foo : Goal 200 := by
+-- -- #time
+-- def foo : Goal 10 := by
 --   intro post st
 --   simp only [loop, step]
---   mvcgen' with grind
-  -- mvcgen' with grind
+--   mvcgen'
+-- --   mvcgen' with grind
+--   -- mvcgen' with grind
 
 
 -- #print foo
