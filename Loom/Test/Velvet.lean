@@ -255,33 +255,33 @@ def insertionSort (arr : Array Nat) : Option (Array Nat) := do
     return arr
 
 @[grind .]
-theorem foo (a b : Prop) : a -> b -> a ⊓ b := by
-  sorry
-
-@[grind .]
 theorem foo2 (a : Prop) : a -> ⌜ a ⌝ := by sorry
 
 -- set_option trace.profiler true
 
 -- #check Sym.mkMethods
 
-set_option trace.Loom.Tactic.vcgen.canon true
+-- set_option trace.Loom.Tactic.vcgen.simp true
 
-theorem foo' : (MProd.mk a b).fst = a := by rfl
+theorem foo' {α : Type u} {β : Type u} (a : α) (b : β) : (MProd.mk a b).fst = a := by rfl
+theorem foo'' {α : Type u} {β : Type u} (a : α) (b : β) : (MProd.mk a b).snd = b := by rfl
 
 theorem insertionSort_spec (arr₀ : Array Nat) :
     ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
       (arr.toMultiset = arr₀.toMultiset) ⊓
       ∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]! ⦄ := by
   simp only [insertionSort]
-  mvcgen' simplifying_assumptions with grind
+  mvcgen' simplifying_assumptions [foo', foo'']
+
+  -- sym =>
+  --   simp [foo']
 
 
 def Goal (_n : Nat) := ∀ arr₀, ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
       (arr.toMultiset = arr₀.toMultiset) ⊓
       (∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]!) ⦄
 
-#eval runBenchUsingTactic ``Goal [] `(tactic| (intro arr₀; simp only [insertionSort]; mvcgen' with grind)) `(tactic| fail) [0]
+#eval runBenchUsingTactic ``Goal [] `(tactic| (intro arr₀; simp only [insertionSort]; mvcgen' simplifying_assumptions [foo', foo''] with grind)) `(tactic| fail) [0]
 
 end InsertionSort
 

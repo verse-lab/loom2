@@ -65,32 +65,32 @@ meta def introsExcessArgs (goal : Grind.Goal) : SymM Grind.Goal := goal.withCont
     individual components as hypotheses. Uses:
     - `meet_pre_intro`: `(a → b ⊑ c) → a ⊓ b ⊑ c` — intro left component
     - `true_meet_pre_elim`: `b ⊑ c → True ⊓ b ⊑ c` — skip True
-    - `prop_pre_intro`: `(x → True ⊑ y) → x ⊑ y` — base case (non-meet pre) -/
-meta partial def introMeetPre (rules : IntroRules) (goal : Grind.Goal) : SymM Grind.Goal :=
+    - `prop_pre_intro`: `(x → True ⊑ y) → x ⊑ y` — base case (non-met pre) -/
+meta partial def introMeetPre (rules : IntroRules) (goal : MVarId) : SymM MVarId :=
   goal.withContext do
-  let type ← goal.mvarId.getType
+  let type ← goal.getType
   let_expr PartialOrder.rel _α _inst pre _rhs := type | return goal
   -- Check if pre is a meet
   if pre.isAppOf ``meet && pre.getAppNumArgs ≥ 4 then
     let a := pre.getAppArgs[2]!
     if a.isConstOf ``True then
       -- True ⊓ b ⊑ c  →  b ⊑ c
-      match ← goal.apply rules.trueMeetPreElim with
+      match ← rules.trueMeetPreElim.apply goal with
       | .goals [goal'] => introMeetPre rules goal'
       | _ => return goal
     else
       -- a ⊓ b ⊑ c  →  a → b ⊑ c
-      match ← goal.apply rules.meetPreIntro with
+      match ← rules.meetPreIntro.apply goal with
       | .goals [goal'] =>
-        let .goal _ goal'' ← Sym.intros goal'.mvarId | return goal'
-        introMeetPre rules { goal' with mvarId := goal'' }
+        let .goal _ goal'' ← Sym.intros goal' | return goal'
+        introMeetPre rules goal''
       | _ => return goal
   else if !pre.isConstOf ``True then
     -- Non-meet, non-True pre: apply prop_pre_intro to get `pre → True ⊑ rhs`
-    match ← goal.apply rules.propPreIntro with
+    match ← rules.propPreIntro.apply goal with
     | .goals [goal'] =>
-      let .goal _ goal'' ← Sym.intros goal'.mvarId | return goal'
-      return { goal' with mvarId := goal'' }
+      let .goal _ goal'' ← Sym.intros goal' | return goal'
+      return goal''
     | _ => return goal
   else
     return goal

@@ -26,7 +26,7 @@ open Grind (GrindM)
 namespace Loom
 
 initialize registerTraceClass `Loom.Tactic.vcgen
-initialize registerTraceClass `Loom.Tactic.vcgen.canon
+initialize registerTraceClass `Loom.Tactic.vcgen.simp
 
 inductive VCGen.dischargeTactic where
   | none
@@ -193,16 +193,18 @@ def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
 
 /-- Main solve step for a goal of the form `pre ⊑ rhs`. -/
 def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
+  let mut goal := goal
   let mut target ← goal.getType
-  if target.hasExprMVar then target ← instantiateMVars target
+  if target.hasExprMVar then
+    target ← instantiateMVars target
+    goal ← goal.replaceTargetDefEq target
   let kind ← classifyGoalKind target
   match kind with
   | .TrivialTrue => do
       throwError "TrivialTrue not yet implemented in VCGen'"
   | .IntroPre => do
-      let goal ← Grind.mkGoal goal
-      let goal ← introMeetPre (← read).introRules goal
-      return .goals [goal.mvarId]
+      goal ← introMeetPre (← read).introRules goal
+      return .goals [goal]
   | .Lattice lop as excessArgs => do
       trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
       let rule ← mkBackwardRuleForLogicCached lop as excessArgs
@@ -226,7 +228,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         let_expr PartialOrder.rel l cl pre _rhs := target
           | throwError "expected ⊑ goal but got {target}"
         let newTarget ← mkAppNS (mkConst ``PartialOrder.rel) #[l, cl, pre, rhs]
-        let goal ← goal.replaceTargetDefEq newTarget
+        goal ← goal.replaceTargetDefEq newTarget
         return .goals [goal]
       -- Split ite/dite/match
       if let some info ← Do.getSplitInfo? e then
@@ -238,7 +240,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
             let rhs ← mkAppNS head <| args.set! 8 e'
             let relArgs := target.getAppArgs
             let newTarget ← mkAppNS target.getAppFn (relArgs.set! (relArgs.size - 1) rhs)
-            let goal ← goal.replaceTargetDefEq newTarget
+            goal ← goal.replaceTargetDefEq newTarget
             return .goals [goal]
         -- Fall back to full split
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
@@ -268,15 +270,10 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   | .EPostVC relConst α inst pre epost excessArgs => do
       let rhs ← betaRevS epost excessArgs.reverse
       let newTarget ← mkAppNS relConst #[α, inst, pre, rhs]
-      let goal ← goal.replaceTargetDefEq newTarget
+      goal ← goal.replaceTargetDefEq newTarget
       return .goals [goal]
   | _ =>
     -- Try simplifying with simp methods before giving up
-    let goalType ← goal.getType
-    trace[Loom.Tactic.vcgen.canon] "goalType: {goalType}"
-    let goalType ← canon goalType
-    trace[Loom.Tactic.vcgen.canon] "goalType after canon: {goalType}"
-    let goal ← goal.replaceTargetDefEq goalType
     if let some methods := (← read).simpMethods then
       match ← Sym.simpGoal goal methods with
       | .closed => return .goals []
@@ -406,8 +403,7 @@ private meta def elabSymSimpParts
   -- Build methods
   let pre := Simp.simpControl >> Simp.simpArrowTelescope
   let mut post : Sym.Simp.Simproc := Simp.evalGround
-  if !extraThms.isEmpty then
-
+  unless extraThms.isEmpty do
     let mut thms : Simp.Theorems := {}
     for thm in extraThms do thms := thms.insert thm
     post := post >> thms.rewrite
@@ -415,11 +411,9 @@ private meta def elabSymSimpParts
 
 private meta def elabSimplifyingAssumptions (simpClause : Syntax) : OptionT TacticM Sym.Simp.Methods := do
   if simpClause.getNumArgs == 0 then failure
-  dbg_trace "simpClause: {simpClause}"
   let variantId? := if simpClause[1].getNumArgs != 0 then some ⟨simpClause[1][0]⟩ else none
   let extraIds? := if simpClause[2].getNumArgs != 0
     then some (simpClause[2][1].getSepArgs.map (⟨·⟩)) else none
-  trace[Loom.Tactic.vcgen] "elabSimplifyingAssumptions: {variantId?}, {extraIds?}"
   elabSymSimpParts variantId? extraIds?
 
 @[tactic mvcgen']
