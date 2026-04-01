@@ -101,14 +101,14 @@ def mkBackwardRuleForSplitCached
     return rule
 
 def mkBackwardRuleForLogicCached
-    (lop : LogicOp) (as excessArgs : Array Expr) : VCGenM BackwardRule := do
+    (lop : LogicOp) (as excessArgs : Array Expr) (resultType? : Option Expr := none) : VCGenM BackwardRule := do
   let s := (← get).logicBackwardRuleCache
   let asTypes ← (as.mapM Sym.inferType : SymM (Array Expr))
   let key := (lop.toApplyLemma, asTypes, excessArgs.size)
   match s[key]? with
   | some rule => return rule
   | none =>
-    let rule ← LogicOp.mkBackwardRule lop as excessArgs
+    let rule ← LogicOp.mkBackwardRule lop as excessArgs resultType?
     modify ({ · with logicBackwardRuleCache := s.insert key rule })
     return rule
 
@@ -131,8 +131,8 @@ inductive GoalKind where
   | TrivialTrue
   /-- RHS is a concrete EPost component; stores selected component and its excess args. -/
   | EPostVC (relConst : Expr) (α inst : Expr) (pre : Expr) (epost : Expr) (excessArgs : Array Expr)
-  /-- RHS is a lattice connective application (`meet`/`himp`) with optional excess args. -/
-  | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
+  /-- RHS is a lattice connective application (`meet`/`himp`/`pure`) with optional excess args. -/
+  | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr) (resultType? : Option Expr := none)
   /-- RHS is a WP application. -/
   | WP (head : Expr) (args : Array Expr)
   /-- Lattice type is Prop and precondition is not `True`; intro the pre. -/
@@ -191,7 +191,7 @@ def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
       | CompleteLattice.pure =>
         let excessArgs := args.drop 3
         let as := args.extract 2 3
-        return .Lattice .Pure as excessArgs
+        return .Lattice .Pure as excessArgs args[0]!
       | _ => return .Unknown
   | _ => return .Unknown
 
@@ -209,9 +209,9 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
   | .IntroPre => do
       goal ← introMeetPre (← read).introRules goal
       return .goals [goal]
-  | .Lattice lop as excessArgs => do
+  | .Lattice lop as excessArgs resultType? => do
       trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
-      let rule ← mkBackwardRuleForLogicCached lop as excessArgs
+      let rule ← mkBackwardRuleForLogicCached lop as excessArgs resultType?
       let .goals goals ← rule.apply goal
         | throwError "Failed to apply logic rule at {indentExpr target}"
       return .goals goals

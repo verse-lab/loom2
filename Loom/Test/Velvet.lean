@@ -279,11 +279,11 @@ section TestPure
 /-- Test: postcondition with ⌜p⌝ — VCGen should reduce to proving p. -/
 theorem test_pure_post :
     ⦃ True ⦄ (pure () : Option Unit) ⦃ _, (⌜1 = 1⌝ : Prop) ⦄ := by
-  mvcgen' with grind
+  mvcgen'
 
 /-- Test: postcondition with ⌜p⌝ ⊓ q — VCGen should split and handle pure. -/
 theorem test_pure_meet :
     ⦃ True ⦄ (pure () : Option Unit) ⦃ _, (⌜2 = 2⌝ : Prop) ⊓ (⌜3 = 3⌝ : Prop) ⦄ := by
-  mvcgen' with grind
+  mvcgen'
 
 end TestPure

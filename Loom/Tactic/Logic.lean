@@ -32,10 +32,10 @@ def _root_.Lean.Name.toLogicOp? : Name → Option LogicOp
   | ``CompleteLattice.pure => some .Pure
   | _ => none
 
-meta def LogicOp.mkLatticeExpr (as : Array Expr) : LogicOp → MetaM Expr
+meta def LogicOp.mkLatticeExpr (as : Array Expr) (resultType? : Option Expr := none) : LogicOp → MetaM Expr
   | .And => mkAppM ``meet as
   | .Imp => mkAppM ``himp as
-  | .Pure => return mkAppN (mkConst ``CompleteLattice.pure) as
+  | .Pure => mkAppOptM ``CompleteLattice.pure #[resultType?, none, some as[0]!]
 
 /-- Map a logic operator to its corresponding `*_fun_apply` lemma. -/
 meta def LogicOp.toApplyLemma : LogicOp → Name
@@ -78,27 +78,29 @@ Example (`lop = .And`, `stepThm = ``meet_fun_apply`, `as = #[a, b]`,
 -/
 meta partial def LogicOp.mkApplyEq
     (stepThm : Name) (lop : LogicOp)
-    (as : Array Expr) (ss : List Expr) : MetaM Expr := do
+    (as : Array Expr) (ss : List Expr) (resultType? : Option Expr := none) : MetaM Expr := do
   match ss with
-  | [] => mkEqRefl =<< lop.mkLatticeExpr as
+  | [] => mkEqRefl =<< lop.mkLatticeExpr as resultType?
   | s :: ss' =>
-    let step ← mkAppM stepThm <| as.push s
+    let args := as.push s |>.map some
+    let rt := resultType?.map .bindingBody!
+    let step ← mkAppOptM stepThm <| #[none, rt, none] ++ args
     if ss'.isEmpty then
       return step
     let stepLift ← liftEqByArgs step ss'
     let as := as.map (mkApp · s)
-    let rest ← lop.mkApplyEq stepThm as ss'
+    let rest ← lop.mkApplyEq stepThm as ss' rt
     mkEqTrans stepLift rest
 
 /-- Like `mkGoalPremiseEq` but only distributes through function applications
     via `*_fun_apply` lemmas, staying at the lattice level (no Prop simplification).
     Returns `((a ⊓ b) s₁...sₙ, (a s₁...sₙ ⊓ b s₁...sₙ), eq)`. -/
 meta def LogicOp.mkDistributeEq
-    (lop : LogicOp) (as ss : Array Expr) : SymM (Expr × Expr) := do
+    (lop : LogicOp) (as ss : Array Expr) (resultType? : Option Expr := none) : SymM (Expr × Expr) := do
   let applyLemma := lop.toApplyLemma
-  let lat ← lop.mkLatticeExpr as
+  let lat ← lop.mkLatticeExpr as resultType?
   let goal ← mkAppNS lat ss
-  let eqFun ← lop.mkApplyEq applyLemma as ss.toList
+  let eqFun ← lop.mkApplyEq applyLemma as ss.toList resultType?
   return (goal, eqFun)
 
 -- #check forallMeta
@@ -121,17 +123,15 @@ Works for any `CompleteLattice`, not just `Prop`.
 -/
 meta def LogicOp.mkBackwardRule
     (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
+    (resultType? : Option Expr := none)
     : SymM BackwardRule := do
-  -- For Pure, use a direct backward rule from le_pure since mkLatticeExpr
-  -- cannot synthesize the CompleteLattice instance from just (p : Prop).
-  if let .Pure := lop then
-    return ← mkBackwardRuleFromDecl ``Lean.Order.le_pure
   let as ← as.mapM fun arg => do
     mkFreshExprMVar (userName := `a) (← Sym.inferType arg)
+  -- dbg_trace "as"
   let ss ← excessArgs.mapM fun arg => do
     mkFreshExprMVar (userName := `s) (← Sym.inferType arg)
 
-  let (goal, eqGoalDistributed) ← lop.mkDistributeEq as ss
+  let (goal, eqGoalDistributed) ← lop.mkDistributeEq as ss resultType?
 
   let goalTy ← Meta.inferType goal
   let pre ← mkFreshExprMVar (userName := `pre) goalTy
@@ -165,8 +165,8 @@ section Test
 /-- Test helper: run `mkBackwardRuleForLogicRel` and return the generated rule type. -/
 meta def testLogicBackwardRuleRel
     (lop : LogicOp)
-    (as excessArgs : Array Expr) : MetaM Expr := do
-  let rule ← SymM.run do lop.mkBackwardRule as excessArgs
+    (as excessArgs : Array Expr) (resultType? : Option Expr := none) : MetaM Expr := do
+  let rule ← SymM.run do lop.mkBackwardRule as excessArgs resultType?
   inferType rule.expr
 
 -- Test 1: And on Nat → Prop, n = 1 excess arg
@@ -238,6 +238,40 @@ meta def testLogicBackwardRuleRel
           | throwError "Test 5: rule application failed"
         for g in goals do
           logInfo m!"Test 5 subgoal: {← g.getType}"
+
+-- Test 6: Pure on Nat → Prop, n = 1 excess arg
+-- Should produce: ∀ (p : Prop) (s : Nat) (pre : Prop),
+--   p → pre ⊑ (⌜p⌝) s
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let l ← mkArrow nat (mkSort 0)
+  withLocalDeclD `p (mkSort 0) fun p => do
+    withLocalDeclD `s nat fun s => do
+      let ty ← testLogicBackwardRuleRel .Pure #[p] #[s] (some l)
+      logInfo m!"Test Rel-Pure (Nat→Prop, n=1): {ty}"
+
+-- Test 7: Pure on Prop, n = 0 excess args
+#eval! show MetaM Unit from do
+  withLocalDeclD `p (mkSort 0) fun p => do
+    let ty ← testLogicBackwardRuleRel .Pure #[p] #[] (some (mkSort 0))
+    logInfo m!"Test Rel-Pure (Prop, n=0): {ty}"
+
+-- Test 8: End-to-end Pure rule application
+-- Goal: True ⊑ (⌜p⌝) s, should produce p
+#eval! show MetaM Unit from do
+  let nat := mkConst ``Nat
+  let l ← mkArrow nat (mkSort 0)
+  withLocalDeclD `p (mkSort 0) fun p => do
+    withLocalDeclD `s nat fun s => do
+      let rule ← SymM.run do LogicOp.mkBackwardRule .Pure #[p] #[s] (some l)
+      let pureP ← mkAppOptM ``CompleteLattice.pure #[some l, none, some p]
+      let target ← mkAppM ``PartialOrder.rel #[mkConst ``True, mkApp pureP s]
+      let goalExpr ← mkFreshExprSyntheticOpaqueMVar target
+      let .mvar goal := goalExpr | throwError "expected mvar"
+      let .goals goals ← SymM.run do rule.apply goal
+        | throwError "Test Pure: rule application failed"
+      for g in goals do
+        logInfo m!"Test Pure subgoal: {← g.getType}"
 
 end Test
 
