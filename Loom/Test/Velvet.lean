@@ -266,68 +266,6 @@ set_option trace.Loom.Tactic.vcgen.grind true
 theorem foo' {α : Type u} {β : Type u} (a : α) (b : β) : (MProd.mk a b).fst = a := by rfl
 theorem foo'' {α : Type u} {β : Type u} (a : α) (b : β) : (MProd.mk a b).snd = b := by rfl
 
-set_option trace.profiler true
-
-example (arr₀ : Array Nat)
-  (h_size : 1 ≤ arr₀.size)
-  (arr : Array Nat) (n : Nat)
-  (h_outer_bounds : 1 ≤ n ∧ n ≤ arr.size)
-  (h_outer_sorted : ∀ (i j : Nat), 0 ≤ i ∧ i < j ∧ j ≤ n - 1 → arr[i]! ≤ arr[j]!)
-  (h_outer_size : arr.size = arr₀.size)
-  (h_outer_not_done : ¬n = arr.size)
-  (arr' : Array Nat) (mind : Nat)
-  (h_inner_sorted : ∀ (i j : Nat), 0 ≤ i ∧ i < j ∧ j ≤ n ∧ ¬j = mind → arr'[i]! ≤ arr'[j]!)
-  (h_inner_pos : mind ≤ n)
-  (h_inner_size : arr'.size = arr₀.size)
-  (h_inner_not_done : ¬mind = 0)
-  (h_out_of_order : arr'[mind]! < arr'[mind - 1]!) :
-  0 ≤ i ∧ i < j ∧ j ≤ n ∧ ¬j = mind - 1 →
-    ((arr'.set! (mind - 1) arr'[mind]!).set! mind arr'[mind - 1]!)[i]! ≤
-      ((arr'.set! (mind - 1) arr'[mind]!).set! mind arr'[mind - 1]!)[j]! := by
-  grind
-
-theorem insertionSort_spec (arr₀ : Array Nat) :
-    ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
-      (arr.toMultiset = arr₀.toMultiset) ⊓
-      ∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]! ⦄ := by
-  simp only [insertionSort]
-  mvcgen' simplifying_assumptions [foo', foo'']
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  sorry
-  grind
-
-  -- sym =>
-  --   simp [foo']
-
-
 def Goal (_n : Nat) := ∀ arr₀, ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
       (arr.toMultiset = arr₀.toMultiset) ⊓
       (∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]!) ⦄
@@ -335,30 +273,6 @@ def Goal (_n : Nat) := ∀ arr₀, ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr�
 #eval runBenchUsingTactic ``Goal [] `(tactic| (intro arr₀; simp only [insertionSort]; mvcgen' simplifying_assumptions [foo', foo''] with grind)) `(tactic| fail) [0]
 
 end InsertionSort
-
-section TestIntroMeetPre
-
-/-- Test that `introMeetPre` decomposes meet preconditions into separate hypotheses. -/
-theorem test_introMeetPre_simple :
-    ⦃ (1 = 1) ⊓ (2 = 2) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
-  mvcgen'
-
-/-- Test with nested meets: (a ⊓ b) ⊓ c. -/
-theorem test_introMeetPre_nested :
-    ⦃ (1 = 1) ⊓ (2 = 2) ⊓ (3 = 3) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
-  mvcgen'
-
-/-- Test with True ⊓ b — True should be eliminated. -/
-theorem test_introMeetPre_true_left :
-    ⦃ True ⊓ (1 = 1) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
-  mvcgen' with grind
-
-/-- Test plain (non-meet) pre. -/
-theorem test_introMeetPre_plain :
-    ⦃ (1 = 1 : Prop) ⦄ (pure () : Option Unit) ⦃ _, True ⦄ := by
-  mvcgen' with grind
-
-end TestIntroMeetPre
 
 section TestPure
 
