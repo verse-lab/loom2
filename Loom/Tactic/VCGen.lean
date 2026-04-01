@@ -188,6 +188,10 @@ def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
         let excessArgs := args.drop 4
         let as := args.extract 2 4
         return .Lattice .Imp as excessArgs
+      | CompleteLattice.pure =>
+        let excessArgs := args.drop 3
+        let as := args.extract 2 3
+        return .Lattice .Pure as excessArgs
       | _ => return .Unknown
   | _ => return .Unknown
 

@@ -252,6 +252,29 @@ theorem LE.pure_intro {l : Type u} [CompleteLattice l]
     next => exact latticeBot_le _
 
 attribute [local instance] Classical.propDecidable in
+/-- Proving `pre ⊑ ⌜p⌝` reduces to proving `p`. -/
+theorem le_pure {l : Type u} [CompleteLattice l] (x : l) (p : Prop) : p → x ⊑ ⌜p⌝ :=
+  fun hp => by simp [CompleteLattice.pure, hp]; exact le_top x
+
+attribute [local instance] Classical.propDecidable in
+/-- Pointwise characterization of `⌜p⌝` on function lattices: `(⌜p⌝ : σ → β) s = (⌜p⌝ : β)`. -/
+theorem top_fun_apply {σ : Type v} {β : Type w} [CompleteLattice β] (s : σ) :
+    (⊤ : σ → β) s = (⊤ : β) :=
+  PartialOrder.rel_antisymm (le_top _) (le_top (α := σ → β) (fun _ => ⊤) s)
+
+theorem bot_fun_apply {σ : Type v} {β : Type w} [CompleteLattice β] (s : σ) :
+    (latticeBot : σ → β) s = (latticeBot : β) :=
+  PartialOrder.rel_antisymm (latticeBot_le (α := σ → β) (fun _ => latticeBot) s) (latticeBot_le _)
+
+attribute [local instance] Classical.propDecidable in
+@[simp] theorem pure_fun_apply
+    {σ : Type v} {β : Type w} [CompleteLattice β]
+    (p : Prop) (s : σ) :
+    (⌜p⌝ : σ → β) s = (⌜p⌝ : β) := by
+  unfold CompleteLattice.pure
+  split <;> simp [top_fun_apply, bot_fun_apply]
+
+attribute [local instance] Classical.propDecidable in
 @[simp]
 theorem pure_intro_l {l : Type u} [CompleteLattice l] (p : Prop) (x y : l) :
   (x ⊓ ⌜ p ⌝ ⊑ y) = (p → x ⊑ y) := by

@@ -261,10 +261,30 @@ theorem foo2 (a : Prop) : a -> ⌜ a ⌝ := by sorry
 
 -- #check Sym.mkMethods
 
--- set_option trace.Loom.Tactic.vcgen.simp true
+set_option trace.Loom.Tactic.vcgen.grind true
 
 theorem foo' {α : Type u} {β : Type u} (a : α) (b : β) : (MProd.mk a b).fst = a := by rfl
 theorem foo'' {α : Type u} {β : Type u} (a : α) (b : β) : (MProd.mk a b).snd = b := by rfl
+
+set_option trace.profiler true
+
+example (arr₀ : Array Nat)
+  (h_size : 1 ≤ arr₀.size)
+  (arr : Array Nat) (n : Nat)
+  (h_outer_bounds : 1 ≤ n ∧ n ≤ arr.size)
+  (h_outer_sorted : ∀ (i j : Nat), 0 ≤ i ∧ i < j ∧ j ≤ n - 1 → arr[i]! ≤ arr[j]!)
+  (h_outer_size : arr.size = arr₀.size)
+  (h_outer_not_done : ¬n = arr.size)
+  (arr' : Array Nat) (mind : Nat)
+  (h_inner_sorted : ∀ (i j : Nat), 0 ≤ i ∧ i < j ∧ j ≤ n ∧ ¬j = mind → arr'[i]! ≤ arr'[j]!)
+  (h_inner_pos : mind ≤ n)
+  (h_inner_size : arr'.size = arr₀.size)
+  (h_inner_not_done : ¬mind = 0)
+  (h_out_of_order : arr'[mind]! < arr'[mind - 1]!) :
+  0 ≤ i ∧ i < j ∧ j ≤ n ∧ ¬j = mind - 1 →
+    ((arr'.set! (mind - 1) arr'[mind]!).set! mind arr'[mind - 1]!)[i]! ≤
+      ((arr'.set! (mind - 1) arr'[mind]!).set! mind arr'[mind - 1]!)[j]! := by
+  grind
 
 theorem insertionSort_spec (arr₀ : Array Nat) :
     ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr₀ ⦃ arr,
@@ -272,6 +292,37 @@ theorem insertionSort_spec (arr₀ : Array Nat) :
       ∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]! ⦄ := by
   simp only [insertionSort]
   mvcgen' simplifying_assumptions [foo', foo'']
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  sorry
+  grind
 
   -- sym =>
   --   simp [foo']
@@ -308,3 +359,17 @@ theorem test_introMeetPre_plain :
   mvcgen' with grind
 
 end TestIntroMeetPre
+
+section TestPure
+
+/-- Test: postcondition with ⌜p⌝ — VCGen should reduce to proving p. -/
+theorem test_pure_post :
+    ⦃ True ⦄ (pure () : Option Unit) ⦃ _, (⌜1 = 1⌝ : Prop) ⦄ := by
+  mvcgen' with grind
+
+/-- Test: postcondition with ⌜p⌝ ⊓ q — VCGen should split and handle pure. -/
+theorem test_pure_meet :
+    ⦃ True ⦄ (pure () : Option Unit) ⦃ _, (⌜2 = 2⌝ : Prop) ⊓ (⌜3 = 3⌝ : Prop) ⦄ := by
+  mvcgen' with grind
+
+end TestPure
