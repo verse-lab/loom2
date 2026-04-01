@@ -316,9 +316,9 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let mut goal ← introsWP goal
+    let goal ← introsWP goal
     -- Unfold Triple goals that arise from subgoals (e.g., loop invariant specs)
-    goal ← unfoldTriple rules goal
+    let goal ← unfoldTriple rules goal
     let res ← solve goal.mvarId
     match res with
     | .noProgramOrLatticeFoundInTarget .. =>
