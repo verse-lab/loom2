@@ -16,6 +16,8 @@ public section
 
 open Lean Parser Meta Elab Tactic Sym Lean.Order
 
+initialize registerTraceClass `Loom.Tactic.vcgen.grind
+
 open Sym Sym.Internal
 
 -- The following function is vendored until it is made public:
@@ -196,6 +198,7 @@ public meta def Lean.Meta.Grind.Goal.timedGrind (goal : Grind.Goal) : GrindM Gri
   if Loom.vcgen.time.get (← getOptions) then
     let (res, ns) ← Loom.timeNs goal.grind
     Loom.addGrindSolveTime ns
+    trace[Loom.Tactic.vcgen.grind] "takes {ns / 1000000} ms for goal {goal.mvarId}"
     pure res
   else
     goal.grind

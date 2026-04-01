@@ -21,6 +21,7 @@ namespace Loom
 inductive LogicOp where
   | And
   | Imp
+  | Pure
   -- Temporarily disabled:
   -- | Forall (n : Name)
 
@@ -28,26 +29,31 @@ inductive LogicOp where
 def _root_.Lean.Name.toLogicOp? : Name → Option LogicOp
   | ``meet => some .And
   | ``himp => some .Imp
+  | ``CompleteLattice.pure => some .Pure
   | _ => none
 
 meta def LogicOp.mkLatticeExpr (as : Array Expr) : LogicOp → MetaM Expr
   | .And => mkAppM ``meet as
   | .Imp => mkAppM ``himp as
+  | .Pure => return mkAppN (mkConst ``CompleteLattice.pure) as
 
 /-- Map a logic operator to its corresponding `*_fun_apply` lemma. -/
 meta def LogicOp.toApplyLemma : LogicOp → Name
   | .And => ``meet_fun_apply
   | .Imp => ``himp_fun_apply
+  | .Pure => ``pure_fun_apply
 
 /-- Map a logic operator to its corresponding proposition-level equivalence lemma. -/
 meta def LogicOp.toPropLemma : LogicOp → Name
   | .And => ``meet_prop_eq_and
   | .Imp => ``himp_prop_eq_imp
+  | .Pure => ``LE.pure_intro
 
 /-- Map a logic operator to its `⊑`-form splitting lemma. -/
 meta def LogicOp.toRelLemma : LogicOp → Name
   | .And => ``le_meet       -- le_meet (x y z) : x ⊑ y → x ⊑ z → x ⊑ y ⊓ z
   | .Imp => ``himp_complete  -- himp_complete (x a b) : a ⊓ x ⊑ b → x ⊑ a ⇨ b
+  | .Pure => ``le_pure       -- le_pure (x p) : p → x ⊑ ⌜p⌝
 
 /-- Lift an equality `lhs = rhs` to `(lhs args...) = (rhs args...)`. -/
 private meta def liftEqByArgs (eqPrf : Expr) (args : List Expr) : MetaM Expr := do
@@ -116,6 +122,10 @@ Works for any `CompleteLattice`, not just `Prop`.
 meta def LogicOp.mkBackwardRule
     (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
     : SymM BackwardRule := do
+  -- For Pure, use a direct backward rule from le_pure since mkLatticeExpr
+  -- cannot synthesize the CompleteLattice instance from just (p : Prop).
+  if let .Pure := lop then
+    return ← mkBackwardRuleFromDecl ``Lean.Order.le_pure
   let as ← as.mapM fun arg => do
     mkFreshExprMVar (userName := `a) (← Sym.inferType arg)
   let ss ← excessArgs.mapM fun arg => do
