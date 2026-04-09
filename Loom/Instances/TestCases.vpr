@@ -1,0 +1,77 @@
+field f: Int
+
+method foo(r: Ref, p: Perm)
+  requires p > 0/1 && acc(r.f, p) && r.f == 42
+  ensures  acc(r.f, p)
+{
+  assert r.f == 42
+}
+
+method split_client()
+{
+  var r: Ref
+  r := new(f)
+  r.f := 42
+
+  // split: give 1/2 permission to foo
+  foo(r, 1/2)
+  assert r.f == 42
+
+  // give remaining 1/1
+  foo(r, 1/1)
+
+  // After giving full permission and getting it back:
+  refute r.f == 42
+}
+
+method join_client()
+{
+  var r: Ref
+  r := new(f)
+  r.f := 42
+
+  // split: give 1/4 permission to foo
+  foo(r, 1/4)
+
+  // reassign r.f
+  r.f := 0
+
+  // split: give 3/4 permission to foo
+  foo(r, 3/4) // error
+}
+
+method no_aliasing(r1: Ref, r2: Ref)
+  requires acc(r1.f, 3/4) && acc(r2.f, 3/4)
+{
+  // join: if both hold 3/4 permission on f, they cannot alias
+  // because 3/4 + 3/4 > 1 (full permission), which is impossible
+  // for the same location
+  assert r1 != r2
+}
+
+// leak: consumes 1/2 permission but does NOT return it (no ensures)
+method leak(r: Ref)
+  requires acc(r.f, 1/2)
+
+method leak_client()
+{
+  var r: Ref
+  r := new(f)
+
+  leak(r)       // consumes 1/2 — remaining: 1/2
+  leak(r)       // consumes 1/2 — remaining: 0
+
+  leak(r)       // ERROR: no permission left ✗
+}
+
+method aliasing(r1: Ref, r2: Ref)
+  requires acc(r1.f) && r1.f == 0
+  requires r1 != r2 ==> acc(r2.f)
+{
+  r2.f := 42
+  // case splitting
+  // 1) r1 and r2 do not alias: we have r1 != r2 => we have acc(r2.f), so it succeeds
+  // 2) r1 and r2 alias: then r1.f is updated to 42, which contradicts the precondition r1.f == 0 
+
+  assert r1.f == 0
+}
