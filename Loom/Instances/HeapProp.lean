@@ -5,6 +5,7 @@ open Lean.Order Loom
 abbrev Loc  := Nat
 abbrev Val  := Int
 
+/-! # Permissions -/
 
 @[ext, grind]
 structure Perm where
@@ -86,7 +87,12 @@ theorem add_remainder_eq_one (π : Perm) (h : π.val < 1) :
 
 end Perm
 
+@[reducible] def Perm.full : Perm := { val :=1 }
+@[reducible] def Perm.half : Perm := { val := 1/2 }
+@[reducible] def Perm.third : Perm := { val := 1/3 }
+@[reducible] def Perm.twoThirds : Perm := { val := 2/3 }
 
+/-! # Heap -/
 
 abbrev HeapVal := Val × Perm
 
@@ -178,7 +184,7 @@ theorem Heap.lookup_remove_ne {k x : Loc} (hne : k ≠ x) (h : Heap) :
       | none, some e => some e
       | none, none   => none := rfl
 
-
+/-! ## Disjointness -/
 
 def Heap.Disjoint (h₁ h₂ : Heap) : Prop :=
   ∀ x v₁ p₁ v₂ p₂, h₁.lookup x = some (v₁, p₁) → h₂.lookup x = some (v₂, p₂) → v₁ = v₂ ∧ p₁ + p₂ ≤ 1
@@ -274,7 +280,7 @@ theorem Heap.Disjoint.symm {h₁ h₂ : Heap} (h : Heap.Disjoint h₁ h₂) : He
     change p₁.val + p₂.val ≤ 1 at hperm
     grind
 
-
+/-! ## Heap algebra -/
 
 theorem Heap.empty_addUnion (h : Heap) : (∅ : Heap).addUnion h = h := by
   apply Heap.ext_lookup; intro x; simp; cases h.lookup x <;> rfl
@@ -375,7 +381,7 @@ theorem Heap.exists_not_contained (h : Heap) : ∃ a : Loc, h.contains a = false
   have := List.mem_le_foldl_max hmem
   omega
 
-
+/-! # Heap Propositions  -/
 
 inductive hStar' (H₁ : hProp) (H₂ : hProp) (h : Heap) : Prop where
   | intro (h₁ h₂ : Heap) (Hh₁ : H₁ h₁) (Hh₂ : H₂ h₂)
@@ -438,12 +444,7 @@ def hEmpty : hProp := (· = ∅)
 
 instance : EmptyCollection hProp := ⟨hEmpty⟩
 
-
-@[reducible] def Perm.full : Perm := { val :=1 }
-@[reducible] def Perm.half : Perm := { val := 1/2 }
-@[reducible] def Perm.third : Perm := { val := 1/3 }
-@[reducible] def Perm.twoThirds : Perm := { val := 2/3 }
-
+/-! ## Points-to lemmas -/
 
 theorem hSingle_eq_hSingleFrac (x : Loc) (v : Val) :
     (x ↦ v) = (x ↦[1] v) := by
@@ -453,11 +454,124 @@ theorem hSingle_eq_hSingleFrac (x : Loc) (v : Val) :
   · intro hp; cases hp; exact hSingle'.intro
 
 
-/-- Extracting validity from a fractional points-to assertion. -/
+
 theorem hSingleFrac_isValid {x : Loc} {v : Val} {π : Perm} {h : Heap}
     (hp : hSingleFrac x v π h) : π.IsValid := by
   cases hp; assumption
 
+theorem hSingleFrac_split (x : Loc) (v : Val)
+    (π₁ π₂ : Perm)
+    (hv₁ : π₁.IsValid) (hv₂ : π₂.IsValid)
+    (hsum : π₁ + π₂ = 1) :
+    (x ↦ v) = ((x ↦[π₁] v) ∗ (x ↦[π₂] v)) := by
+  funext h; apply propext
+  constructor
+  · intro hp; cases hp
+    refine hStar'.intro (Heap.singleFrac x v π₁) (Heap.singleFrac x v π₂)
+      (hSingleFrac'.intro hv₁) (hSingleFrac'.intro hv₂) ?_ ?_
+    · apply Heap.ext_lookup; intro y
+      rw [Heap.lookup_addUnion]
+      by_cases h_xy : x = y
+      · subst h_xy
+        simp [hsum]
+      · have hne : x ≠ y := h_xy
+        simp [Heap.lookup_single_ne hne, Heap.lookup_singleFrac_ne hne]
+    · intro y v₁ p₁ v₂ p₂ eq₁ eq₂
+      by_cases h_xy : x = y
+      · subst h_xy
+        simp at eq₁ eq₂
+        obtain ⟨rfl, rfl⟩ := eq₁
+        obtain ⟨rfl, rfl⟩ := eq₂
+        exact ⟨rfl, by simp [hsum]⟩
+      · have hne : x ≠ y := h_xy
+        simp [Heap.lookup_singleFrac_ne hne] at eq₁
+  · intro ⟨h₁, h₂, hf₁, hf₂, hunion, _⟩
+    cases hf₁; cases hf₂
+    have : h = Heap.single x v := by
+      apply Heap.ext_lookup; intro y
+      rw [← hunion, Heap.lookup_addUnion]
+      by_cases h_xy : x = y
+      · subst h_xy
+        simp [hsum]
+      · have hne : x ≠ y := h_xy
+        simp [Heap.lookup_single_ne hne, Heap.lookup_singleFrac_ne hne]
+    subst this; exact hSingle'.intro
+
+theorem hSingleFrac_combine (x : Loc) (v : Val)
+    (π₁ π₂ : Perm)
+    (hv₁ : π₁.IsValid) (hv₂ : π₂.IsValid)
+    (hle : (π₁ + π₂).IsValid) :
+    ((x ↦[π₁] v) ∗ (x ↦[π₂] v)) =
+    (x ↦[π₁ + π₂] v) := by
+  funext h; apply propext
+  constructor
+  · intro ⟨h₁, h₂, hf₁, hf₂, hunion, _⟩
+    cases hf₁; cases hf₂
+    have : h = Heap.singleFrac x v (π₁ + π₂) := by
+      apply Heap.ext_lookup; intro y
+      rw [← hunion, Heap.lookup_addUnion]
+      by_cases h_xy : x = y
+      · subst h_xy
+        simp
+      · have hne : x ≠ y := h_xy
+        simp [Heap.lookup_singleFrac_ne hne]
+    subst this; exact hSingleFrac'.intro hle
+  · intro hp; cases hp
+    refine hStar'.intro (Heap.singleFrac x v π₁) (Heap.singleFrac x v π₂)
+      (hSingleFrac'.intro hv₁) (hSingleFrac'.intro hv₂) ?_ ?_
+    · apply Heap.ext_lookup; intro y
+      rw [Heap.lookup_addUnion]
+      by_cases h_xy : x = y
+      · subst h_xy
+        simp
+      · have hne : x ≠ y := h_xy
+        simp [Heap.lookup_singleFrac_ne hne]
+    · intro y v₁ p₁ v₂ p₂ eq₁ eq₂
+      by_cases h_xy : x = y
+      · subst h_xy
+        simp at eq₁ eq₂
+        obtain ⟨rfl, rfl⟩ := eq₁
+        obtain ⟨rfl, rfl⟩ := eq₂
+        exact ⟨rfl, hle⟩
+      · have hne : x ≠ y := h_xy
+        simp [Heap.lookup_singleFrac_ne hne] at eq₁
+
+
+theorem hStar_singleFrac_unique
+    {x : Loc} {v w : Val} {π : Perm}
+    {P Q : hProp} {h : Heap}
+    (hP : ((x ↦[π] v) ∗ P) h)
+    (hQ : ((x ↦[π] w) ∗ Q) h) :
+    v = w := by
+  obtain ⟨h₁, h₂, hv, hP', hunion₁, hdisj₁⟩ := hP
+  obtain ⟨h₃, h₄, hw, hQ', hunion₂, hdisj₂⟩ := hQ
+  cases hv; cases hw
+  have lk₁ : h.lookup x = some (v, π) ∨
+              ∃ p', h.lookup x = some (v, π + p') := by
+    rw [← hunion₁, Heap.lookup_addUnion]
+    simp [Heap.lookup_singleFrac]
+    rcases eq_h₂ : h₂.lookup x with _ | ⟨w', p'⟩
+    · simp
+    · simp
+      grind
+  have lk₂ : h.lookup x = some (w, π) ∨
+              ∃ p', h.lookup x = some (w, π + p') := by
+    rw [← hunion₂, Heap.lookup_addUnion]
+    simp [Heap.lookup_singleFrac]
+    rcases eq_h₄ : h₄.lookup x with _ | ⟨w', p'⟩
+    · simp
+    · simp
+      grind
+  rcases lk₁ with hlk₁ | ⟨p₁, hlk₁⟩ <;>
+  rcases lk₂ with hlk₂ | ⟨p₂, hlk₂⟩ <;>
+  · rw [hlk₁] at hlk₂
+    simp at hlk₂
+    grind
+
+
+
+
+/-! ## Separating logic structural rules -/
 
 theorem hForall_elim {P : α → hProp} (a : α) :
   P a ⊑ Q → hForall P ⊑ Q :=
@@ -577,369 +691,6 @@ theorem empty_True : ⌜True⌝ʰ = ∅ := by
     subst this; exact hPure'.intro True.intro
 
 
-structure HeapM α where
-  predTrans : PredTrans hProp EPost⟨⟩ α
-  monotone : predTrans.monotone := by grind
-
-@[grind =] theorem le_hProp_eq_forall (a b : hProp) : (a ⊑ b) = ∀ h, (a h → b h) := by
-    simp [PartialOrder.rel]
-
-@[grind =] theorem le_fun_eq_forall (f g : α → hProp) : (f ⊑ g) = ∀ a, f a ⊑ g a := by
-  simp [PartialOrder.rel]
-
-@[grind =] theorem PredTrans.monotone_eq [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α):
-    (pt.monotone) =
-  ∀ post post' epost epost', epost ⊑ epost' → post ⊑ post' → pt post epost ⊑ pt post' epost'
- := by simp [PredTrans.monotone]
-
-@[grind! .]
-theorem HeapM.predTrans_monotone (m : HeapM α) : m.predTrans.monotone := m.monotone
-
-def HeapM.bind (x : HeapM α) (f : α → HeapM β) : HeapM β :=
-  { predTrans := fun post epost => x.predTrans (fun a => (f a).predTrans post epost) epost }
-
-instance : Monad HeapM where
-  pure a := { predTrans := fun post _ => post a }
-  bind := HeapM.bind
-
-instance : LawfulMonad (HeapM) where
-  map_const := rfl
-  id_map _ := rfl
-  seqLeft_eq _ _ := rfl
-  seqRight_eq _ _ := rfl
-  pure_seq _ _ := rfl
-  bind_pure_comp _ _ := rfl
-  bind_map _ _ := rfl
-  pure_bind _ _ := rfl
-  bind_assoc _ _ _ := rfl
-
-def HeapM.pickSuchThat (p : α → hProp) : HeapM α :=
-  { predTrans := fun post _ h => (∃ a, p a h) ∧ ∀ a, p a h → post a h }
-
-def HeapM.exhale (hp : hProp) : HeapM Unit :=
-  { predTrans := fun post _ => hp ∗ post () }
-
-def HeapM.inhale (hp : hProp) : HeapM Unit :=
-  { predTrans := fun post _ => hp -∗ post () }
-
-def HeapM.read (x : Loc) : HeapM Val :=
-  pickSuchThat fun v h => (h.lookup x).any (·.1 = v)
-
-def HeapM.assign (x : Loc) (v : Val) : HeapM Unit := do
-  exhale perm(x)
-  inhale (x ↦ v)
-
-def HeapM.alloc (v : Val) : HeapM Loc := do
-  let newKey ← pickSuchThat fun l h => h.contains l = false
-  inhale (newKey ↦ v)
-  return newKey
-
-def HeapM.skip : HeapM Unit :=
-  { predTrans := fun post _ => post () }
-
-instance : WPMonad HeapM hProp EPost⟨⟩ where
-  wpTrans x post _ := ∀ʰ H, H -∗ x.predTrans (fun a => (H ∗ (post a))) epost⟨⟩
-  wp_trans_pure x post _ := by
-    intro h post' hpost
-    simp_all [pure, hWand, hExists, hPure] <;> constructor; constructor
-    try apply post'
-    constructor <;> rfl
-    apply Heap.addUnion_empty
-    apply Heap.Disjoint.empty_right
-  wp_trans_bind x f post _ := by
-    apply hForall_intro; intro H
-    apply hForall_elim H (Q := H -∗ _)
-    apply hWand_mono
-    simp [bind]
-    apply x.monotone
-    rfl
-    intro a
-    simp
-    apply hForall_star_elim
-    apply hWand_elim
-  wp_trans_monotone x := by
-    intro post post' epost epost' hpost hpost' H
-    apply hForall_intro
-    intro H_1
-    apply hForall_elim H_1 (Q := H_1 -∗ _)
-    apply hWand_mono
-    apply x.monotone
-    grind
-    simp [PartialOrder.rel]
-    intro a v HH
-    simp_all [hStar]
-    cases HH with
-    | intro h₁ h₂ hH hP hunion hdisj =>
-       constructor
-       apply hH
-       apply hpost'
-       apply hP
-       apply hunion
-       apply hdisj
-
-theorem HeapM.frame (H pre : hProp) (post : α → hProp) (x : HeapM α) :
-  ⦃ pre ⦄ x ⦃ post ⦄ →
-  ⦃ H ∗ pre ⦄ x ⦃ v, H ∗ post v ⦄ := by
-    intro hpre
-    apply Triple.iff.mpr
-    have hwp := Triple.iff.mp hpre
-    unfold wp
-    unfold wp at hwp
-    unfold wpTrans
-    unfold wpTrans at hwp
-    simp_all [instWPMonadHeapMHPropNil]
-    apply hForall_intro
-    intro H_1
-    apply entails_hWand
-    intro heap h_heap
-    have step1 := hStar_assoc_r heap h_heap
-    have step2 := hStar_mono hwp heap step1
-    have step3 : (x.predTrans (fun v => (H_1 ∗ H) ∗ post v) epost⟨⟩) heap :=
-    hForall_star_elim (H_1 ∗ H) (P := fun H' => H' -∗ x.predTrans (fun v => H' ∗ post v) epost⟨⟩) hWand_elim heap step2
-    revert step3
-    apply x.monotone
-    rfl
-    intro v
-    exact hStar_assoc_l
-
-
-theorem HeapM.triple_skip_spec {P : hProp} :
-    ⦃ P ⦄ HeapM.skip ⦃ _, P ⦄ := by
-  exact Triple.pure () (PartialOrder.rel_refl)
-
-theorem HeapM.inhale_spec (hp : hProp) :
-  ⦃ ∅ ⦄ inhale hp ⦃ _, hp ⦄ := by
-  simp [inhale]
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  apply entails_hWand
-  simp; rfl
-
-theorem HeapM.exhale_spec (hp : hProp) :
-  hp ⊑ hp' →
-  ⦃ hp ⦄ exhale hp' ⦃ _, ∅ ⦄ := by
-  intro hle
-  simp [exhale]
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  grind [← hStar_comm]
-
-theorem HeapM.read_spec (x : Loc) (v : Val) :
-  ⦃ x ↦ v ⦄ read x ⦃ v', ⌜v = v'⌝ʰ ∗ x ↦ v ⦄ := by
-  simp [read]
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  intro heap HH
-  simp [pickSuchThat]
-  constructor
-  · apply Exists.intro v
-    simp_all [hStar]
-    cases HH with
-    | intro h₁ h₂ hH hP hunion hdisj =>
-      simp [hSingle] at hP
-      cases hP
-      rw [← hunion, Heap.lookup_addUnion]
-      rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
-      · simp [Heap.lookup_single]
-      · have eq₂ : (Heap.single x v).lookup x = some (v, 1) := by simp [Heap.lookup_single]
-        have ⟨hval, _⟩ := hdisj x v₁ p₁ v 1 eq₁ eq₂
-        subst hval
-        simp [eq₂]
-  · intro v' hP
-    have vv' : v = v' := by
-      simp_all [hStar]
-      cases HH with
-      | intro h₁ h₂ hTrue hPt hunion hdisj =>
-        cases hPt
-        rw [← hunion] at hP
-        simp [Option.any, Heap.lookup] at hP
-        rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
-        · have key : (h₁.addUnion (Heap.single x v)).lookup x = some (v, 1) := by
-            have h₁x : h₁.val x = none := eq₁
-            simp [Heap.lookup, Heap.addUnion, Heap.single, h₁x]
-          simp [Heap.lookup] at key
-          rw [key] at hP
-          simp at hP
-          grind
-        · have eq₂ : (Heap.single x v).lookup x = some (v, 1) := by
-            simp [Heap.lookup_single]
-          have ⟨hval, _⟩ := hdisj x v₁ p₁ v 1 eq₁ eq₂
-          have h₁x : h₁.val x = some (v₁, p₁) := eq₁
-          have key : (h₁.addUnion (Heap.single x v)).lookup x = some (v₁, p₁ + 1) := by
-            simp [Heap.lookup, Heap.addUnion, Heap.single, h₁x]
-          simp [Heap.lookup] at key
-          rw [key] at hP
-          simp at hP
-          grind
-    simp [empty_True, ← vv']
-    exact HH
-
-theorem HeapM.assign_spec (x : Loc) (v u : Val) :
-  ⦃ x ↦ u ⦄ assign x v ⦃ _, x ↦ v ⦄ := by
-  simp [assign]
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  rw [@predTrans]
-  simp [Bind.bind, HeapM.bind]
-  rw [predTrans]
-  simp [inhale, exhale]
-  unfold fullPerm
-  rw [← hStar_comm]
-  apply hStar_mono'
-  · apply entails_hWand; simp; rfl
-  · intro h hperm; constructor; apply hperm
-
-theorem HeapM.alloc_spec (v : Val) :
-  ⦃ ∅ ⦄ alloc v ⦃ l, l ↦ v ⦄ := by
-  simp [alloc]
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  rw [@predTrans]
-  simp [Bind.bind, HeapM.bind]
-  rw [@predTrans]
-  simp [pickSuchThat, inhale, Functor.map, HeapM.bind]
-  intro h HH
-  constructor
-  rotate_left
-  intro l Hl
-  apply entails_hWand
-  simp
-  apply hStar_mono
-  rfl
-  apply HH
-  exact Heap.exists_not_contained h
-
-
-theorem hSingleFrac_split (x : Loc) (v : Val)
-    (π₁ π₂ : Perm)
-    (hv₁ : π₁.IsValid) (hv₂ : π₂.IsValid)
-    (hsum : π₁ + π₂ = 1) :
-    (x ↦ v) = ((x ↦[π₁] v) ∗ (x ↦[π₂] v)) := by
-  funext h; apply propext
-  constructor
-  · intro hp; cases hp
-    refine hStar'.intro (Heap.singleFrac x v π₁) (Heap.singleFrac x v π₂)
-      (hSingleFrac'.intro hv₁) (hSingleFrac'.intro hv₂) ?_ ?_
-    · apply Heap.ext_lookup; intro y
-      rw [Heap.lookup_addUnion]
-      by_cases h_xy : x = y
-      · subst h_xy
-        simp [hsum]
-      · have hne : x ≠ y := h_xy
-        simp [Heap.lookup_single_ne hne, Heap.lookup_singleFrac_ne hne]
-    · intro y v₁ p₁ v₂ p₂ eq₁ eq₂
-      by_cases h_xy : x = y
-      · subst h_xy
-        simp at eq₁ eq₂
-        obtain ⟨rfl, rfl⟩ := eq₁
-        obtain ⟨rfl, rfl⟩ := eq₂
-        exact ⟨rfl, by simp [hsum]⟩
-      · have hne : x ≠ y := h_xy
-        simp [Heap.lookup_singleFrac_ne hne] at eq₁
-  · intro ⟨h₁, h₂, hf₁, hf₂, hunion, _⟩
-    cases hf₁; cases hf₂
-    have : h = Heap.single x v := by
-      apply Heap.ext_lookup; intro y
-      rw [← hunion, Heap.lookup_addUnion]
-      by_cases h_xy : x = y
-      · subst h_xy
-        simp [hsum]
-      · have hne : x ≠ y := h_xy
-        simp [Heap.lookup_single_ne hne, Heap.lookup_singleFrac_ne hne]
-    subst this; exact hSingle'.intro
-
-theorem hSingleFrac_combine (x : Loc) (v : Val)
-    (π₁ π₂ : Perm)
-    (hv₁ : π₁.IsValid) (hv₂ : π₂.IsValid)
-    (hle : (π₁ + π₂).IsValid) :
-    ((x ↦[π₁] v) ∗ (x ↦[π₂] v)) =
-    (x ↦[π₁ + π₂] v) := by
-  funext h; apply propext
-  constructor
-  · intro ⟨h₁, h₂, hf₁, hf₂, hunion, _⟩
-    cases hf₁; cases hf₂
-    have : h = Heap.singleFrac x v (π₁ + π₂) := by
-      apply Heap.ext_lookup; intro y
-      rw [← hunion, Heap.lookup_addUnion]
-      by_cases h_xy : x = y
-      · subst h_xy
-        simp
-      · have hne : x ≠ y := h_xy
-        simp [Heap.lookup_singleFrac_ne hne]
-    subst this; exact hSingleFrac'.intro hle
-  · intro hp; cases hp
-    refine hStar'.intro (Heap.singleFrac x v π₁) (Heap.singleFrac x v π₂)
-      (hSingleFrac'.intro hv₁) (hSingleFrac'.intro hv₂) ?_ ?_
-    · apply Heap.ext_lookup; intro y
-      rw [Heap.lookup_addUnion]
-      by_cases h_xy : x = y
-      · subst h_xy
-        simp
-      · have hne : x ≠ y := h_xy
-        simp [Heap.lookup_singleFrac_ne hne]
-    · intro y v₁ p₁ v₂ p₂ eq₁ eq₂
-      by_cases h_xy : x = y
-      · subst h_xy
-        simp at eq₁ eq₂
-        obtain ⟨rfl, rfl⟩ := eq₁
-        obtain ⟨rfl, rfl⟩ := eq₂
-        exact ⟨rfl, hle⟩
-      · have hne : x ≠ y := h_xy
-        simp [Heap.lookup_singleFrac_ne hne] at eq₁
-
-
-theorem hStar_singleFrac_unique
-    {x : Loc} {v w : Val} {π : Perm}
-    {P Q : hProp} {h : Heap}
-    (hP : ((x ↦[π] v) ∗ P) h)
-    (hQ : ((x ↦[π] w) ∗ Q) h) :
-    v = w := by
-  obtain ⟨h₁, h₂, hv, hP', hunion₁, hdisj₁⟩ := hP
-  obtain ⟨h₃, h₄, hw, hQ', hunion₂, hdisj₂⟩ := hQ
-  cases hv; cases hw
-  have lk₁ : h.lookup x = some (v, π) ∨
-              ∃ p', h.lookup x = some (v, π + p') := by
-    rw [← hunion₁, Heap.lookup_addUnion]
-    simp [Heap.lookup_singleFrac]
-    rcases eq_h₂ : h₂.lookup x with _ | ⟨w', p'⟩
-    · simp
-    · simp
-      grind
-  have lk₂ : h.lookup x = some (w, π) ∨
-              ∃ p', h.lookup x = some (w, π + p') := by
-    rw [← hunion₂, Heap.lookup_addUnion]
-    simp [Heap.lookup_singleFrac]
-    rcases eq_h₄ : h₄.lookup x with _ | ⟨w', p'⟩
-    · simp
-    · simp
-      grind
-  rcases lk₁ with hlk₁ | ⟨p₁, hlk₁⟩ <;>
-  rcases lk₂ with hlk₂ | ⟨p₂, hlk₂⟩ <;>
-  · rw [hlk₁] at hlk₂
-    simp at hlk₂
-    grind
-
-/-! Symmetric variant -/
 theorem hStar_singleFrac_unique' {x : Loc} {v w : Val}
     {π : Perm} {P Q : hProp} {h : Heap}
     (hP : (P ∗ (x ↦[π] v)) h)
@@ -947,244 +698,3 @@ theorem hStar_singleFrac_unique' {x : Loc} {v w : Val}
   apply hStar_singleFrac_unique (h := h)
   · rw [hStar_comm]; exact hP
   · rw [hStar_comm]; exact hQ
-
-theorem HeapM.read_frac_spec (x : Loc) (v : Val)
-    (π : Perm) :
-    ⦃ x ↦[π] v ⦄ read x ⦃ w, ⌜w = v⌝ʰ ∗ x ↦[π] v ⦄ := by
-  simp [read]
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  intro heap HH
-  simp [pickSuchThat]
-  constructor
-  · apply Exists.intro v
-    simp_all [hStar]
-    cases HH with
-    | intro h₁ h₂ hH hP hunion hdisj =>
-      simp [hSingleFrac] at hP
-      cases hP
-      rw [← hunion, Heap.lookup_addUnion]
-      rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
-      · simp [Heap.lookup_singleFrac]
-      · have eq₂ : (Heap.singleFrac x v π).lookup x = some (v, π) := by simp [Heap.lookup_singleFrac]
-        have ⟨hval, _⟩ := hdisj x v₁ p₁ v π eq₁ eq₂
-        subst hval
-        simp [eq₂]
-  · intro v' hP
-    have vv' : v = v' := by
-      simp_all [hStar]
-      cases HH with
-      | intro h₁ h₂ hTrue hPt hunion hdisj =>
-        cases hPt
-        rw [← hunion] at hP
-        simp [Option.any, Heap.lookup] at hP
-        rcases eq₁ : h₁.lookup x with _ | ⟨v₁, p₁⟩
-        · have key : (h₁.addUnion (Heap.singleFrac x v π)).lookup x = some (v, π) := by
-            have h₁x : h₁.val x = none := eq₁
-            simp [Heap.lookup, Heap.addUnion, Heap.singleFrac, h₁x]
-          simp [Heap.lookup] at key
-          rw [key] at hP
-          simp at hP
-          apply hP
-        · have eq₂ : (Heap.singleFrac x v π).lookup x = some (v, π) := by
-            simp [Heap.lookup_singleFrac]
-          have ⟨hval, _⟩ := hdisj x v₁ p₁ v π eq₁ eq₂
-          have h₁x : h₁.val x = some (v₁, p₁) := eq₁
-          have key : (h₁.addUnion (Heap.singleFrac x v π)).lookup x = some (v₁, p₁ + π) := by
-            simp [Heap.lookup, Heap.addUnion, Heap.singleFrac, h₁x]
-          simp [Heap.lookup] at key
-          rw [key] at hP
-          simp at hP
-          grind
-    simp [empty_True, ← vv']
-    exact HH
-
-
-
-
-
-
-theorem HeapM.triple_inhale {P H : hProp} {rest : HeapM α} {Q : α → hProp}
-    (h : ⦃ P ∗ H ⦄ rest ⦃ Q ⦄) :
-    ⦃ P ⦄ (do HeapM.inhale H; rest) ⦃ Q ⦄ := by
-  apply Triple.bind (HeapM.inhale H) (fun _ => rest) (fun _ => P ∗ H)
-  · apply Triple.iff.mpr
-    have hwp := Triple.iff.mp (HeapM.inhale_spec H)
-    unfold wp wpTrans at hwp ⊢
-    simp_all [instWPMonadHeapMHPropNil]
-    apply hForall_intro; intro F
-    apply entails_hWand
-    simp [HeapM.inhale]
-    apply entails_hWand
-    rw[←hStar_assoc (A:=H) (B:=P) (C:=F)]
-    rw[hStar_comm (H₁:=H ∗ P)]
-    rw[hStar_comm (H₁:=H)]
-  · intro _; exact h
-
-theorem HeapM.triple_exhale {P H R : hProp} {rest : HeapM α} {Q : α → hProp}
-    (hsplit : P = H ∗ R)
-    (h : ⦃ R ⦄ rest ⦃ Q ⦄) :
-    ⦃ P ⦄ (do HeapM.exhale H; rest) ⦃ Q ⦄ := by
-  subst hsplit
-  apply Triple.bind (HeapM.exhale H) (fun _ => rest) (fun _ => R)
-  · apply Triple.iff.mpr
-    unfold wp wpTrans
-    simp_all [instWPMonadHeapMHPropNil]
-    apply hForall_intro; intro F
-    apply entails_hWand
-    simp [HeapM.exhale]
-    rw[←hStar_assoc (A:=H) (B:=R) (C:=F)]
-    rw[hStar_comm (H₁:=H ∗ R)]
-  · intro _
-    exact h
-
-theorem HeapM.triple_inhale_done {P H : hProp} :
-    ⦃ P ⦄ HeapM.inhale H ⦃ _, P ∗ H ⦄ := by
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro; intro F
-  apply entails_hWand
-  simp [HeapM.inhale]
-  apply entails_hWand
-  rw [← hStar_assoc (A := H) (B := P) (C := F)]
-  rw [hStar_comm (H₁ := H ∗ P)]
-  rw [hStar_comm (H₁ := H)]
-
-theorem HeapM.triple_exhale_done {H R : hProp} :
-    ⦃ H ∗ R ⦄ HeapM.exhale H ⦃ _, R ⦄ := by
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro; intro F
-  apply entails_hWand
-  simp [HeapM.exhale]
-  rw[←hStar_assoc (A:=H) (B:=R) (C:=F)]
-  rw[hStar_comm (H₁:=H ∗ R)]
-
-
-theorem HeapM.triple_pre_eq {P P' : hProp} {Q : α → hProp} {c : HeapM α}
-    (heq : P = P')
-    (h : ⦃ P' ⦄ c ⦃ Q ⦄) :
-    ⦃ P ⦄ c ⦃ Q ⦄ := by
-  subst heq; exact h
-
-theorem HeapM.triple_post_eq {P : hProp} {Q Q' : α → hProp} {c : HeapM α}
-    (heq : ∀ a, Q a = Q' a)
-    (h : ⦃ P ⦄ c ⦃ Q' ⦄) :
-    ⦃ P ⦄ c ⦃ Q ⦄ := by
-  have : Q = Q' := funext heq
-  subst this; exact h
-
-theorem HeapM.triple_consequence {P P' : hProp} {Q Q' : α → hProp} {c : HeapM α}
-    (hpre : P ⊑ P')
-    (hpost : ∀ a, Q' a ⊑ Q a)
-    (h : ⦃ P' ⦄ c ⦃ Q' ⦄) :
-    ⦃ P ⦄ c ⦃ Q ⦄ :=
-  Triple.iff.mpr (Triple.entails_wp_of_pre_post h hpre hpost)
-
-
-theorem HeapM.triple_exhale_frac {P : hProp} {rest : HeapM α} {Q : α → hProp}
-    (x : Loc) (v : Val) (π_exhale π_keep : Perm)
-    (hv_exhale : π_exhale.IsValid) (hv_keep : π_keep.IsValid)
-    (hsum : π_exhale + π_keep = 1)
-    (hpre : P = x ↦ v)
-    (h : ⦃ x ↦[π_keep] v ⦄ rest ⦃ Q ⦄) :
-    ⦃ P ⦄ (do HeapM.exhale (x ↦[π_exhale] v); rest) ⦃ Q ⦄ := by
-  apply HeapM.triple_exhale (R := x ↦[π_keep] v)
-  · rw [hpre, hSingleFrac_split x v π_exhale π_keep hv_exhale hv_keep hsum]
-  · exact h
-
-theorem HeapM.triple_exhale_frac_of_frac {P : hProp} {rest : HeapM α} {Q : α → hProp}
-    (x : Loc) (v : Val) (π_have π_exhale π_keep : Perm)
-    (hv_exhale : π_exhale.IsValid) (hv_keep : π_keep.IsValid)
-    (hsum : π_exhale + π_keep = π_have)
-    (hv_have : π_have.IsValid)
-    (hpre : P = x ↦[π_have] v)
-    (h : ⦃ x ↦[π_keep] v ⦄ rest ⦃ Q ⦄) :
-    ⦃ P ⦄ (do HeapM.exhale (x ↦[π_exhale] v); rest) ⦃ Q ⦄ := by
-  apply HeapM.triple_exhale (R := x ↦[π_keep] v)
-  · rw [hpre]
-    rw [hSingleFrac_combine x v π_exhale π_keep hv_exhale hv_keep (by rw [hsum]; exact hv_have)]
-    rw [hsum]
-  · exact h
-
-theorem HeapM.triple_exhale_from_star {F : hProp} {rest : HeapM α} {Q : α → hProp}
-    (x : Loc) (v : Val) (π_have π_exhale π_keep : Perm)
-    (hv_exhale : π_exhale.IsValid) (hv_keep : π_keep.IsValid)
-    (hsum : π_exhale + π_keep = π_have)
-    (hv_have : π_have.IsValid)
-    (h : ⦃ F ∗ (x ↦[π_keep] v) ⦄ rest ⦃ Q ⦄) :
-    ⦃ F ∗ (x ↦[π_have] v) ⦄ (do HeapM.exhale (x ↦[π_exhale] v); rest) ⦃ Q ⦄ := by
-  apply HeapM.triple_exhale (R := F ∗ (x ↦[π_keep] v))
-  · rw [← hsum, ← hSingleFrac_combine x v π_exhale π_keep hv_exhale hv_keep (hsum ▸ hv_have)]
-    rw [←hStar_assoc, hStar_comm (H₁ := F), hStar_assoc]
-  · exact h
-
-
-
-
-#check @Perm.ext
-example (p : Loc) (v : Val) :
-    ⦃ ∅ ⦄
-    (do HeapM.inhale (p ↦ v)
-        HeapM.exhale (p ↦[Perm.third] v))
-    ⦃ _, p ↦[Perm.twoThirds] v ⦄ := by
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  simp [Bind.bind, HeapM.bind, HeapM.inhale, HeapM.exhale]
-  apply entails_hWand
-  intro heap HH
-  rw [hSingleFrac_split p v Perm.third Perm.twoThirds
-    (by grind) (by grind)] at HH
-  rotate_right
-  grind
-  revert HH heap
-  rw[hStar_assoc]
-  simp [hStar_comm]
-
-
-
-example (p : Loc) (v : Val) :
-    ⦃ ∅ ⦄
-    (do HeapM.inhale (p ↦ v)
-        HeapM.exhale (p ↦[Perm.third] v)
-        HeapM.exhale (p ↦[Perm.third] v)
-        HeapM.inhale (p ↦ v)
-        HeapM.exhale (p ↦[Perm.third] v)
-        HeapM.exhale (p ↦[Perm.third] v)
-        HeapM.skip)
-    ⦃ _, p ↦[Perm.third] v ⦄ := by
-  apply Triple.iff.mpr
-  unfold wp wpTrans
-  simp_all [instWPMonadHeapMHPropNil]
-  apply hForall_intro
-  intro H
-  apply entails_hWand
-  simp [Bind.bind, HeapM.bind, HeapM.inhale, HeapM.exhale, HeapM.skip]
-  sorry
-
-
-example (p : Loc) (v : Val) :
-    ⦃ ∅ ⦄
-    (do HeapM.inhale (p ↦ v)
-        HeapM.exhale (p ↦[Perm.third] v)
-        HeapM.exhale (p ↦[Perm.third] v)
-        HeapM.skip)
-    ⦃ _, p ↦[{val:=1/3}] v ⦄ := by
-  apply HeapM.triple_inhale
-  apply HeapM.triple_pre_eq
-  { simp; rfl }
-  apply HeapM.triple_exhale_frac p v Perm.third Perm.twoThirds
-    (by grind) (by grind) (by ext; grind) rfl
-  apply HeapM.triple_exhale_frac_of_frac p v Perm.twoThirds Perm.third Perm.third
-    (by grind) (by grind) (by ext; grind) (by grind) rfl
-  apply HeapM.triple_skip_spec
