@@ -13,14 +13,14 @@ method split_client()
   r := new(f)
   r.f := 42
 
-  // split: give 1/2 permission to foo
+
   foo(r, 1/2)
   assert r.f == 42
 
-  // give remaining 1/1
+
   foo(r, 1/1)
 
-  // After giving full permission and getting it back:
+  // we give full permission, so foo can modify r.f
   refute r.f == 42
 }
 
@@ -30,13 +30,12 @@ method join_client()
   r := new(f)
   r.f := 42
 
-  // split: give 1/4 permission to foo
   foo(r, 1/4)
 
   // reassign r.f
   r.f := 0
 
-  // split: give 3/4 permission to foo
+  // precondtion requires r.f == 42 
   foo(r, 3/4) // error
 }
 
