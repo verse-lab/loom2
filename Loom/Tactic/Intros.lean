@@ -19,6 +19,26 @@ namespace Loom
 noncomputable def InvListWithNames.one (_name : Lean.Name) (p : Prop) : Prop := p
 noncomputable def InvListWithNames.cons (_name : Lean.Name) (p : Prop) (rest : Prop) : Prop := p ∧ rest
 
+/-! ## InvListWithNames pretty printing -/
+
+/-- Pretty-print `InvListWithNames.one name p` as `[name] p` -/
+@[app_unexpander InvListWithNames.one]
+def unexpandInvListOne : Lean.PrettyPrinter.Unexpander
+  | `($_ $name $p) => do
+    match name with
+    | `(Lean.Name.mkSimple $s) => `([$s] $p)
+    | _ => throw ()
+  | _ => throw ()
+
+/-- Pretty-print `InvListWithNames.cons name p rest` as `[name] p ∧ rest` -/
+@[app_unexpander InvListWithNames.cons]
+def unexpandInvListCons : Lean.PrettyPrinter.Unexpander
+  | `($_ $name $p $rest) => do
+    match name with
+    | `(Lean.Name.mkSimple $s) => `([$s] $p ∧ $rest)
+    | _ => throw ()
+  | _ => throw ()
+
 -- Pre-intro rules for VCGen
 theorem invlist_cons_pre_intro (_name : Lean.Name) (p rest c : Prop) :
     (p → rest ⊑ c) → InvListWithNames.cons _name p rest ⊑ c := by

@@ -9,6 +9,20 @@ import Loom.Tactic.VCGen
 
 open Loom Lean Meta Order Std.Do' Lean.Order
 
+/-! ## Velvet Triple notation (partial correctness, epost = True) -/
+
+-- namespace Velvet
+
+/-- Velvet triple with binder: `⸨ pre ⸩ x ⸨ v, post ⸩` -/
+notation:60 "⸨ " pre " ⸩ " x " ⸨ " v ", " post " ⸩" =>
+  Triple pre x (fun v => post) True
+
+/-- Velvet triple without binder: `⸨ pre ⸩ x ⸨ post ⸩` -/
+notation:60 "⸨ " pre " ⸩ " x " ⸨ " post " ⸩" =>
+  Triple pre x post True
+
+-- end Velvet
+
 section Loops
 
 /- partial loop from MonoBind and CCPO instances -/
