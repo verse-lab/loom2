@@ -253,11 +253,32 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWP excessArgs
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply split rule for {indentExpr e}"
-        let goals ← goals.mapM fun g => do
-          let .goal _ g ← Sym.intros g
+        -- Intro split parameters and rename the condition hypothesis
+        let splitNames : Array Name ← match info with
+          | .ite _ | .dite _ => pure #[`if_pos, `if_neg]
+          | .matcher matcherApp => do
+            let discrTy ← Sym.inferType matcherApp.discrs[0]!
+            let typeName := discrTy.consumeMData.getAppFn.constName?.getD `unknown
+            match (← getEnv).find? typeName with
+            | some (.inductInfo ii) =>
+              pure <| ii.ctors.toArray.map fun cn => Name.mkSimple s!"match_{typeName}_{cn.getString!}"
+            | _ =>
+              let mut names : Array Name := #[]
+              for i in [:goals.length] do names := names.push (Name.mkSimple s!"match_alt{i + 1}")
+              pure names
+        let mut resultGoals : List MVarId := []
+        for idx in [:goals.length] do
+          let g := goals[idx]!
+          let .goal xs g ← Sym.intros g
             | throwError "Failed to intro split parameters"
-          return g
-        return .goals goals
+          -- Rename the last introduced fvar (the split condition) if we have a name
+          let g ← if let some name := splitNames[idx]? then
+            if let some fv := xs.back? then
+              g.rename fv name
+            else pure g
+          else pure g
+          resultGoals := resultGoals ++ [g]
+        return .goals resultGoals
       -- Apply registered specifications
       let f := e.getAppFn
       if f.isConst || f.isFVar then

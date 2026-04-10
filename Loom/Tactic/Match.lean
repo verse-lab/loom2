@@ -53,7 +53,28 @@ meta def mkBackwardRuleForSplit
     -- accidentally assign our subgoal metavariables.
     let subgoals ← splitInfo.altInfos.mapM fun _ =>
       liftMetaM <| mkFreshExprSyntheticOpaqueMVar (mkSort 0)
-    let namedSubgoals := subgoals.mapIdx fun i mv => ((`h).appendIndexAfter (i+1), mv)
+    -- Name hypotheses based on split type:
+    -- ite/dite → if_pos, if_neg
+    -- matcher → match_<TypeName>_<CtorName>
+    let hypNames : Array Name ← match splitInfo with
+      | .ite _ | .dite _ => pure #[Name.mkSimple "if_pos", Name.mkSimple "if_neg"]
+      | .matcher matcherApp => do
+        -- Get discriminant type to find constructor names
+        let discrTy ← Sym.inferType matcherApp.discrs[0]!
+        let typeName := discrTy.consumeMData.getAppFn.constName?.getD `unknown
+        let env ← getEnv
+        match env.find? typeName with
+        | some (.inductInfo info) =>
+          pure <| info.ctors.toArray.map fun ctorName =>
+            Name.mkSimple s!"match_{typeName}_{ctorName.getString!}"
+        | _ =>
+          let mut names : Array Name := #[]
+          for i in [:subgoals.size] do
+            names := names.push (Name.mkSimple s!"match_alt{i + 1}")
+          pure names
+    let namedSubgoals := subgoals.mapIdx fun i mv =>
+      let name := if i < hypNames.size then hypNames[i]! else (`h).appendIndexAfter (i + 1)
+      (name, mv)
     withLocalDeclsDND namedSubgoals fun subgoalHyps => do
     let prf ← liftMetaM <|
       abstractInfo.splitWith
