@@ -91,6 +91,9 @@ theorem Spec.forIn_loop_partial
 
 end Loops
 
+-- InvListWithNames, invlist_cons_pre_intro, invlist_one_pre_intro
+-- are defined in Loom/Tactic/Intros.lean (to avoid circular imports)
+
 section ArrayHelpers
 
 @[grind =]

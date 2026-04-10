@@ -17,6 +17,43 @@ structure VelvetObligation where
   retId        : Ident
   pre          : TSyntax `term
   post         : TSyntax `term
+  preNames     : Array Name := #[]   -- names for require clauses
+  postNames    : Array Name := #[]   -- names for ensures clauses
+  invNames     : Array Name := #[]   -- names for invariant clauses
+
+/-- Extract invariant names from a doSeq syntax by recursively searching for
+    "invariant" atoms in the syntax tree. -/
+private partial def extractInvNames (stx : Syntax) : Array Name := Id.run do
+  let mut result := #[]
+  for node in stx.topDown do
+    -- Look for "invariant" atoms — the next sibling(s) determine if named
+    if node.isAtom && node.getAtomVal == "invariant" then
+      -- We found an "invariant" keyword. The name is tricky to get from just this
+      -- atom. Instead, look at the parent structure.
+      pure ()
+  -- Simpler approach: walk all atoms, collect the ident before ":" that follows "invariant"
+  let atoms := collectAtoms stx #[]
+  let mut i := 0
+  while i < atoms.size do
+    if atoms[i]! == "invariant" then
+      -- Check if next is an ident followed by ":"
+      if i + 2 < atoms.size && atoms[i + 2]! == ":" then
+        result := result.push (Name.mkSimple atoms[i + 1]!)
+        i := i + 3
+      else
+        result := result.push (Name.mkSimple s!"invariant{result.size + 1}")
+        i := i + 1
+    else
+      i := i + 1
+  return result
+where
+  collectAtoms (stx : Syntax) (acc : Array String) : Array String :=
+    if stx.isAtom then
+      acc.push stx.getAtomVal
+    else if stx.isIdent then
+      acc.push stx.getId.toString
+    else
+      stx.getArgs.foldl (init := acc) fun acc child => collectAtoms child acc
 
 initialize velvetObligations : EnvExtension (Std.HashMap Name VelvetObligation) ←
   registerEnvExtension (pure {})
@@ -29,34 +66,47 @@ private def _root_.Lean.EnvExtension.get' [Inhabited σ] (ext : EnvExtension σ)
 
 /-! ## While' syntax (partial correctness — no decreasing) -/
 
-private def foldInvariants (invs : Array (Lean.TSyntax `term)) : Lean.MacroM (Lean.TSyntax `term) := do
+/-- Fold invariants into an `InvListWithNames` — a named conjunction list. -/
+private def foldInvariants (invs : Array (Lean.TSyntax `term))
+    (names : Array (Option Ident) := #[]) : Lean.MacroM (Lean.TSyntax `term) := do
   if invs.isEmpty then `(True)
   else
-    let mut result := invs[0]!
-    for i in [1:invs.size] do
-      result ← `($meetConst $result $(invs[i]!))
+    let invListOne := mkIdent ``Loom.InvListWithNames.one
+    let invListCons := mkIdent ``Loom.InvListWithNames.cons
+    -- Build right-nested InvListWithNames: cons h₁ inv₁ (cons h₂ inv₂ (one h₃ inv₃))
+    let getName (i : Nat) : Lean.MacroM (Lean.TSyntax `term) := do
+      let name := match names[i]? with
+        | some (some id) => id.getId.toString
+        | _ => s!"invariant{i + 1}"
+      let nameStr := Lean.Syntax.mkStrLit name
+      `(Lean.Name.mkSimple $nameStr)
+    let lastIdx := invs.size - 1
+    let mut result ← `($invListOne ($(← getName lastIdx)) $(invs[lastIdx]!))
+    for i in List.range lastIdx |>.reverse do
+      result ← `($invListCons ($(← getName i)) $(invs[i]!) $result)
     return result
 
+-- While' with optional named invariants: `invariant h : pred` or `invariant pred`
 syntax "while' " termBeforeDo
-  (" invariant " termBeforeDo)*
+  (" invariant " (atomic(ident " : "))? termBeforeDo)*
   " done_with " termBeforeDo
   " do " doSeq : doElem
 
 syntax "while' " termBeforeDo
-  (" invariant " termBeforeDo)*
+  (" invariant " (atomic(ident " : "))? termBeforeDo)*
   " do " doSeq : doElem
 
 macro_rules
-  | `(doElem| while' $cond $[ invariant $invs]* done_with $d do $body) => do
-    let inv ← foldInvariants invs
+  | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* done_with $d do $body) => do
+    let inv ← foldInvariants invs ns
     `(doElem| repeat do
       invariantGadget $inv
       onDoneGadget $d
       if $cond then $body else break)
 
 macro_rules
-  | `(doElem| while' $cond $[ invariant $invs]* do $body) => do
-    let inv ← foldInvariants invs
+  | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* do $body) => do
+    let inv ← foldInvariants invs ns
     `(doElem| repeat do
       invariantGadget $inv
       onDoneGadget (¬ $cond)
@@ -70,24 +120,33 @@ macro_rules
 
 /-! ## Helpers -/
 
-private def andList (ts : Array (TSyntax `term)) : MacroM (TSyntax `term) := do
+/-- Fold terms into an `InvListWithNames` — a named conjunction list. -/
+private def andList (ts : Array (TSyntax `term)) (names : Array Name := #[])
+    (pfx : String := "clause") : MacroM (TSyntax `term) := do
   if ts.size = 0 then `(term| True) else
-    let mut t := ts[0]!
-    for t' in ts[1:] do
-      t ← `(term|$meetConst $t' $t)
-    return t
+    let invListOne := mkIdent ``Loom.InvListWithNames.one
+    let invListCons := mkIdent ``Loom.InvListWithNames.cons
+    let getName (i : Nat) : MacroM (TSyntax `term) := do
+      let name := if i < names.size then names[i]!.toString else s!"{pfx}{i + 1}"
+      let nameStr := Lean.Syntax.mkStrLit name
+      `(Lean.Name.mkSimple $nameStr)
+    let lastIdx := ts.size - 1
+    let mut result ← `($invListOne ($(← getName lastIdx)) $(ts[lastIdx]!))
+    for i in List.range lastIdx |>.reverse do
+      result ← `($invListCons ($(← getName i)) $(ts[i]!) $result)
+    return result
 
 /-! ## `method` command -/
 
 syntax "method " ident bracketedBinder* " return " "(" ident " : " term ")"
-  (" require " termBeforeDo)*
-  (" ensures " termBeforeDo)* " do " doSeq : command
+  (" require " (atomic(ident " : "))? termBeforeDo)*
+  (" ensures " (atomic(ident " : "))? termBeforeDo)* " do " doSeq : command
 
 elab_rules : command
   | `(command|
   method $name:ident $binders:bracketedBinder* return ( $retId:ident : $retType:term )
-  $[require $req:term]*
-  $[ensures $ens:term]* do $doSeq:doSeq
+  $[require $[$reqNs : ]? $req]*
+  $[ensures $[$ensNs : ]? $ens]* do $doSeq:doSeq
   ) => do
   let (defCmd, obligation) ← Command.runTermElabM fun _vs => do
     -- Collect parameter identifiers
@@ -97,19 +156,35 @@ elab_rules : command
       | `(bracketedBinder| ($id:ident : $_:term)) => ids := ids.push id
       | `(bracketedBinder| {$id:ident : $_:term}) => ids := ids.push id
       | _ => throwError "unexpected binder syntax: {b}"
-    -- Build pre/post
-    let pre ← liftMacroM <| andList req
-    let post ← liftMacroM <| andList ens
+    -- Extract names
+    let mut reqNames : Array Name := #[]
+    for idx in [:reqNs.size] do
+      reqNames := reqNames.push <| match reqNs[idx]! with
+        | some id => id.getId
+        | none => Name.mkSimple s!"require{idx + 1}"
+    let mut ensNames : Array Name := #[]
+    for idx in [:ensNs.size] do
+      ensNames := ensNames.push <| match ensNs[idx]! with
+        | some id => id.getId
+        | none => Name.mkSimple s!"ensures{idx + 1}"
+    -- Build pre/post with WithHypName annotations
+    let pre ← liftMacroM <| andList req reqNames "require"
+    let post ← liftMacroM <| andList ens ensNames "ensures"
     -- Build definition
     let defCmd ← `(command|
       set_option linter.unusedVariables false in
       def $name $binders* : Option $retType:term := do $doSeq)
+    -- Extract invariant names from the do-block syntax
+    let invNames := extractInvNames doSeq.raw
     let obligation : VelvetObligation := {
       binderIdents := binders
       ids := ids
       retId := retId
       pre := pre
       post := post
+      preNames := reqNames
+      postNames := ensNames
+      invNames := invNames
     }
     return (defCmd, obligation)
   elabCommand defCmd
@@ -132,6 +207,16 @@ elab_rules : command
     let post := obligation.post
     let lemmaName := mkIdent <| name.getId.appendAfter "_correct"
     let tripleId := mkIdent ``Triple
+    -- Extract MProd component names from the method definition for variable naming
+    let mprodNames ← Command.runTermElabM fun _ => do
+      Loom.extractMProdNamesFromDef name.getId
+    Loom.mProdNameHintsRef.set mprodNames
+    -- Store clause names for hypothesis naming
+    Loom.clauseNameHintsRef.set {
+      preNames := obligation.preNames
+      postNames := obligation.postNames
+      invNames := obligation.invNames
+    }
     let thmCmd ← `(command|
       set_option linter.unusedVariables false in
       theorem $lemmaName $bindersIdents* :

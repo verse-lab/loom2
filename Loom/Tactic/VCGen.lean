@@ -53,12 +53,13 @@ structure VCGen.Context where
   elimPreRule  : BackwardRule
   simpMethods  : Option Sym.Simp.Methods := none
   disch        : dischargeTactic := .none
+  mProdNames   : Array Name := #[]  -- MProd component names from the method definition
+  clauseNames  : ClauseNameHints := {}  -- names for require/ensures clauses
 
 structure VCGen.State where
   specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   splitBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   logicBackwardRuleCache : Std.HashMap (Name × Array Expr × Nat) BackwardRule := {}
-  -- simpState              : Sym.Simp.State := {}
   invariants             : Array MVarId := #[]
   vcs                    : Array MVarId := #[]
 
@@ -282,8 +283,9 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
 
 
 /-- Emit a VC for a goal that cannot be further decomposed.
-    If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper. -/
-meta def emitVC (goal : Grind.Goal) : VCGenM Unit := do
+    If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper.
+    If the resulting goal is `WithHypName p name`, unfold and use `name` as the tag. -/
+meta partial def emitVC (goal : Grind.Goal) : VCGenM Unit := do
   let mut goal := goal
   let ty ← goal.mvarId.getType
   if let some (_, _, Expr.const ``True _, _) := ty.app4? ``PartialOrder.rel then
@@ -291,6 +293,33 @@ meta def emitVC (goal : Grind.Goal) : VCGenM Unit := do
     let .goals [goal'] ← goal.apply rule
       | throwError "Failed to apply elim_pre rule"
     goal := goal'
+  -- Unwrap InvListWithNames: split into individual named VCs
+  let ty ← instantiateMVars (← goal.mvarId.getType)
+  if ty.isAppOfArity ``InvListWithNames.cons 3 then
+    let nameExpr := ty.getAppArgs[0]!
+    let innerProp := ty.getAppArgs[1]!
+    let restTy := ty.getAppArgs[2]!
+    let tag := exprToName? nameExpr |>.getD `vc
+    -- Unfold cons to And, then split (shareCommon after building And)
+    let andTy ← shareCommon (mkApp2 (mkConst ``And) innerProp restTy)
+    let mvarId ← goal.mvarId.replaceTargetDefEq andTy
+    let [pGoal, restGoal] ← mvarId.apply (mkConst ``And.intro)
+      | throwError "Failed to split InvListWithNames.cons"
+    pGoal.setTag tag
+    -- Emit the head component
+    emitVC { goal with mvarId := pGoal }
+    -- Recursively emit the rest
+    emitVC { goal with mvarId := restGoal }
+    return
+  if ty.isAppOfArity ``InvListWithNames.one 2 then
+    let nameExpr := ty.getAppArgs[0]!
+    let innerProp := ty.getAppArgs[1]!
+    let tag := exprToName? nameExpr |>.getD `vc
+    let innerProp ← shareCommon innerProp
+    let mvarId ← goal.mvarId.replaceTargetDefEq innerProp
+    mvarId.setTag tag
+    goal := { goal with mvarId }
+    -- Fall through to normal discharge below
   let disch := (← read).disch
   let mut goals := [goal.mvarId]
   match disch with
@@ -311,7 +340,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let goal ← introsWP rules (← read).simpMethods goal
+    let goal ← introsWP rules (← read).simpMethods (← read).mProdNames goal
     -- Unfold Triple goals that arise from subgoals (e.g., loop invariant specs)
     let goal ← unfoldTriple rules goal
     let res ← solve goal.mvarId
@@ -437,7 +466,9 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
     let migratedCtx ← migrateSpecTheoremsDatabase ctx
     let introRules ← IntroRules.mk'
     let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
-    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch }
+    let mProdNames ← mProdNameHintsRef.get
+    let clauseNames ← clauseNameHintsRef.get
+    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen
