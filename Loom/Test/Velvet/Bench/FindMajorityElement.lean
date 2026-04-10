@@ -39,11 +39,11 @@ method findMajorityElement (lst : List Int)
 
   while' i < n
     -- i is bounded by list length
-    invariant 0 ≤ i ∧ i ≤ n
+    invariant h_i : 0 ≤ i ∧ i ≤ n
     -- found implies candidate is a majority element in the list
-    invariant found = true → (candidate ∈ lst ∧ isMajorityElement lst candidate)
+    invariant h_found : found = true → (candidate ∈ lst ∧ isMajorityElement lst candidate)
     -- not found implies no majority element among first i elements
-    invariant found = false → (∀ k : Nat, k < i → ¬isMajorityElement lst lst[k]!)
+    invariant h_found_false : found = false → (∀ k : Nat, k < i → ¬isMajorityElement lst lst[k]!)
     done_with i >= n
   do
     let elem := lst[i]!
@@ -53,14 +53,14 @@ method findMajorityElement (lst : List Int)
     -- Count occurrences of elem in lst
     while' j < n
       -- j is bounded by list length
-      invariant 0 ≤ j ∧ j ≤ n
+      invariant h_j : 0 ≤ j ∧ j ≤ n
       -- count equals occurrences of elem in lst[0..j]
-      invariant count = (lst.take j).count elem
+      invariant h_count : count = (lst.take j).count elem
       -- preserve outer loop invariants
-      invariant found = true → (candidate ∈ lst ∧ isMajorityElement lst candidate)
-      invariant 0 ≤ i ∧ i < n
-      invariant i < lst.length → elem = lst[i]!
-      invariant found = false → (∀ k : Nat, k < i → ¬isMajorityElement lst lst[k]!)
+      invariant h_found : found = true → (candidate ∈ lst ∧ isMajorityElement lst candidate)
+      invariant h_i : 0 ≤ i ∧ i < n
+      invariant h_elem : i < lst.length → elem = lst[i]!
+      invariant h_found_false : found = false → (∀ k : Nat, k < i → ¬isMajorityElement lst lst[k]!)
       done_with j >= n
     do
       if lst[j]! = elem then
@@ -95,4 +95,4 @@ def Goal (_n : Nat) := ∀ lst,
 )) `(tactic| fail) [0]
 
 prove_correct findMajorityElement by
-  mvcgen' simplifying_assumptions with grind
+  mvcgen' simplifying_assumptions

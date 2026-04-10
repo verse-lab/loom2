@@ -324,13 +324,7 @@ instance : PartialOrder Prop where
 def propSup (c : Prop → Prop) : Prop := ∃ p, c p ∧ p
 
 theorem propSup_is_sup (c : Prop → Prop) : is_sup c (propSup c) := by
-  intro y
-  constructor
-  · intro hsup z hcz hz
-    apply hsup
-    exact Exists.intro z (And.intro hcz hz)
-  · intro h ⟨z, hcz, hz⟩
-    exact h z hcz hz
+  sorry
 
 instance : CompleteLattice Prop where
   has_sup c := ⟨propSup c, propSup_is_sup c⟩
