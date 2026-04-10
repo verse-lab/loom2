@@ -95,4 +95,4 @@ def Goal (_n : Nat) := ∀ lst,
 )) `(tactic| fail) [0]
 
 prove_correct findMajorityElement by
-  mvcgen' simplifying_assumptions
+  mvcgen' simplifying_assumptions with grind

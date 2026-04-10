@@ -190,9 +190,41 @@ elab_rules : command
   elabCommand defCmd
   velvetObligations.modify' (·.insert name.getId obligation)
 
-/-! ## `prove_correct` command -/
+/-! ## `prove_correct` / `prove_correct?` commands -/
 
 syntax "prove_correct " ident " by " tacticSeq : command
+syntax "prove_correct? " ident : command
+
+private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
+    (proof? : Option (TSyntax ``Lean.Parser.Tactic.tacticSeq)) : CommandElabM (TSyntax `command) := do
+  let bindersIdents := obligation.binderIdents
+  let ids := obligation.ids
+  let retId := obligation.retId
+  let pre := obligation.pre
+  let post := obligation.post
+  let lemmaName := mkIdent <| name.getId.appendAfter "_correct"
+  let tripleId := mkIdent ``Triple
+  match proof? with
+  | some proof =>
+    `(command|
+      set_option linter.unusedVariables false in
+      theorem $lemmaName $bindersIdents* :
+        $tripleId
+          $pre
+          ($name $ids*)
+          (fun $retId => $post) (True : Prop) := by
+        simp only [$name:ident]
+        ($proof))
+  | none =>
+    `(command|
+      set_option linter.unusedVariables false in
+      theorem $lemmaName $bindersIdents* :
+        $tripleId
+          $pre
+          ($name $ids*)
+          (fun $retId => $post) (True : Prop) := by
+        simp only [$name:ident]
+        sorry)
 
 @[incremental]
 elab_rules : command
@@ -200,13 +232,6 @@ elab_rules : command
     let ctx ← velvetObligations.get'
     let .some obligation := ctx[name.getId]?
       | throwError "no obligation found for `{name.getId}`. Did you define it with `method`?"
-    let bindersIdents := obligation.binderIdents
-    let ids := obligation.ids
-    let retId := obligation.retId
-    let pre := obligation.pre
-    let post := obligation.post
-    let lemmaName := mkIdent <| name.getId.appendAfter "_correct"
-    let tripleId := mkIdent ``Triple
     -- Extract MProd component names from the method definition for variable naming
     let mprodNames ← Command.runTermElabM fun _ => do
       Loom.extractMProdNamesFromDef name.getId
@@ -217,14 +242,16 @@ elab_rules : command
       postNames := obligation.postNames
       invNames := obligation.invNames
     }
-    let thmCmd ← `(command|
-      set_option linter.unusedVariables false in
-      theorem $lemmaName $bindersIdents* :
-        $tripleId
-          $pre
-          ($name $ids*)
-          (fun $retId => $post) (True : Prop) := by
-        simp only [$name:ident]
-        ($proof))
+    let thmCmd ← mkProveCorrectThm name obligation (some proof)
     elabCommand thmCmd
     velvetObligations.modify' (·.erase name.getId)
+
+@[incremental]
+elab_rules : command
+  | `(command| prove_correct? $name:ident) => do
+    let ctx ← velvetObligations.get'
+    let .some obligation := ctx[name.getId]?
+      | throwError "no obligation found for `{name.getId}`. Did you define it with `method`?"
+    let thmCmd ← mkProveCorrectThm name obligation none
+    Command.liftTermElabM do
+      Lean.Meta.Tactic.TryThis.addSuggestion (← getRef) thmCmd
