@@ -48,6 +48,11 @@ theorem iff {x : m α} {pre : Pred} {post : α → Pred} {epost : EPred} :
     Triple pre x post epost ↔ (pre ⊑ wp x post epost) :=
   ⟨fun ⟨h⟩ => h, fun h => ⟨h⟩⟩
 
+/-- Extract the WP proof from a Triple. -/
+theorem toWP {pre : Pred} {x : m α} {post : α → Pred} {epost : EPred}
+    (h : Triple pre x post epost) : pre ⊑ wp x post epost :=
+  Triple.iff.mp h
+
 theorem iff_conseq {x : m α} {pre : Pred} {post : α → Pred} {epost : EPred} :
     Triple pre x post epost ↔
     (∀ pre' post', (pre' ⊑ pre) → (post ⊑ post') → pre' ⊑ wp x post' epost) := by

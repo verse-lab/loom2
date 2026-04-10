@@ -94,6 +94,57 @@ end Loops
 -- InvListWithNames, invlist_cons_pre_intro, invlist_one_pre_intro
 -- are defined in Loom/Tactic/Intros.lean (to avoid circular imports)
 
+section Fixpoints
+
+/-- Convert `∀ r, f a = some r → pre → post r` into a Triple. -/
+theorem triple_from_option_spec {α β : Type}
+    {f : α → Option β} {a : α} {pre : Prop} {post : β → Prop}
+    (h : ∀ (r : β), f a = some r → pre → post r) :
+    Triple pre (f a) (fun r => post r) (True : Prop) := by
+  apply Triple.intro
+  intro hpre
+  show (f a).elim True post
+  cases hfa : f a with
+  | none => trivial
+  | some r => exact h r hfa hpre
+
+/-- Convert `∀ r, x = some r → pre → post r` to `Triple pre x post True`. -/
+theorem option_eq_some_to_triple {pre : Prop} {post : β → Prop}
+    {x : Option β}
+    (h : ∀ r, x = some r → pre → post r) :
+    Triple pre x (fun r => post r) (True : Prop) := by
+  apply Triple.intro; intro hpre
+  show x.elim True post
+  cases hx : x with
+  | none => trivial
+  | some r => exact h r hx hpre
+
+/-- Convert `∀ a r, f a = some r → pre → post r` to `∀ a, Triple pre (f a) post True`. -/
+theorem option_spec_to_triple {α β : Type}
+    {f : α → Option β} {pre : Prop} {post : β → Prop}
+    (h : ∀ (a : α) (r : β), f a = some r → pre → post r)
+    (a : α) : Triple pre (f a) (fun r => post r) (True : Prop) :=
+  triple_from_option_spec (h a)
+
+/-- Convert `Triple pre x post True` back to `∀ r, x = some r → pre → post r`. -/
+theorem triple_to_option_spec {pre : Prop} {post : β → Prop}
+    {x : Option β}
+    (h : Triple pre x (fun r => post r) (True : Prop)) :
+    ∀ r, x = some r → pre → post r := by
+  intro r hx hpre
+  have hwp := Triple.iff.mp h hpre
+  -- hwp : wp x (fun r => post r) True = x.elim True post
+  subst hx
+  exact hwp
+
+/-- Iff version for converting between Triple and raw option spec. -/
+theorem triple_option_iff {pre : Prop} {post : β → Prop} {x : Option β} :
+    Triple pre x (fun r => post r) (True : Prop) ↔
+    (∀ r, x = some r → pre → post r) :=
+  ⟨triple_to_option_spec, option_eq_some_to_triple⟩
+
+end Fixpoints
+
 section ArrayHelpers
 
 @[grind =]

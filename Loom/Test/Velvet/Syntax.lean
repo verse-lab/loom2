@@ -20,6 +20,7 @@ structure VelvetObligation where
   preNames     : Array Name := #[]   -- names for require clauses
   postNames    : Array Name := #[]   -- names for ensures clauses
   invNames     : Array Name := #[]   -- names for invariant clauses
+  isFixpoint   : Bool := false       -- true for method_fix (recursive methods)
 
 /-- Extract invariant names from a doSeq syntax by recursively searching for
     "invariant" atoms in the syntax tree. -/
@@ -190,6 +191,58 @@ elab_rules : command
   elabCommand defCmd
   velvetObligations.modify' (·.insert name.getId obligation)
 
+/-! ## `method_fix` command (recursive methods) -/
+
+syntax "method_fix " ident bracketedBinder* " return " "(" ident " : " term ")"
+  (" require " (atomic(ident " : "))? termBeforeDo)*
+  (" ensures " (atomic(ident " : "))? termBeforeDo)* " do " doSeq : command
+
+elab_rules : command
+  | `(command|
+  method_fix $name:ident $binders:bracketedBinder* return ( $retId:ident : $retType:term )
+  $[require $[$reqNs : ]? $req]*
+  $[ensures $[$ensNs : ]? $ens]* do $doSeq:doSeq
+  ) => do
+  let (defCmd, obligation) ← Command.runTermElabM fun _vs => do
+    let mut ids : Array Ident := #[]
+    for b in binders do
+      match b with
+      | `(bracketedBinder| ($id:ident : $_:term)) => ids := ids.push id
+      | `(bracketedBinder| {$id:ident : $_:term}) => ids := ids.push id
+      | _ => throwError "unexpected binder syntax: {b}"
+    let mut reqNames : Array Name := #[]
+    for idx in [:reqNs.size] do
+      reqNames := reqNames.push <| match reqNs[idx]! with
+        | some id => id.getId
+        | none => Name.mkSimple s!"require{idx + 1}"
+    let mut ensNames : Array Name := #[]
+    for idx in [:ensNs.size] do
+      ensNames := ensNames.push <| match ensNs[idx]! with
+        | some id => id.getId
+        | none => Name.mkSimple s!"ensures{idx + 1}"
+    let pre ← liftMacroM <| andList req reqNames "require"
+    let post ← liftMacroM <| andList ens ensNames "ensures"
+    -- Build recursive definition with partial_fixpoint
+    let defCmd ← `(command|
+      set_option linter.unusedVariables false in
+      def $name $binders* : Option $retType:term := do $doSeq
+        partial_fixpoint)
+    let invNames := extractInvNames doSeq.raw
+    let obligation : VelvetObligation := {
+      binderIdents := binders
+      ids := ids
+      retId := retId
+      pre := pre
+      post := post
+      preNames := reqNames
+      postNames := ensNames
+      invNames := invNames
+      isFixpoint := true
+    }
+    return (defCmd, obligation)
+  elabCommand defCmd
+  velvetObligations.modify' (·.insert name.getId obligation)
+
 /-! ## `prove_correct` / `prove_correct?` commands -/
 
 syntax "prove_correct " ident " by " tacticSeq : command
@@ -204,27 +257,78 @@ private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
   let post := obligation.post
   let lemmaName := mkIdent <| name.getId.appendAfter "_correct"
   let tripleId := mkIdent ``Triple
-  match proof? with
-  | some proof =>
-    `(command|
-      set_option linter.unusedVariables false in
-      theorem $lemmaName $bindersIdents* :
-        $tripleId
-          $pre
-          ($name $ids*)
-          (fun $retId => $post) (True : Prop) := by
-        simp only [$name:ident]
-        ($proof))
-  | none =>
-    `(command|
-      set_option linter.unusedVariables false in
-      theorem $lemmaName $bindersIdents* :
-        $tripleId
-          $pre
-          ($name $ids*)
-          (fun $retId => $post) (True : Prop) := by
-        simp only [$name:ident]
-        sorry)
+  let tripleFromPC := mkIdent ``triple_from_option_spec
+  let pcName := mkIdent <| name.getId ++ `partial_correctness
+  let ihName := mkIdent <| name.getId.appendAfter "_ih"
+  let ihRawName := mkIdent (Name.mkSimple s!"ih_{name.getId}_raw")
+  let ihTripleName := mkIdent (Name.mkSimple s!"ih_{name.getId}")
+  let tripleFromPC' := mkIdent ``triple_from_option_spec
+  if obligation.isFixpoint then
+    -- For fixpoint methods:
+    -- 1. Apply triple_from_option_spec outside GrindM to convert Triple → equation
+    -- 2. Apply partial_correctness outside GrindM for induction
+    -- 3. Intro f_ih + raw IH outside GrindM
+    -- 4. Convert IH to Triple form (have ih_triple)
+    -- 5. Convert goal back to Triple via triple_to_option_spec
+    -- 6. simp only [name] to unfold the fixpoint body
+    -- 7. User's mvcgen' runs INSIDE GrindM with ih_triple as a local spec
+    --
+    -- Steps 1-5 run OUTSIDE GrindM (at the MetaM/tactic level).
+    -- Step 7 runs INSIDE GrindM where ih_triple is a local fvar visible to the kernel.
+    let ihConversion ← `(fun $ids* => $tripleFromPC' ($ihRawName $ids*))
+    let tripleToPC := mkIdent ``triple_to_option_spec
+    match proof? with
+    | some proof =>
+      `(command|
+        set_option linter.unusedVariables false in
+        theorem $lemmaName $bindersIdents* :
+          $tripleId
+            $pre
+            ($name $ids*)
+            (fun $retId => $post) (True : Prop) := by
+          apply $tripleFromPC
+          apply $pcName
+          intro $ihName $ihRawName
+          have $ihTripleName := $ihConversion
+          intro $ids*
+          exact $tripleToPC (by ($proof)))
+    | none =>
+      `(command|
+        set_option linter.unusedVariables false in
+        theorem $lemmaName $bindersIdents* :
+          $tripleId
+            $pre
+            ($name $ids*)
+            (fun $retId => $post) (True : Prop) := by
+          apply $tripleFromPC
+          apply $pcName
+          intro $ihName $ihRawName
+          have $ihTripleName := $ihConversion
+          intro $ids*
+          exact $tripleToPC (by sorry))
+  else
+    -- For non-recursive methods: unfold with simp, then user's proof
+    match proof? with
+    | some proof =>
+      `(command|
+        set_option linter.unusedVariables false in
+        theorem $lemmaName $bindersIdents* :
+          $tripleId
+            $pre
+            ($name $ids*)
+            (fun $retId => $post) (True : Prop) := by
+          simp only [$name:ident]
+          ($proof))
+    | none =>
+      `(command|
+        set_option linter.unusedVariables false in
+        theorem $lemmaName $bindersIdents* :
+          $tripleId
+            $pre
+            ($name $ids*)
+            (fun $retId => $post) (True : Prop) := by
+          simp only [$name:ident]
+          sorry)
 
 @[incremental]
 elab_rules : command

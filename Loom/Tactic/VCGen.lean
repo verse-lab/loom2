@@ -55,6 +55,7 @@ structure VCGen.Context where
   disch        : dischargeTactic := .none
   mProdNames   : Array Name := #[]  -- MProd component names from the method definition
   clauseNames  : ClauseNameHints := {}  -- names for require/ensures clauses
+  localSpecs   : Array SpecTheorem := #[]  -- local fvar specs (from recursive IH)
 
 structure VCGen.State where
   specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
@@ -210,13 +211,13 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       throwError "TrivialTrue not yet implemented in VCGen'"
   | .IntroPre => do
       goal ← introMeetPre (← read).introRules goal
-      return .goals [goal]
+      return SolveResult.goals [goal]
   | .Lattice lop as excessArgs => do
       trace[Loom.Tactic.vcgen] "Applying logic rule for {target}. Excess args: {excessArgs}"
       let rule ← mkBackwardRuleForLogicCached lop as excessArgs
       let .goals goals ← rule.apply goal
         | throwError "Failed to apply logic rule at {indentExpr target}"
-      return .goals goals
+      return SolveResult.goals goals
   | .WP head args => do
       -- Goal is: pre ⊑ @wp m l errTy monadInst instAL instEAL instWP α e post epost
       let_expr wp m l errTy monadInst instAL instEAL instWP α e _post _epost :=
@@ -235,7 +236,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
           | throwError "expected ⊑ goal but got {target}"
         let newTarget ← mkAppNS target.getAppFn #[l, cl, pre, rhs]
         goal ← goal.replaceTargetDefEq newTarget
-        return .goals [goal]
+        return SolveResult.goals [goal]
       -- Split ite/dite/match
       if let some info ← Do.getSplitInfo? e then
         -- For matchers, try reduceRecMatcher? to reduce known discriminants
@@ -247,7 +248,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
             let relArgs := target.getAppArgs
             let newTarget ← mkAppNS target.getAppFn (relArgs.set! (relArgs.size - 1) rhs)
             goal ← goal.replaceTargetDefEq newTarget
-            return .goals [goal]
+            return SolveResult.goals [goal]
         -- Fall back to full split
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
         let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWP excessArgs
@@ -278,11 +279,33 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
             else pure g
           else pure g
           resultGoals := resultGoals ++ [g]
-        return .goals resultGoals
+        return SolveResult.goals resultGoals
       -- Apply registered specifications
+      -- Strip mdata wrappers (partial_fixpoint marks recursive calls with mdata)
+      let e := e.consumeMData
       let f := e.getAppFn
       if f.isConst || f.isFVar then
         trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
+        -- For fvar-headed programs (recursive calls), try local specs
+        -- using tryMkBackwardRuleFromLocalSpec (skips mkAuxLemma to avoid kernel fvar issues)
+        if f.isFVar then
+          for spec in (← read).localSpecs do
+            if let some pattern := spec.pattern then
+              if let some _ ← pattern.match? e then
+                trace[Loom.Tactic.vcgen] "Applying local spec for fvar {e}"
+                try
+                  let some rule ← (tryMkBackwardRuleFromLocalSpec spec l instWP excessArgs).run
+                    | dbg_trace "tryMkBackwardRuleFromLocalSpec returned none"; continue
+                  -- Strip mdata from goal type so backward rule pattern matches
+                  let goalTy ← goal.getType
+                  let goalTy' ← Meta.transform goalTy (post := fun e => do
+                    return .done e.consumeMData)
+                  let goal' ← if goalTy != goalTy' then goal.replaceTargetDefEq goalTy' else pure goal
+                  let .goals goals ← rule.apply goal'
+                    | continue
+                  return SolveResult.goals goals
+                catch _ => continue
+        -- Fall back to global spec lookup
         match ← findSpecs (← read).specThms e with
         | .error thms => return .noSpecFoundForProgram e m thms
         | .ok thm =>
@@ -292,13 +315,13 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
-        return .goals goals
+        return SolveResult.goals goals
       return .noStrategyForProgram e
   | .EPostVC relConst α inst pre epost excessArgs => do
       let rhs ← betaRevS epost excessArgs.reverse
       let newTarget ← mkAppNS relConst #[α, inst, pre, rhs]
       goal ← goal.replaceTargetDefEq newTarget
-      return .goals [goal]
+      return SolveResult.goals [goal]
   | _ =>
     return .noProgramOrLatticeFoundInTarget target
 
@@ -484,12 +507,29 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
   let simpMethods ← elabSimplifyingAssumptions stx[2]
   -- dbg_trace "disch: {repr disch}"
   let { invariants, vcs } ← Grind.GrindM.run (params := params) do
-    let migratedCtx ← migrateSpecTheoremsDatabase ctx
+    let mut migratedCtx ← migrateSpecTheoremsDatabase ctx
+    -- Add local Triple-typed hypotheses as specs (for recursive IH)
+    let mut localSpecs : Array SpecTheorem := #[]
+    let lctx ← getLCtx
+    for ldecl in lctx do
+      if ldecl.isImplementationDetail then continue
+      let ty ← instantiateMVars ldecl.type
+      let isTriple ← forallTelescopeReducing ty fun _ body => do
+        let body ← whnfR body
+        return body.isAppOf ``Triple
+      if isTriple then
+        try
+          let spec ← mkSpecTheoremFromLocal ldecl.fvarId
+          let pattern ← mkSpecPattern spec.proof
+          let migratedSpec := { spec with pattern := some pattern }
+          -- Only add to localSpecs — NOT to disc tree (to avoid kernel fvar issues)
+          localSpecs := localSpecs.push migratedSpec
+        catch _ => pure ()
     let introRules ← IntroRules.mk'
     let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
     let mProdNames ← mProdNameHintsRef.get
     let clauseNames ← clauseNameHintsRef.get
-    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames }
+    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames, localSpecs }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen

@@ -35,7 +35,7 @@ private def selectProg (type : Expr) : MetaM (Expr × Unit) := do
     throwError "expected Triple or ⊑ wp{indentExpr type}"
 
 /-- Create a `Sym.Pattern` for a `SpecTheorem` by extracting the program from the proof type. -/
-private def mkSpecPattern (proof : SpecProof) : SymM Sym.Pattern := do
+def mkSpecPattern (proof : SpecProof) : SymM Sym.Pattern := do
   match proof with
   | .global declName =>
     Prod.fst <$> Sym.mkPatternFromDeclWithKey declName selectProg
@@ -256,6 +256,27 @@ meta def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
   let type ← preprocessExpr (← Meta.inferType res.expr)
   let spec ← Meta.mkAuxLemma res.paramNames.toList type res.expr
   mkBackwardRuleFromDecl spec
+
+/-- Like `tryMkBackwardRuleFromSpec` but skips `mkAuxLemma` — for local fvar specs
+    where the proof references local variables that the kernel can't see. -/
+meta def tryMkBackwardRuleFromLocalSpec (specThm : SpecTheorem)
+  (Pred instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
+  let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
+  let_expr PartialOrder.rel Pred' _cl' pre rhs := specType
+    | throwError "target not a partial order ⊑ application {specType}"
+  guard <| ← isDefEqGuarded Pred Pred'
+  let_expr wp _m' _ _ _monadInst' _instAL' _instEAL' instWP' _α _EPred' _post _epost := rhs
+    | throwError "target not a wp application {rhs}"
+  guard <| ← isDefEqGuarded instWP instWP'
+  let mut ss := #[]
+  let mut ssTypes := #[]
+  for arg in excessArgs do
+    let ty ← Sym.inferType arg
+    ssTypes := ssTypes.push ty
+    ss := ss.push <| ← mkFreshExprMVar (userName := `s) ty
+  let res ← mkSpecBackwardProof pre rhs specProof ss ssTypes
+  -- Skip mkAuxLemma — use mkBackwardRuleFromExpr directly
+  Sym.mkBackwardRuleFromExpr res.expr res.paramNames.toList
 
 /-! ## Tests for mkSpecBackwardProof -/
 
