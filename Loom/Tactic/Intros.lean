@@ -7,10 +7,22 @@ import Lean
 import Loom.Tactic.ShareExt
 import Loom.Triple.Basic
 
-open Lean Parser Meta Elab Tactic Sym Loom Lean.Order
+open Lean Parser Meta Elab Tactic Sym Loom Lean.Order Grind
 open Std.Do'
 
 namespace Loom
+
+/-! ## MProd splitting lemmas -/
+
+theorem MProd.forall_intro {α : Type u} {β : Type u} {p : MProd α β → Prop} :
+    (∀ x y, p ⟨x, y⟩) → (∀ xy, p xy) :=
+  fun h ⟨a, b⟩ => h a b
+
+theorem MProd.fst_eq {α : Type u} {β : Type u} (a : α) (b : β) :
+    (MProd.mk a b).fst = a := rfl
+
+theorem MProd.snd_eq {α : Type u} {β : Type u} (a : α) (b : β) :
+    (MProd.mk a b).snd = b := rfl
 
 /-! ## VCGen intro procedures
 
@@ -24,6 +36,7 @@ structure IntroRules where
   meetPreIntro    : BackwardRule
   trueMeetPreElim : BackwardRule
   propPreIntro    : BackwardRule
+  mProdForall     : BackwardRule
 
 /-- Build the `IntroRules` cache. -/
 def IntroRules.mk' : SymM IntroRules := do
@@ -32,14 +45,52 @@ def IntroRules.mk' : SymM IntroRules := do
     meetPreIntro    := ← mkBackwardRuleFromDecl ``meet_pre_intro'
     trueMeetPreElim := ← mkBackwardRuleFromDecl ``true_meet_pre_elim
     propPreIntro    := ← mkBackwardRuleFromDecl ``prop_pre_intro
+    mProdForall     := ← mkBackwardRuleFromDecl ``MProd.forall_intro
   }
 
-/-- Introduce all forall-bound variables in the goal. -/
-def introsWP (goal : Grind.Goal) : SymM Grind.Goal := do
+/-- Introduce all forall binders one-by-one, splitting any `MProd`-typed ones.
+    For `∀ (s : MProd A (MProd B C)), P s`:
+    1. Outermost is MProd → apply split rule → `∀ (a : A) (bc : MProd B C), P ⟨a, bc⟩`
+    2. Intro `a` (non-MProd) via `goal.intros #[name]`
+    3. Outermost is MProd again → split → `∀ (b : B) (c : C), P ⟨a, ⟨b, c⟩⟩`
+    4. Intro `b`, intro `c` -/
+partial def splitMProdForalls (rules : IntroRules) (goal : Grind.Goal) : SymM Grind.Goal := do
+  -- Instantiate mvars so the type is fully resolved after prior apply/intro steps
+  let mut mvarId := goal.mvarId
+  let type ← instantiateMVars (← mvarId.getType)
+  if type != (← mvarId.getType) then
+    mvarId ← mvarId.replaceTargetDefEq type
+  unless type.isForall do return { goal with mvarId }
+  if type.bindingDomain!.isAppOfArity ``MProd 2 then
+    -- Use Meta.apply instead of BackwardRule.apply to avoid introN issues
+    let ci ← getConstInfo ``MProd.forall_intro
+    let us ← ci.levelParams.mapM fun _ => mkFreshLevelMVar
+    let subgoals ← mvarId.apply (mkConst ``MProd.forall_intro us)
+    let [mvarId'] := subgoals | return { goal with mvarId }
+    splitMProdForalls rules { goal with mvarId := mvarId' }
+  else
+    let (_, mvarId') ← mvarId.intro type.bindingName!
+    splitMProdForalls rules { goal with mvarId := mvarId' }
+
+/-- Introduce all forall-bound variables, splitting MProd binders and
+    simplifying `⟨x, y⟩.fst → x`, `⟨x, y⟩.snd → y` afterwards.
+    Threads `Simp.State` for cache persistence across calls. -/
+def introsWP (rules : IntroRules) (simpMethods? : Option Sym.Simp.Methods)
+    (goal : Grind.Goal) : GrindM Grind.Goal := do
   let mut goal := goal
-  if (← goal.mvarId.getType).isForall then
-    let .goal _ goal' ← goal.intros #[] | failure
-    goal := goal'
+  goal ← splitMProdForalls rules goal
+  if let some methods := simpMethods? then
+    -- Fold kernel projections (Expr.proj → app form) before Sym.simp
+    let mut mvarId := goal.mvarId
+    let target ← mvarId.getType
+    let target' ← Grind.foldProjs target
+    if target != target' then
+      mvarId ← mvarId.replaceTargetDefEq target'
+    goal := { goal with mvarId }
+    let simpResult ← goal.simp methods
+    match simpResult with
+    | .goal goal' => goal := goal'
+    | .closed | .noProgress => pure ()
   return goal
 
 /-- Expand `pre ⊑ rhs` when the lattice type is a function type `σ₁ → ... → σₙ → BaseTy`

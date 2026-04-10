@@ -270,7 +270,11 @@ def Goal (_n : Nat) := ∀ arr₀, ⦃ 1 ≤ arr₀.size ⦄ insertionSort arr�
       (arr.toMultiset = arr₀.toMultiset) ⊓
       (∀ i j, 0 ≤ i ∧ i < j ∧ j ≤ arr.size - 1 → arr[i]! ≤ arr[j]!) ⦄
 
-#eval runBenchUsingTactic ``Goal [] `(tactic| (intro arr₀; simp only [insertionSort]; mvcgen' simplifying_assumptions [foo', foo''] with grind)) `(tactic| fail) [0]
+
+#eval runBenchUsingTactic ``Goal [] `(tactic| (
+  intro arr₀; 
+  simp only [insertionSort]; 
+  mvcgen' simplifying_assumptions [foo', foo''] with grind [-getElem?_neg, -getElem?_pos])) `(tactic| fail) [0]
 
 end InsertionSort
 

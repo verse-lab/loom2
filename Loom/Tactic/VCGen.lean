@@ -58,6 +58,7 @@ structure VCGen.State where
   specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   splitBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   logicBackwardRuleCache : Std.HashMap (Name × Array Expr × Nat) BackwardRule := {}
+  -- simpState              : Sym.Simp.State := {}
   invariants             : Array MVarId := #[]
   vcs                    : Array MVarId := #[]
 
@@ -231,7 +232,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         -- Rebuild the ⊑ goal with the new RHS
         let_expr PartialOrder.rel l cl pre _rhs := target
           | throwError "expected ⊑ goal but got {target}"
-        let newTarget ← mkAppNS (mkConst ``PartialOrder.rel) #[l, cl, pre, rhs]
+        let newTarget ← mkAppNS target.getAppFn #[l, cl, pre, rhs]
         goal ← goal.replaceTargetDefEq newTarget
         return .goals [goal]
       -- Split ite/dite/match
@@ -277,12 +278,6 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       goal ← goal.replaceTargetDefEq newTarget
       return .goals [goal]
   | _ =>
-    -- Try simplifying with simp methods before giving up
-    if let some methods := (← read).simpMethods then
-      match ← Sym.simpGoal goal methods with
-      | .closed => return .goals []
-      | .goal goal' => return .goals [goal']
-      | .noProgress => pure ()
     return .noProgramOrLatticeFoundInTarget target
 
 
@@ -316,7 +311,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let goal ← introsWP goal
+    let goal ← introsWP rules (← read).simpMethods goal
     -- Unfold Triple goals that arise from subgoals (e.g., loop invariant specs)
     let goal ← unfoldTriple rules goal
     let res ← solve goal.mvarId
@@ -398,8 +393,11 @@ private meta def elabSymSimpParts
     -- (the simproc elaborators only use `CoreM`/`MetaM` capabilities).
     throwError "named Sym.simp variants are not yet supported in `mvcgen'`; \
       use `mvcgen' simplifying_assumptions [thm₁, thm₂, ...]` with the default variant instead"
-  -- Resolve extra theorems (local hypotheses first, then global constants)
+  -- Always include MProd projection lemmas for post-intro simplification
   let mut extraThms : Array Simp.Theorem := #[]
+  extraThms := extraThms.push (← Simp.mkTheoremFromDecl ``MProd.fst_eq)
+  extraThms := extraThms.push (← Simp.mkTheoremFromDecl ``MProd.snd_eq)
+  -- Resolve user-specified extra theorems
   if let some ids := extraIds? then
     for id in ids do
       let declName ← realizeGlobalConstNoOverload id
@@ -407,10 +405,9 @@ private meta def elabSymSimpParts
   -- Build methods
   let pre := Simp.simpControl >> Simp.simpArrowTelescope
   let mut post : Sym.Simp.Simproc := Simp.evalGround
-  unless extraThms.isEmpty do
-    let mut thms : Simp.Theorems := {}
-    for thm in extraThms do thms := thms.insert thm
-    post := post >> thms.rewrite
+  let mut thms : Simp.Theorems := {}
+  for thm in extraThms do thms := thms.insert thm
+  post := post >> thms.rewrite
   return { pre, post }
 
 private meta def elabSimplifyingAssumptions (simpClause : Syntax) : OptionT TacticM Sym.Simp.Methods := do
