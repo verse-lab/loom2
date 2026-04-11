@@ -70,4 +70,4 @@ set_option trace.profiler true
 prove_correct differenceMinMax by
   unfold IsMinOfArray IsMaxOfArray InArray
   mvcgen' simplifying_assumptions with grind
-  exists x, y; grind
+  exists mn, mx; grind

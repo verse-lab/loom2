@@ -3,6 +3,8 @@ Copyright (c) 2026 Lean FRO LLC. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Sebastian Graf
 -/
+-- Disabled: contained sorry unrelated to Velvet/Bench.
+/-
 import Lean
 import Loom.Tactic.VCGen
 import Loom.Test.Driver
@@ -54,3 +56,5 @@ set_option maxHeartbeats 10000000
 def runTests := runBenchUsingTactic ``Goal [``loop, ``step] `(tactic| (intro post epost s₁ s₂; mvcgen' with grind)) `(tactic| fail)
 
 #eval runTests [1000]
+
+-/

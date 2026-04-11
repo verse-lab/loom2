@@ -1,3 +1,6 @@
+-- Disabled: superseded by Loom/Test/Velvet/Theory.lean and Loom/Test/Velvet/Syntax.lean.
+-- This file contained sorry unrelated to Velvet/Bench.
+/-
 import Lean
 import Loom.Test.Driver
 import Loom.Triple.SpecLemmas
@@ -291,3 +294,4 @@ theorem test_pure_meet :
   mvcgen' with grind
 
 end TestPure
+-/

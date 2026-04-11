@@ -37,7 +37,7 @@ method ifPowerOfFour (n: Nat)
         -- Initialization: current = n, so trivially holds
         -- Preservation: if current = 4^k and current % 4 = 0, then current/4 = 4^(k-1)
         -- Sufficiency: when current = 1, isPowerOfFour current holds (4^0 = 1)
-        invariant (isPowerOfFour n ↔ isPowerOfFour current)
+        invariant invariant_power_preserved : (isPowerOfFour n ↔ isPowerOfFour current)
         done_with current = 1 ∨ current % 4 ≠ 0
       do
         current := current / 4
@@ -47,7 +47,7 @@ set_option maxHeartbeats 10000000
 
 prove_correct ifPowerOfFour by
   (mvcgen' simplifying_assumptions with grind) <;> try simp at *
-  · rename_i current done_1 invariant_power_preserved _
+  · rename_i done_1
     constructor
     · intro; rw [invariant_power_preserved]
       exists 0; grind
@@ -55,8 +55,7 @@ prove_correct ifPowerOfFour by
       intro h'
       have ⟨y,hy⟩: isPowerOfFour current := by grind
       cases y <;> grind
-  · rename_i invariant_power_preserved _ _
-    constructor
+  · constructor
     · intro h
       obtain ⟨y, hy⟩ := invariant_power_preserved.mp h
       cases y <;> grind

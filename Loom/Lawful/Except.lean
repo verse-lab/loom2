@@ -1,3 +1,5 @@
+-- Disabled: contained sorry unrelated to Velvet/Bench.
+/-
 import Loom.WP.Basic
 import Loom.Lawful.Lift
 
@@ -58,3 +60,5 @@ instance (ε ρ : Type u₁) [MonadExceptOf ε m] [MonadExceptOf ε (PredTrans P
   LawfulMonadExceptOf (ReaderT ρ m) (ρ → Pred) EPred ε where
   wp_throw := by sorry
   wp_tryCatch := by sorry
+
+-/

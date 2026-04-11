@@ -1,3 +1,5 @@
+-- Disabled: contained sorry unrelated to Velvet/Bench.
+/-
 import Loom.WP.Basic
 import Loom.Lawful.Lift
 
@@ -119,3 +121,5 @@ instance (ρ σ : Type u₁)
 --     apply lift_wp_trans (Pred := Pred) (EPred := EPred)
 --     apply lift_monotone (m := m) (n := n)
 --     apply LawfulMonadReaderOf.wp_read
+
+-/

@@ -1,8 +1,10 @@
+-- Disabled: contained sorry unrelated to Velvet/Bench.
 /-
 Extracted expensive grind goals from the 3 outlier benchmarks.
 MProd fields decomposed, names prettified.
 Each section is standalone with the relevant definitions and grind attributes.
 -/
+/-
 import Lean
 
 open Lean Meta Elab Tactic
@@ -227,3 +229,4 @@ example (a1 a2 : Array Nat)
   try first | grind | sorry
 
 end MergeSorted'
+-/

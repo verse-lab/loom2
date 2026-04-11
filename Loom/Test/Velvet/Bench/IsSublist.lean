@@ -41,7 +41,7 @@ method isSublist (sub : List Int) (main : List Int)
         -- Invariant 3: Completeness w.r.t. current suffix: if `sub` is an infix of `main`, then either we already found it
         -- or it is still an infix of the remaining `rest` (some later start position).
         -- Init: rest = main, found = false. Preserved: if not found at current head position, rest := rest.drop 1.
-        invariant (sub <:+: main → found = true ∨ sub <:+: rest)
+        invariant invariant_not_missed : sub <:+: main → found = true ∨ sub <:+: rest
         done_with (rest = [] ∨ found = true)
       do
         -- If sub is longer than remaining suffix, it cannot match here.
@@ -61,7 +61,5 @@ attribute [grind .] List.singleton_append List.append_assoc List.take_prefix Lis
 prove_correct isSublist by
   mvcgen' simplifying_assumptions with grind
   simp at * <;>
-  rename_i b invariant_not_missed _ _ _ _ _
-  rcases b with ⟨fst, snd⟩ <;> simp_all only
   intro hmain
   rcases invariant_not_missed hmain with (_|⟨pre, suf, hpre⟩) <;> try grind

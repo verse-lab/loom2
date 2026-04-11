@@ -324,7 +324,12 @@ instance : PartialOrder Prop where
 def propSup (c : Prop → Prop) : Prop := ∃ p, c p ∧ p
 
 theorem propSup_is_sup (c : Prop → Prop) : is_sup c (propSup c) := by
-  sorry
+  intro x
+  constructor
+  · intro h y hcy hy
+    exact h ⟨y, hcy, hy⟩
+  · intro h ⟨y, hcy, hy⟩
+    exact h y hcy hy
 
 instance : CompleteLattice Prop where
   has_sup c := ⟨propSup c, propSup_is_sup c⟩
@@ -339,9 +344,9 @@ theorem prop_pre_elim (x : Prop) : x → True ⊑ x :=
 theorem meet_pre_intro (a b c : Prop) : (a → b ⊑ c) → a ⊓ b ⊑ c :=
   fun h hab => h ((meet_le_left a b) hab) ((meet_le_right a b) hab)
 
-/-- Intro the right component of a meet precondition: `a ⊓ b ⊑ c` becomes `a → b ⊑ c`. -/
+/-- Intro the right component of a meet precondition: `a ⊓ b ⊑ c` becomes `b → a ⊑ c`. -/
 theorem meet_pre_intro' (a b c : Prop) : (b → a ⊑ c) → a ⊓ b ⊑ c :=
-  sorry
+  fun h hab => h ((meet_le_right a b) hab) ((meet_le_left a b) hab)
 
 
 /-- Eliminate `True` from the left of a meet precondition. -/

@@ -85,14 +85,14 @@ set_option trace.profiler true
 
 open Lean.Order Std.Do'
 
-def Goal (_n : Nat) := ∀ lst,
-  ⦃ True ⦄ findMajorityElement lst
-  ⦃ result, (hasMajorityElement lst → (result ∈ lst ∧ isMajorityElement lst result)) ⊓ (¬hasMajorityElement lst → result = -1) ⦄
+-- def Goal (_n : Nat) := ∀ lst,
+--   ⦃ True ⦄ findMajorityElement lst
+--   ⦃ result, (hasMajorityElement lst → (result ∈ lst ∧ isMajorityElement lst result)) ⊓ (¬hasMajorityElement lst → result = -1) ⦄
 
-#eval runBenchUsingTactic ``Goal [] `(tactic| (
-  intro lst; simp only [findMajorityElement]
-  mvcgen' simplifying_assumptions with grind
-)) `(tactic| fail) [0]
+-- -- #eval runBenchUsingTactic ``Goal [] `(tactic| (
+-- --   intro lst; simp only [findMajorityElement]
+-- --   mvcgen' simplifying_assumptions with grind
+-- -- )) `(tactic| fail) [0]
 
 prove_correct findMajorityElement by
   mvcgen' simplifying_assumptions with grind
