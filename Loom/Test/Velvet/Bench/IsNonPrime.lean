@@ -14,6 +14,8 @@ method IsNonPrime (n: Nat)
     invariant 2 ≤ i
     invariant (ret = false ↔ ∀ d, 2 ≤ d ∧ d < i → n % d ≠ 0)
     invariant (i - 1) * (i - 1) ≤ n
+    -- invariant i ≤ n
+    -- decreasing (n + 1 - i)
     do
       if n % i = 0 then
         ret := true

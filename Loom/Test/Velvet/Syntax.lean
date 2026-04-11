@@ -97,6 +97,36 @@ syntax "while' " termBeforeDo
   (" invariant " (atomic(ident " : "))? termBeforeDo)*
   " do " doSeq : doElem
 
+-- While' with `decreasing` measure (total correctness): with and without `done_with`
+syntax "while' " termBeforeDo
+  (" invariant " (atomic(ident " : "))? termBeforeDo)*
+  " decreasing " termBeforeDo
+  " done_with " termBeforeDo
+  " do " doSeq : doElem
+
+syntax "while' " termBeforeDo
+  (" invariant " (atomic(ident " : "))? termBeforeDo)*
+  " decreasing " termBeforeDo
+  " do " doSeq : doElem
+
+macro_rules
+  | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* decreasing $m done_with $d do $body) => do
+    let inv ← foldInvariants invs ns
+    `(doElem| repeat do
+      invariantGadget $inv
+      decreasingGadget $m
+      onDoneGadget $d
+      if $cond then $body else break)
+
+macro_rules
+  | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* decreasing $m do $body) => do
+    let inv ← foldInvariants invs ns
+    `(doElem| repeat do
+      invariantGadget $inv
+      decreasingGadget $m
+      onDoneGadget (¬ $cond)
+      if $cond then $body else break)
+
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* done_with $d do $body) => do
     let inv ← foldInvariants invs ns
@@ -243,13 +273,15 @@ elab_rules : command
   elabCommand defCmd
   velvetObligations.modify' (·.insert name.getId obligation)
 
-/-! ## `prove_correct` / `prove_correct?` commands -/
+/-! ## `prove_correct` / `prove_correct?` / `prove_correct_total` commands -/
 
 syntax "prove_correct " ident " by " tacticSeq : command
 syntax "prove_correct? " ident : command
+syntax "prove_correct_total " ident " by " tacticSeq : command
 
 private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
-    (proof? : Option (TSyntax ``Lean.Parser.Tactic.tacticSeq)) : CommandElabM (TSyntax `command) := do
+    (proof? : Option (TSyntax ``Lean.Parser.Tactic.tacticSeq))
+    (total : Bool := false) : CommandElabM (TSyntax `command) := do
   let bindersIdents := obligation.binderIdents
   let ids := obligation.ids
   let retId := obligation.retId
@@ -263,7 +295,11 @@ private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
   let ihRawName := mkIdent (Name.mkSimple s!"ih_{name.getId}_raw")
   let ihTripleName := mkIdent (Name.mkSimple s!"ih_{name.getId}")
   let tripleFromPC' := mkIdent ``triple_from_option_spec
+  -- Epost expression: True for partial, False for total.
+  let epostStx ← if total then `((False : Prop)) else `((True : Prop))
   if obligation.isFixpoint then
+    if total then
+      throwError "prove_correct_total not yet supported for recursive (method_fix) methods"
     -- For fixpoint methods:
     -- 1. Apply triple_from_option_spec outside GrindM to convert Triple → equation
     -- 2. Apply partial_correctness outside GrindM for induction
@@ -285,7 +321,7 @@ private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
           $tripleId
             $pre
             ($name $ids*)
-            (fun $retId => $post) (True : Prop) := by
+            (fun $retId => $post) $epostStx := by
           apply $tripleFromPC
           apply $pcName
           intro $ihName $ihRawName
@@ -299,7 +335,7 @@ private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
           $tripleId
             $pre
             ($name $ids*)
-            (fun $retId => $post) (True : Prop) := by
+            (fun $retId => $post) $epostStx := by
           apply $tripleFromPC
           apply $pcName
           intro $ihName $ihRawName
@@ -316,7 +352,7 @@ private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
           $tripleId
             $pre
             ($name $ids*)
-            (fun $retId => $post) (True : Prop) := by
+            (fun $retId => $post) $epostStx := by
           simp only [$name:ident]
           ($proof))
     | none =>
@@ -326,7 +362,7 @@ private def mkProveCorrectThm (name : Ident) (obligation : VelvetObligation)
           $tripleId
             $pre
             ($name $ids*)
-            (fun $retId => $post) (True : Prop) := by
+            (fun $retId => $post) $epostStx := by
           simp only [$name:ident]
           sorry)
 
@@ -359,3 +395,23 @@ elab_rules : command
     let thmCmd ← mkProveCorrectThm name obligation none
     Command.liftTermElabM do
       Lean.Meta.Tactic.TryThis.addSuggestion (← getRef) thmCmd
+
+@[incremental]
+elab_rules : command
+  | `(command| prove_correct_total $name:ident by $proof:tacticSeq) => do
+    let ctx ← velvetObligations.get'
+    let .some obligation := ctx[name.getId]?
+      | throwError "no obligation found for `{name.getId}`. Did you define it with `method`?"
+    -- Extract MProd component names from the method definition for variable naming
+    let mprodNames ← Command.runTermElabM fun _ => do
+      Loom.extractMProdNamesFromDef name.getId
+    Loom.mProdNameHintsRef.set mprodNames
+    -- Store clause names for hypothesis naming
+    Loom.clauseNameHintsRef.set {
+      preNames := obligation.preNames
+      postNames := obligation.postNames
+      invNames := obligation.invNames
+    }
+    let thmCmd ← mkProveCorrectThm name obligation (some proof) (total := true)
+    elabCommand thmCmd
+    velvetObligations.modify' (·.erase name.getId)

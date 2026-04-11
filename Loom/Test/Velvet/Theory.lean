@@ -106,6 +106,8 @@ theorem repeat_inv_partial_simple (f : Unit → β → Option (ForInStep β))
 set_option linter.unusedVariables false in
 def invariantGadget (inv : Prop) : Option PUnit := pure ⟨⟩
 set_option linter.unusedVariables false in
+def decreasingGadget (measure : Nat) : Option PUnit := pure ⟨⟩
+set_option linter.unusedVariables false in
 def onDoneGadget {α : Type _} (done : α) : Option PUnit := pure ⟨⟩
 
 /-- Spec for `repeat do` loops — partial correctness (no decreasing measure). -/
@@ -128,6 +130,71 @@ theorem Spec.forIn_loop_partial
   show Triple (inv b)
     (invariantGadget (inv b) >>= fun _ => onDoneGadget (doneWith b) >>= fun _ => f () b) _ _
   unfold invariantGadget onDoneGadget
+  show Triple (inv b) (f () b) _ _
+  exact step b
+
+/-! ## Total-correctness loop rules (require a decreasing measure) -/
+
+/-- Total-correctness loop invariant rule with explicit measure.
+Specialized to the `Option` monad; parametric in `epost : Prop` so it applies
+to both partial and total goals. -/
+theorem repeat_inv (f : Unit → β → Option (ForInStep β))
+    (inv : ForInStep β → Prop) (measure : β → Nat) (epost : Prop)
+    (init : β)
+    (hstep : ∀ b, Triple (inv (ForInStep.yield b)) (f () b)
+      (fun | ForInStep.yield b' => inv (ForInStep.yield b') ⊓ ⌜ measure b' < measure b ⌝
+           | ForInStep.done b' => inv (ForInStep.done b')) epost) :
+    Triple (inv (ForInStep.yield init)) (Loop.forIn.loop f init)
+      (fun b => inv (ForInStep.done b)) epost := by
+  sorry
+
+/-- Total-correctness loop rule with separate inv/doneWith. -/
+theorem repeat_inv_split (f : Unit → β → Option (ForInStep β))
+    (inv : β → Prop) (doneWith : β → Prop) (measure : β → Nat) (epost : Prop)
+    (init : β)
+    (hstep : ∀ b, Triple (inv b) (f () b)
+      (fun | ForInStep.yield b' => inv b' ⊓ ⌜ measure b' < measure b ⌝
+           | ForInStep.done b' => inv b' ⊓ doneWith b') epost) :
+    Triple (inv init) (Loop.forIn.loop f init) (fun b => inv b ⊓ doneWith b) epost :=
+  repeat_inv f
+    (fun | ForInStep.yield b => inv b | ForInStep.done b => inv b ⊓ doneWith b)
+    measure epost init hstep
+
+/-- Total-correctness loop rule when done adds no extra info. -/
+theorem repeat_inv_simple (f : Unit → β → Option (ForInStep β))
+    (inv : β → Prop) (measure : β → Nat) (epost : Prop)
+    (init : β)
+    (hstep : ∀ b, Triple (inv b) (f () b)
+      (fun | ForInStep.yield b' => inv b' ⊓ ⌜ measure b' < measure b ⌝
+           | ForInStep.done b' => inv b') epost) :
+    Triple (inv init) (Loop.forIn.loop f init) (fun b => inv b) epost :=
+  repeat_inv f
+    (fun | ForInStep.yield b => inv b | ForInStep.done b => inv b)
+    measure epost init hstep
+
+/-- Spec for `repeat do` loops with a decreasing measure — total correctness.
+Parametric in `eInv : Prop`; lspec dispatches to this spec (vs `Spec.forIn_loop_partial`)
+based on the presence of `decreasingGadget` in the loop body. -/
+@[lspec]
+theorem Spec.forIn_loop_total
+    {init : β} {f : Unit → β → Option (ForInStep β)}
+    {inv : β → Prop} {measure : β → Nat} {doneWith : β → Prop} {eInv : Prop}
+    (step : ∀ b, Triple (inv b) (f () b)
+      (fun | ForInStep.yield b' => inv b' ⊓ ⌜ measure b' < measure b ⌝
+           | ForInStep.done b' => inv b' ⊓ doneWith b') eInv) :
+    Triple (inv init) (forIn Loop.mk init fun u b => do
+      invariantGadget (inv b)
+      decreasingGadget (measure b)
+      onDoneGadget (doneWith b)
+      f u b)
+      (fun b => inv b ⊓ doneWith b) eInv := by
+  apply repeat_inv_split (init := init) (measure := measure)
+  intro b
+  show Triple (inv b)
+    (invariantGadget (inv b) >>= fun _ =>
+      decreasingGadget (measure b) >>= fun _ =>
+        onDoneGadget (doneWith b) >>= fun _ => f () b) _ _
+  unfold invariantGadget decreasingGadget onDoneGadget
   show Triple (inv b) (f () b) _ _
   exact step b
 
