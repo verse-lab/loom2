@@ -133,6 +133,10 @@ theorem HeapM.triple_skip_spec {P : hProp} :
     ⦃ P ⦄ HeapM.skip ⦃ _, P ⦄ := by
   exact Triple.pure () (PartialOrder.rel_refl)
 
+theorem HeapM.triple_skip_spec' {P : hProp} (H : P ⊑ P') :
+    ⦃ P ⦄ HeapM.skip ⦃ _, P' ⦄ := by
+  exact Triple.pure () (by grind)
+
 theorem HeapM.inhale_spec (hp : hProp) :
   ⦃ ∅ ⦄ inhale hp ⦃ _, hp ⦄ := by
   simp [inhale]
@@ -156,7 +160,7 @@ theorem HeapM.exhale_spec (hp : hProp) :
   apply hForall_intro
   intro H
   apply entails_hWand
-  grind [← hStar_comm]
+  grind
 
 theorem HeapM.read_spec (x : Loc) (v : Val) :
   ⦃ x ↦ v ⦄ read x ⦃ v', ⌜v = v'⌝ʰ ∗ x ↦ v ⦄ := by

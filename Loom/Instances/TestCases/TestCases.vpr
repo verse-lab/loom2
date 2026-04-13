@@ -74,3 +74,19 @@ method aliasing(r1: Ref, r2: Ref)
 
   assert r1.f == 0
 }
+
+
+
+method testing_basic (p : Ref, p1 : Ref)
+{
+  inhale acc(p.f)
+  inhale acc(p1.f)
+  exhale (p != p1)
+}
+
+
+
+method testing_basic2 (p : Ref, p1 : Ref)
+{
+  inhale acc(p.f) && p.f == 2
+}

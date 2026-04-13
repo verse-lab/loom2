@@ -162,3 +162,14 @@ example (p : Loc) (v : Val) :
   apply HeapM.triple_exhale_frac_of_frac p v Perm.twoThirds Perm.third Perm.third
     (by grind) (by grind) (by ext; grind) (by grind) rfl
   apply HeapM.triple_skip_spec
+
+
+
+
+
+
+@[grind] theorem hStar_hExists_hSingle_same_false :
+    (fullPerm p ∗ fullPerm p) h → False := by sorry
+
+@[grind] theorem hStar_pure_intro (P : hProp) (Q : Prop) (h : Heap) :
+     Q → (P ∗ ⌜Q⌝) h := by sorry
