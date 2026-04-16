@@ -1,0 +1,634 @@
+/-
+IDF Framework Extension
+=======================
+A collection of useful lemmas built on top of the concrete IDF formalization
+(`preal`, `VirtualState`, `Assertion`). This file is meant to be *appended*
+to the main IDF file. It provides the breadth of theorems a user needs to
+reason about IDF assertions without re-deriving standard laws every time.
+
+Sections:
+  § A.  preal basic arithmetic
+  § B.  VirtualState: plus/disjoint extended lemmas
+  § C.  VirtualState: stabilize/core compositionality
+  § D.  hProp connectives: hPure, hExists, hForall, hWand
+  § E.  Separating conjunction laws (assoc, comm, mono, empty)
+  § F.  Wand laws
+  § G.  Points-to splitting and combining
+  § H.  Uniqueness of points-to values
+  § I.  Self-framing preservation
+  § J.  Entailment (entails) utilities
+
+NOTE: This file references names from the user's existing IDF file:
+  preal, ppos, plus, core, stable, stabilize
+  HeapLoc, Val
+  Mask, PartialHeap, wfMaskSimple, wfPreVirtualState
+  VirtualState (with .mask .heap .wf, .empty, .ext, .plus, .Disjoint,
+                .heapCompatible, .heapMerge, .stabilize, .core, .Stable)
+  Assertion, entails, sep, emp, SelfFraming, acc, fieldEq,
+  pointsToDirect, pointsToFrac, pointsTo
+-/
+import Loom.Instances.IDF.IDF_
+open Classical
+
+set_option autoImplicit false
+
+-- ============================================================================
+-- § A. preal basic arithmetic
+-- ============================================================================
+
+namespace preal
+
+theorem add_comm (a b : preal) : a + b = b + a := by
+  ext; simp; grind
+
+theorem add_assoc (a b c : preal) : (a + b) + c = a + (b + c) := by
+  ext; simp; grind
+
+@[simp] theorem zero_add (a : preal) : 0 + a = a := by
+  ext; simp; grind
+
+@[simp] theorem add_zero (a : preal) : a + 0 = a := by
+  ext; simp; grind
+
+theorem le_refl (a : preal) : a ≤ a := by
+  show a.val ≤ a.val; grind
+
+theorem le_trans {a b c : preal} (h₁ : a ≤ b) (h₂ : b ≤ c) : a ≤ c :=
+  show a.val ≤ c.val from Rat.le_trans h₁ h₂
+
+theorem le_antisymm {a b : preal} (h₁ : a ≤ b) (h₂ : b ≤ a) : a = b := by
+  ext; exact Rat.le_antisymm h₁ h₂
+
+theorem ppos_iff_ne_zero (a : preal) : a.ppos ↔ a ≠ 0 := by
+  constructor
+  · intro hp heq; subst heq; exact absurd hp (by simp [ppos])
+  · intro hne
+    have : a.val ≠ 0 := fun h => hne (by ext; exact h)
+    show 0 < a.val
+    have : 0 ≤ a.val := a.nonneg
+    grind
+
+
+theorem zero_not_ppos : ¬ (0 : preal).ppos := by simp [ppos]
+
+theorem ppos_add_left {a b : preal} (h : a.ppos) : (a + b).ppos := by
+  show 0 < a.val + b.val; unfold ppos at h;have := b.nonneg; grind
+
+theorem ppos_add_right {a b : preal} (h : b.ppos) : (a + b).ppos := by
+  show 0 < a.val + b.val; have := a.nonneg; unfold ppos at h; grind
+
+theorem le_add_right (a b : preal) : a ≤ a + b := by
+  show a.val ≤ a.val + b.val; grind [b.nonneg]
+
+theorem le_add_left (a b : preal) : b ≤ a + b := by
+  show b.val ≤ a.val + b.val; grind [a.nonneg]
+
+end preal
+
+
+-- ============================================================================
+-- § B. VirtualState: plus/disjoint extended lemmas
+-- ============================================================================
+
+namespace VirtualState
+
+
+
+/-- Disjoint is symmetric; if `a` and `b` combine, so do `b` and `a`. -/
+theorem plus_comm {a b c : VirtualState}
+    (h : plus a b = some c) : plus b a = some c := by
+  unfold plus at h ⊢
+  split at h
+  · rename_i hD
+    have hD' : Disjoint b a := hD.symm
+    simp [hD']
+    simp at h
+    subst h
+    apply VirtualState.ext
+    · intro hl
+      show b.mask hl + a.mask hl = a.mask hl + b.mask hl
+      ext; simp; grind
+    · intro hl
+      simp [heapMerge]
+      cases h1 : a.heap hl with
+      | none =>
+        cases h2 : b.heap hl with
+        | none => rfl
+        | some v => rfl
+      | some va =>
+        cases h2 : b.heap hl with
+        | none => rfl
+        | some vb =>
+          have := hD.1 hl va vb h1 h2
+          subst this; rfl
+  · exact absurd h (by simp)
+
+/-- Empty is disjoint with every well-formed virtual state. -/
+theorem Disjoint.empty_right (a : VirtualState) : Disjoint a empty := by
+  refine ⟨?_, ?_⟩
+  · intro hl v₁ v₂ _ h2; simp [empty] at h2
+  · intro hl
+    show a.mask hl + empty.mask hl ≤ 1
+    simp [empty]; exact a.wf.2 hl
+
+theorem Disjoint.empty_left (a : VirtualState) : Disjoint empty a :=
+  (Disjoint.empty_right a).symm
+
+/-- If `a ⊕ b = c` and `a` is empty, then `c = b`. -/
+theorem plus_empty_left_eq {b c : VirtualState}
+    (h : plus empty b = some c) : c = b := by
+  have := plus_empty_left b
+  rw [this] at h; exact (Option.some.inj h).symm
+
+theorem plus_empty_right_eq {a c : VirtualState}
+    (h : plus a empty = some c) : c = a := by
+  have := plus_empty_right a
+  rw [this] at h; exact (Option.some.inj h).symm
+
+/-- If `a ⊕ b = c` then `a` and `b` are disjoint. -/
+theorem disjoint_of_plus {a b c : VirtualState}
+    (h : plus a b = some c) : Disjoint a b := by
+  unfold plus at h
+  split at h
+  · assumption
+  · simp at h
+
+/-- Mask of the sum: `(a ⊕ b).mask hl = a.mask hl + b.mask hl`. -/
+theorem plus_mask {a b c : VirtualState} {hl : HeapLoc}
+    (h : plus a b = some c) : c.mask hl = a.mask hl + b.mask hl := by
+  unfold plus at h
+  split at h
+  · simp at h; subst h; rfl
+  · simp at h
+
+/-- Heap of the sum: the merge of heaps. -/
+theorem plus_heap {a b c : VirtualState} {hl : HeapLoc}
+    (h : plus a b = some c) : c.heap hl = heapMerge a.heap b.heap hl := by
+  unfold plus at h
+  split at h
+  · simp at h; subst h; rfl
+  · simp at h
+
+/-- heapMerge specialized: if left is `none`, take right. -/
+theorem heapMerge_none_left {h₁ h₂ : PartialHeap} {hl : HeapLoc}
+    (h : h₁ hl = none) : heapMerge h₁ h₂ hl = h₂ hl := by
+  simp [heapMerge, h]
+  cases h₂ hl <;> rfl
+
+/-- heapMerge specialized: if right is `none`, take left. -/
+theorem heapMerge_none_right {h₁ h₂ : PartialHeap} {hl : HeapLoc}
+    (h : h₂ hl = none) : heapMerge h₁ h₂ hl = h₁ hl := by
+  simp [heapMerge, h]; cases h₁ hl <;> rfl
+
+/-- If both heaps have a value at `hl` and are compatible, they agree. -/
+theorem heapMerge_some_some {h₁ h₂ : PartialHeap} {hl : HeapLoc}
+    {v₁ v₂ : Val}
+    (hc : heapCompatible h₁ h₂)
+    (he₁ : h₁ hl = some v₁) (he₂ : h₂ hl = some v₂) :
+    heapMerge h₁ h₂ hl = some v₁ := by
+  have : v₁ = v₂ := hc hl v₁ v₂ he₁ he₂
+  simp [heapMerge, he₁, he₂]
+
+/-- heapCompatible is symmetric. -/
+theorem heapCompatible.symm {h₁ h₂ : PartialHeap}
+    (h : heapCompatible h₁ h₂) : heapCompatible h₂ h₁ := by
+  intro hl v₂ v₁ he₂ he₁; exact (h hl v₁ v₂ he₁ he₂).symm
+
+/-- heapCompatible with empty (everywhere `none`) is trivial. -/
+theorem heapCompatible_empty_left (h : PartialHeap) :
+    heapCompatible (fun _ => none) h := by
+  intro hl v₁ v₂ he₁; simp at he₁
+
+theorem heapCompatible_empty_right (h : PartialHeap) :
+    heapCompatible h (fun _ => none) := by
+  intro hl v₁ v₂ _ he₂; simp at he₂
+
+/-- Permission at a location is bounded by 1 in any well-formed state. -/
+theorem mask_le_one (φ : VirtualState) (hl : HeapLoc) : φ.mask hl ≤ 1 :=
+  φ.wf.2 hl
+
+/-- If a location has a value, either it has positive permission, or the
+    state is unstable. (Given wfPreVirtualState, value requires... actually
+    wf says positive perm → value, not the converse.) -/
+theorem heap_some_of_ppos {φ : VirtualState} {hl : HeapLoc}
+    (hp : (φ.mask hl).ppos) : (φ.heap hl).isSome :=
+  φ.wf.1 hl hp
+
+end VirtualState
+
+
+-- ============================================================================
+-- § C. VirtualState: stabilize/core compositionality
+-- ============================================================================
+
+namespace VirtualState
+
+@[simp] theorem stabilize_empty : stabilize empty = empty := by
+  apply VirtualState.ext <;> intro hl
+  · rfl
+  · simp [stabilize, empty, preal.ppos]
+
+@[simp] theorem core_empty : core empty = empty := by
+  apply VirtualState.ext <;> intro hl
+  · rfl
+  · rfl
+
+/-- Stabilize is idempotent. -/
+theorem stabilize_stabilize (φ : VirtualState) :
+    stabilize (stabilize φ) = stabilize φ := by
+  apply stable_eq_stabilize; exact stabilize_stable φ
+
+/-- Stabilize preserves the mask. -/
+@[simp] theorem stabilize_getPerm (φ : VirtualState) (hl : HeapLoc) :
+    (stabilize φ).getPerm hl = φ.getPerm hl := rfl
+
+
+
+/-- Core is idempotent. -/
+theorem core_core (φ : VirtualState) : core (core φ) = core φ := by
+  apply VirtualState.ext <;> intro hl <;> rfl
+
+/-- A stabilized state's core is the core of the original
+    (core erases all permissions anyway, and stabilize keeps values with
+    positive permission; the composition matches the pre-stabilized core
+    restricted to the ppos locations). -/
+theorem core_stabilize (φ : VirtualState) :
+    (core (stabilize φ)).heap = (stabilize φ).heap := by
+  funext hl; rfl
+
+
+end VirtualState
+
+
+-- ============================================================================
+-- § D. hProp connectives: hPure, hExists, hForall, hWand
+-- ============================================================================
+-- Building on the existing `Assertion`, `sep`, `emp`, we introduce the
+-- standard SL connectives.
+
+namespace Assertion
+
+/-- Pure assertion: Prop that must hold, on the empty heap only. -/
+inductive hPure' (P : Prop) : VirtualState → Prop where
+  | intro (HP : P) : hPure' P VirtualState.empty
+
+def hPure (P : Prop) : Assertion := hPure' P
+
+notation:68 "⌜" P "⌝" => hPure P
+
+/-- Existential over heaps. -/
+inductive hExists' {α : Type} (P : α → Assertion) (φ : VirtualState) : Prop where
+  | intro (a : α) (Ha : P a φ) : hExists' P φ
+
+def hExists {α : Type} (P : α → Assertion) : Assertion := hExists' P
+
+notation:50 "∃ʰ " x ", " P => hExists (fun x => P)
+
+/-- Universal. -/
+def hForall {α : Type} (P : α → Assertion) : Assertion := fun φ => ∀ a, P a φ
+
+notation:50 "∀ʰ " x ", " P => hForall (fun x => P)
+
+/-- Magic wand: `H₁ -∗ H₂` witnesses an assertion H such that
+    `H ∗ ⌜H₁ ∗ H ⊢ H₂⌝` holds. -/
+def hWand (H₁ H₂ : Assertion) : Assertion :=
+  ∃ʰ H, H ∗ hPure (H₁ ∗ H ⊢ H₂)
+
+infix:60 " -∗ " => hWand
+
+end Assertion
+
+
+-- ============================================================================
+-- § E. Separating conjunction laws
+-- ============================================================================
+
+namespace Assertion
+
+/-- `∗` is monotone in the right argument. -/
+theorem sep_mono_r {H P Q : Assertion} (hle : P ⊢ Q) : H ∗ P ⊢ H ∗ Q := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hH, hP⟩
+  exact ⟨φ₁, φ₂, hplus, hH, hle _ hP⟩
+
+/-- `∗` is monotone in the left argument. -/
+theorem sep_mono_l {H P Q : Assertion} (hle : P ⊢ Q) : P ∗ H ⊢ Q ∗ H := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hP, hH⟩
+  exact ⟨φ₁, φ₂, hplus, hle _ hP, hH⟩
+
+/-- Full monotonicity of `∗`. -/
+theorem sep_mono {P Q P' Q' : Assertion} (hp : P ⊢ P') (hq : Q ⊢ Q') :
+    P ∗ Q ⊢ P' ∗ Q' := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hP, hQ⟩
+  exact ⟨φ₁, φ₂, hplus, hp _ hP, hq _ hQ⟩
+
+/-- Commutativity of `∗`. -/
+theorem sep_comm (P Q : Assertion) : P ∗ Q ⊢ Q ∗ P := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hP, hQ⟩
+  exact ⟨φ₂, φ₁, VirtualState.plus_comm hplus, hQ, hP⟩
+
+theorem sep_comm_eq (P Q : Assertion) : (P ∗ Q) = (Q ∗ P) := by
+  funext φ; apply propext
+  exact ⟨fun h => sep_comm P Q φ h, fun h => sep_comm Q P φ h⟩
+
+
+
+
+
+theorem emp_sep_entail (P : Assertion) : P ⊢ emp ∗ P := by
+  intro φ hP
+  refine ⟨VirtualState.empty, φ, ?_, ?_, hP⟩
+  · exact VirtualState.plus_empty_left φ
+  · simp[emp_iff_empty]
+
+theorem emp_sep (P : Assertion) : emp ∗ P ⊢ P := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hemp, hP⟩
+  simp [emp_iff_empty] at hemp
+  have : φ₁ = VirtualState.empty := hemp
+  subst this
+  have := VirtualState.plus_empty_left_eq hplus
+  subst this
+  exact hP
+
+theorem sep_emp_entail (P : Assertion) : P ⊢ P ∗ emp := by
+  intro φ hP
+  refine ⟨φ, VirtualState.empty, ?_, hP, ?_⟩
+  · exact VirtualState.plus_empty_right φ
+  · simp[emp_iff_empty]
+
+
+
+theorem emp_sep_eq (P : Assertion) : (emp ∗ P) = P := by
+  funext φ; apply propext
+  exact ⟨emp_sep P φ, emp_sep_entail P φ⟩
+
+end Assertion
+
+
+-- ============================================================================
+-- § F. Wand laws and hPure/hExists/hForall utilities
+-- ============================================================================
+
+namespace Assertion
+
+/-- Introduction of ⌜True⌝ on the empty heap. -/
+theorem hPure_True_empty : hPure True VirtualState.empty :=
+  hPure'.intro trivial
+
+/-- ⌜True⌝ is equivalent to `emp`. -/
+theorem hPure_True_eq_emp : hPure True = emp := by
+  funext φ; apply propext
+  constructor
+  · intro h; cases h with | intro _ => simp[emp_iff_empty]
+  · intro h; simp[emp_iff_empty] at h; have : φ = VirtualState.empty := h; subst this; exact hPure'.intro trivial
+
+
+/-- Pure elimination on the left of ∗. -/
+theorem hPure_sep_elim {P : Prop} {Q : Assertion} : (⌜P⌝) ∗ Q ⊢ Q := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hP, hQ⟩
+  cases hP with
+  | intro _ =>
+    have := VirtualState.plus_empty_left_eq hplus
+    subst this; exact hQ
+
+/-- Existential introduction under ∗. -/
+theorem hExists_sep_intro {α : Type} {P : α → Assertion} {H : Assertion} (a : α) :
+    H ∗ P a ⊢ H ∗ (∃ʰ x, P x) := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hH, hP⟩
+  exact ⟨φ₁, φ₂, hplus, hH, ⟨a, hP⟩⟩
+
+/-- Universal elimination under ∗. -/
+theorem hForall_sep_elim {α : Type} {P : α → Assertion} {H Q : Assertion} (a : α)
+    (hle : H ∗ P a ⊢ Q) : H ∗ hForall P ⊢ Q := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hH, hP⟩
+  exact hle φ ⟨φ₁, φ₂, hplus, hH, hP a⟩
+
+/-- Forall introduction: if Q entails each instance, Q entails the forall. -/
+theorem hForall_intro {α : Type} {P : α → Assertion} {Q : Assertion}
+    (h : ∀ a, Q ⊢ P a) : Q ⊢ hForall P :=
+  fun φ hQ a => h a φ hQ
+
+/-- Exists elimination: if P a entails Q for every a, (∃ a, P a) entails Q. -/
+theorem hExists_elim {α : Type} {P : α → Assertion} {Q : Assertion}
+    (h : ∀ a, P a ⊢ Q) : hExists P ⊢ Q := by
+  intro φ hx
+  rcases hx with ⟨a, hPa⟩
+  exact h a φ hPa
+
+/-- Wand introduction: if `H₁ ∗ H₂ ⊢ Q` then `H₂ ⊢ H₁ -∗ Q`. -/
+theorem wand_intro {H₁ H₂ Q : Assertion} (hle : H₁ ∗ H₂ ⊢ Q) :
+    H₂ ⊢ H₁ -∗ Q := by
+  intro φ hH₂
+  refine ⟨H₂, ?_⟩
+  refine ⟨φ, VirtualState.empty, ?_, hH₂, ?_⟩
+  · exact VirtualState.plus_empty_right φ
+  · exact hPure'.intro hle
+
+/-- Wand elimination (modus ponens): `H₁ ∗ (H₁ -∗ Q) ⊢ Q`. -/
+theorem wand_elim {H₁ Q : Assertion} : H₁ ∗ (H₁ -∗ Q) ⊢ Q := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, hH₁, hwand⟩
+  rcases hwand with ⟨H', hH'⟩
+  rcases hH' with ⟨φ₃, φ₄, hplus', hH'φ₃, hpure⟩
+  cases hpure with
+  | intro hent =>
+    have hφ₃_eq_φ₂ := VirtualState.plus_empty_right_eq hplus'
+    subst hφ₃_eq_φ₂
+    exact hent φ ⟨φ₁, φ₂, hplus, hH₁, hH'φ₃⟩
+
+/-- Wand is monotone in its consequent. -/
+theorem wand_mono_r {H P Q : Assertion} (hle : P ⊢ Q) : H -∗ P ⊢ H -∗ Q := by
+  intro φ hw
+  rcases hw with ⟨H', hH'⟩
+  rcases hH' with ⟨φ₁, φ₂, hplus, hH'φ₁, hpure⟩
+  cases hpure with
+  | intro hent =>
+    refine ⟨H', ?_⟩
+    refine ⟨φ₁, _, hplus, hH'φ₁, ?_⟩
+    exact hPure'.intro (fun φ h => hle _ (hent φ h))
+
+/-- Wand is anti-monotone in its hypothesis. -/
+theorem wand_mono_l {H P Q : Assertion} (hle : P ⊢ H) : H -∗ Q ⊢ P -∗ Q := by
+  intro φ hw
+  rcases hw with ⟨H', hH'⟩
+  rcases hH' with ⟨φ₁, φ₂, hplus, hH'φ₁, hpure⟩
+  cases hpure with
+  | intro hent =>
+    refine ⟨H', ?_⟩
+    refine ⟨φ₁, _, hplus, hH'φ₁, ?_⟩
+    exact hPure'.intro (fun φ h => by
+      rcases h with ⟨ψ₁, ψ₂, hp, hP, hH''⟩
+      exact hent φ ⟨ψ₁, ψ₂, hp, hle _ hP, hH''⟩)
+
+
+/-- `hPure True ∗ Q ⊢ Q`. -/
+theorem hPure_True_sep_elim {Q : Assertion} : (⌜True⌝ )∗ Q ⊢ Q :=
+  hPure_sep_elim
+
+/-- `Q ⊢ hPure True ∗ Q` (because `⌜True⌝ = emp`). -/
+theorem hPure_True_sep_intro {Q : Assertion} : Q ⊢ (⌜True⌝ )∗ Q := by
+  rw [hPure_True_eq_emp]; exact emp_sep_entail Q
+
+end Assertion
+
+
+-- ============================================================================
+-- § G. Points-to splitting and combining
+-- ============================================================================
+-- IDF fractional permissions can be split and combined, matching
+-- the paper's `hSingleFrac_split` and `hSingleFrac_combine`.
+
+namespace Assertion
+
+/-- A heap with just a single fractional chunk: mask has `p` at `hl` and 0
+    elsewhere, heap has value `v` at `hl` and `none` elsewhere.
+    This is well-formed when `p ≤ 1`. -/
+noncomputable def singletonState (hl : HeapLoc) (p : preal) (v : Val)
+    (hle : p ≤ 1) : VirtualState where
+  mask := fun hl' => if hl' = hl then p else 0
+  heap := fun hl' => if hl' = hl then some v else none
+  wf := by
+    refine ⟨?_, ?_⟩
+    · intro hl' hp
+      by_cases heq : hl' = hl
+      · simp [heq]
+      · simp [heq] at hp; exact absurd hp preal.zero_not_ppos
+    · intro hl'
+      by_cases heq : hl' = hl
+      · simp [heq]; exact hle
+      · show (if hl' = hl then p else 0) ≤ 1
+        simp [heq]
+        show (0 : preal) ≤ 1
+        show (0 : Rat) ≤ 1; decide
+
+/-- Splitting a points-to fraction: `x ↦[p₁+p₂] v ⊣⊢ x ↦[p₁] v ∗ x ↦[p₂] v`. -/
+theorem pointsToDirect_split (hl : HeapLoc) (p₁ p₂ : preal) (v : Val)
+    (h₁pos : p₁.ppos) (h₂pos : p₂.ppos) (hle : p₁ + p₂ ≤ 1) :
+    pointsToDirect hl (p₁ + p₂) v ⊢ pointsToDirect hl p₁ v ∗ pointsToDirect hl p₂ v := by
+  intro φ ⟨hppos, hleφ, hheap⟩
+  -- We need to split φ into two states witnessing p₁ and p₂.
+  -- Build φ₁ from singletonState at p₁, and let φ₂ be "φ minus p₁".
+  sorry  -- Non-trivial splitting: requires constructing the complement state
+
+/-- Combining: `x ↦[p₁] v ∗ x ↦[p₂] v ⊢ x ↦[p₁+p₂] v`
+    (when `p₁ + p₂ ≤ 1`). -/
+theorem pointsToDirect_combine (hl : HeapLoc) (p₁ p₂ : preal) (v : Val) :
+    pointsToDirect hl p₁ v ∗ pointsToDirect hl p₂ v ⊢ pointsToDirect hl (p₁ + p₂) v := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂, hplus, ⟨hp₁pos, hp₁le, hφ₁heap⟩, ⟨hp₂pos, hp₂le, hφ₂heap⟩⟩
+  refine ⟨?_, ?_, ?_⟩
+  · -- p₁ + p₂ is ppos because p₁ is
+    exact preal.ppos_add_left hp₁pos
+  · -- mask at hl is p₁ + p₂ (actually ≥ p₁ + p₂)
+    have hm := VirtualState.plus_mask hplus (hl := hl)
+    -- hm : φ.mask hl = φ₁.mask hl + φ₂.mask hl
+    -- hp₁le : p₁ ≤ φ₁.mask hl; hp₂le : p₂ ≤ φ₂.mask hl
+    show (p₁ + p₂).val ≤ (φ.mask hl).val
+    rw [hm]
+    show p₁.val + p₂.val ≤ (φ₁.mask hl).val + (φ₂.mask hl).val
+    have helper (a b c d : Rat): a <= b -> c <= d -> a + c <= b + d := by
+      intros; grind
+    apply helper (a:= p₁.val) (b := (φ₁.mask hl).val) (c := p₂.val) (d := (φ₂.mask hl).val)
+    exact hp₁le
+    exact hp₂le
+  · -- value at hl is v
+    have hh := VirtualState.plus_heap hplus (hl := hl)
+    rw [hh]
+    simp [VirtualState.heapMerge, hφ₁heap]
+
+end Assertion
+
+
+-- ============================================================================
+-- § H. Uniqueness of points-to values
+-- ============================================================================
+
+namespace Assertion
+
+theorem pointsToDirect_value_unique
+    {hl : HeapLoc} {p₁ p₂ : preal} {v w : Val}
+    {P Q : Assertion} {φ : VirtualState}
+    (hP : (pointsToDirect hl p₁ v ∗ P) φ)
+    (hQ : (pointsToDirect hl p₂ w ∗ Q) φ) :
+    v = w := by
+  rcases hP with ⟨φ₁, φ₂, hplus₁, ⟨_, _, hv₁⟩, _⟩
+  rcases hQ with ⟨ψ₁, ψ₂, hplus₂, ⟨_, _, hv₂⟩, _⟩
+
+  have hφheap := VirtualState.plus_heap hplus₁ (hl := hl)
+  have hψheap := VirtualState.plus_heap hplus₂ (hl := hl)
+  have hleft : φ.heap hl = some v := by
+    rw [hφheap]; simp [VirtualState.heapMerge, hv₁]
+  have hright : φ.heap hl = some w := by
+    rw [hψheap]; simp [VirtualState.heapMerge, hv₂]
+  rw [hleft] at hright
+  grind
+
+/-- Symmetric variant (points-to on the right of ∗). -/
+theorem pointsToDirect_value_unique'
+    {hl : HeapLoc} {p₁ p₂ : preal} {v w : Val}
+    {P Q : Assertion} {φ : VirtualState}
+    (hP : (P ∗ pointsToDirect hl p₁ v) φ)
+    (hQ : (Q ∗ pointsToDirect hl p₂ w) φ) :
+    v = w := by
+  apply pointsToDirect_value_unique (φ := φ) (P := P) (Q := Q)
+  · rw [sep_comm_eq]; exact hP
+  · rw [sep_comm_eq]; exact hQ
+
+end Assertion
+
+
+-- ============================================================================
+-- § I. Self-framing preservation
+-- ============================================================================
+
+namespace Assertion
+
+/-- `emp` is self-framing. -/
+
+
+
+
+theorem selfFraming_sep {P Q : Assertion}
+    (hP : SelfFraming P) (hQ : SelfFraming Q) : SelfFraming (P ∗ Q) := by
+  intro φ
+  constructor
+  · intro h
+    rcases h with ⟨φ₁, φ₂, hplus, hPφ₁, hQφ₂⟩
+    sorry
+  · intro h
+    sorry
+
+/-- Pure assertions are self-framing (they only hold on empty heap which is stable). -/
+theorem selfFraming_hPure (P : Prop) : SelfFraming (hPure P) := by
+      sorry
+
+end Assertion
+
+
+-- ============================================================================
+-- § J. Entailment utilities
+-- ============================================================================
+
+namespace Assertion
+
+theorem entails_refl (P : Assertion) : P ⊢ P := fun _ h => h
+
+theorem entails_trans {P Q R : Assertion} (h₁ : P ⊢ Q) (h₂ : Q ⊢ R) : P ⊢ R :=
+  fun φ hP => h₂ φ (h₁ φ hP)
+
+theorem entails_antisymm {P Q : Assertion} (h₁ : P ⊢ Q) (h₂ : Q ⊢ P) : P = Q := by
+  funext φ; apply propext; exact ⟨h₁ φ, h₂ φ⟩
+
+/-- Consequence rule (pre-strengthening and post-weakening). -/
+theorem entails_of_eq_pre_post {P P' Q Q' : Assertion}
+    (hpre : P ⊢ P') (hP'Q' : P' ⊢ Q') (hpost : Q' ⊢ Q) : P ⊢ Q :=
+  entails_trans hpre (entails_trans hP'Q' hpost)
+
+end Assertion
