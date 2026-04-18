@@ -1,32 +1,3 @@
-/-
-IDF Framework Extension
-=======================
-A collection of useful lemmas built on top of the concrete IDF formalization
-(`preal`, `VirtualState`, `Assertion`). This file is meant to be *appended*
-to the main IDF file. It provides the breadth of theorems a user needs to
-reason about IDF assertions without re-deriving standard laws every time.
-
-Sections:
-  § A.  preal basic arithmetic
-  § B.  VirtualState: plus/disjoint extended lemmas
-  § C.  VirtualState: stabilize/core compositionality
-  § D.  hProp connectives: hPure, hExists, hForall, hWand
-  § E.  Separating conjunction laws (assoc, comm, mono, empty)
-  § F.  Wand laws
-  § G.  Points-to splitting and combining
-  § H.  Uniqueness of points-to values
-  § I.  Self-framing preservation
-  § J.  Entailment (entails) utilities
-
-NOTE: This file references names from the user's existing IDF file:
-  preal, ppos, plus, core, stable, stabilize
-  HeapLoc, Val
-  Mask, PartialHeap, wfMaskSimple, wfPreVirtualState
-  VirtualState (with .mask .heap .wf, .empty, .ext, .plus, .Disjoint,
-                .heapCompatible, .heapMerge, .stabilize, .core, .Stable)
-  Assertion, entails, sep, emp, SelfFraming, acc, fieldEq,
-  pointsToDirect, pointsToFrac, pointsTo
--/
 import Loom.Instances.IDF.IDF_
 open Classical
 
@@ -93,6 +64,15 @@ end preal
 namespace VirtualState
 
 
+theorem stabilize_of_plus_core
+    {a c x : VirtualState}
+    (h : plus a (c.core) = some x) :
+    stabilize x = stabilize a := by
+  have hs := stabilize_sum h
+  rw [stabilize_core_eq_empty, plus_empty_right] at hs
+  exact Option.some.inj (by grind)
+
+
 
 /-- Disjoint is symmetric; if `a` and `b` combine, so do `b` and `a`. -/
 theorem plus_comm {a b c : VirtualState}
@@ -145,29 +125,7 @@ theorem plus_empty_right_eq {a c : VirtualState}
   have := plus_empty_right a
   rw [this] at h; exact (Option.some.inj h).symm
 
-/-- If `a ⊕ b = c` then `a` and `b` are disjoint. -/
-theorem disjoint_of_plus {a b c : VirtualState}
-    (h : plus a b = some c) : Disjoint a b := by
-  unfold plus at h
-  split at h
-  · assumption
-  · simp at h
 
-/-- Mask of the sum: `(a ⊕ b).mask hl = a.mask hl + b.mask hl`. -/
-theorem plus_mask {a b c : VirtualState} {hl : HeapLoc}
-    (h : plus a b = some c) : c.mask hl = a.mask hl + b.mask hl := by
-  unfold plus at h
-  split at h
-  · simp at h; subst h; rfl
-  · simp at h
-
-/-- Heap of the sum: the merge of heaps. -/
-theorem plus_heap {a b c : VirtualState} {hl : HeapLoc}
-    (h : plus a b = some c) : c.heap hl = heapMerge a.heap b.heap hl := by
-  unfold plus at h
-  split at h
-  · simp at h; subst h; rfl
-  · simp at h
 
 /-- heapMerge specialized: if left is `none`, take right. -/
 theorem heapMerge_none_left {h₁ h₂ : PartialHeap} {hl : HeapLoc}
@@ -293,6 +251,40 @@ notation:50 "∀ʰ " x ", " P => hForall (fun x => P)
     `H ∗ ⌜H₁ ∗ H ⊢ H₂⌝` holds. -/
 def hWand (H₁ H₂ : Assertion) : Assertion :=
   ∃ʰ H, H ∗ hPure (H₁ ∗ H ⊢ H₂)
+
+
+def hWand' (H₁ H₂ : Assertion) : Assertion :=
+fun φ => ∀ a b, H₁ a → VirtualState.plus a φ = some b -> H₂ b
+
+
+theorem hWand_iff_hWand'
+    (H₁ H₂ : Assertion) :
+    hWand H₁ H₂ = hWand' H₁ H₂ := by
+  funext φ
+  apply propext
+  constructor
+  · intro h
+    rcases h with ⟨H, a, e, hplus, hHa, hpure⟩
+    unfold hPure at hpure
+    rcases hpure with ⟨he⟩
+    simp[VirtualState.plus_empty_right] at hplus
+
+    subst hplus
+    intro x y hHx hxy
+    have hxH : (H₁ ∗ H) y := by
+      exact ⟨x, _, hxy, hHx, hHa⟩
+    apply he
+    apply hxH
+  · intro hφ
+    refine ⟨(fun ψ => ψ = φ), ?_⟩
+    refine ⟨φ, VirtualState.empty, ?_, ?_, ?_⟩
+    · simpa using VirtualState.plus_empty_right φ
+    · rfl
+    · constructor
+      · intro ψ hsep
+        rcases hsep with ⟨a, b, hab, hHa, hbEq⟩
+        subst hbEq
+        simpa using hφ a ψ hHa hab
 
 infix:60 " -∗ " => hWand
 
@@ -490,7 +482,7 @@ namespace Assertion
 /-- A heap with just a single fractional chunk: mask has `p` at `hl` and 0
     elsewhere, heap has value `v` at `hl` and `none` elsewhere.
     This is well-formed when `p ≤ 1`. -/
-noncomputable def singletonState (hl : HeapLoc) (p : preal) (v : Val)
+def singletonState (hl : HeapLoc) (p : preal) (v : Val)
     (hle : p ≤ 1) : VirtualState where
   mask := fun hl' => if hl' = hl then p else 0
   heap := fun hl' => if hl' = hl then some v else none
@@ -513,10 +505,119 @@ theorem pointsToDirect_split (hl : HeapLoc) (p₁ p₂ : preal) (v : Val)
     (h₁pos : p₁.ppos) (h₂pos : p₂.ppos) (hle : p₁ + p₂ ≤ 1) :
     pointsToDirect hl (p₁ + p₂) v ⊢ pointsToDirect hl p₁ v ∗ pointsToDirect hl p₂ v := by
   intro φ ⟨hppos, hleφ, hheap⟩
-  -- We need to split φ into two states witnessing p₁ and p₂.
-  -- Build φ₁ from singletonState at p₁, and let φ₂ be "φ minus p₁".
-  sorry  -- Non-trivial splitting: requires constructing the complement state
 
+  -- 1. Calculate the remaining permission at hl for φ₂
+  let rem_val := (φ.mask hl).val - p₁.val
+  have hrem_nonneg : 0 ≤ rem_val := by
+    change p₁.val + p₂.val ≤ (φ.mask hl).val at hleφ
+    have : 0 ≤ p₂.val := p₂.nonneg
+    grind
+  let rem : preal := ⟨rem_val, hrem_nonneg⟩
+  have hrem_le : rem ≤ 1 := by
+    have : (φ.mask hl).val ≤ 1 := φ.wf.2 hl
+    have : 0 ≤ p₁.val := p₁.nonneg
+    show rem_val ≤ 1
+    grind
+
+  -- 2. Define the split states
+  let φ₂ := singletonState hl rem v hrem_le
+
+  let φ₁ : VirtualState := {
+    mask := fun x => if x = hl then p₁ else φ.mask x
+    heap := φ.heap
+    wf := by
+      constructor
+      · intro x hpos
+        by_cases hx : x = hl
+        · subst hx
+          change (φ.heap _).isSome
+          simp [hheap]
+        · simp [hx] at hpos
+          exact φ.wf.1 x hpos
+      · intro x
+        by_cases hx : x = hl
+        · subst hx
+          simp
+          change p₁ ≤ 1
+          have : p₁.val + p₂.val ≤ 1 := hle
+          have : 0 ≤ p₂.val := p₂.nonneg
+          show p₁.val ≤ 1
+          grind
+        · simp [hx]
+          exact φ.wf.2 x
+  }
+
+  -- 3. Prove they are disjoint
+  have hD : VirtualState.Disjoint φ₁ φ₂ := by
+    constructor
+    · intro x v1 v2 h1 h2
+      by_cases hx : x = hl
+      · subst hx
+        change (if _ then some v else none) = some v2 at h2
+        simp at h2
+        change φ.heap _ = some v1 at h1
+        rw [hheap] at h1
+        simp at h1
+        grind
+      · change (if x = hl then some v else none) = some v2 at h2
+        simp [hx] at h2
+    · intro x
+      by_cases hx : x = hl
+      · subst hx
+        simp [φ₂, φ₁, singletonState]
+        show p₁ + rem ≤ 1
+        have h_eq : p₁.val + rem_val = (φ.mask x).val := by grind
+        show (p₁ + rem).val ≤ 1
+        unfold preal.val
+        simp
+        rw [h_eq]
+        have := φ.wf.2
+        unfold wfMaskSimple at this
+        apply this x
+      · simp [φ₂, φ₁, singletonState, hx]
+        show φ.mask x ≤ 1
+        have : φ.mask x ≤ 1 := φ.wf.2 x
+        grind
+
+  -- 4. Provide the witnesses and solve the entailment
+  refine ⟨φ₁, φ₂, ?_, ?_, ?_⟩
+  · show VirtualState.plus φ₁ φ₂ = some φ
+    unfold VirtualState.plus
+    simp [hD]
+    apply VirtualState.ext
+    · intro x
+      by_cases hx : x = hl
+      · subst hx
+        simp [φ₁, φ₂, singletonState]
+        apply preal.ext
+        simp
+        grind
+      · simp [φ₁, φ₂, singletonState, hx]
+    · intro x
+      by_cases hx : x = hl
+      · subst hx
+        show VirtualState.heapMerge φ.heap (fun x => if x = _ then some v else none) x = φ.heap x
+        simp [VirtualState.heapMerge, hheap]
+      · show VirtualState.heapMerge φ.heap (fun x => if x = hl then some v else none) x = φ.heap x
+        simp [hx, VirtualState.heapMerge]
+        cases φ.heap x <;> rfl
+  · refine ⟨h₁pos, ?_, ?_⟩
+    · show p₁ ≤ φ₁.mask hl
+      simp [φ₁]
+      exact preal.le_refl p₁
+    · show φ₁.heap hl = some v
+      show φ.heap hl = some v
+      exact hheap
+  · refine ⟨h₂pos, ?_, ?_⟩
+    · show p₂ ≤ φ₂.mask hl
+      simp [φ₂, singletonState]
+      change p₁.val + p₂.val ≤ (φ.mask hl).val at hleφ
+      show p₂.val ≤ rem.val
+      have h_rem : rem.val = (φ.mask hl).val - p₁.val := rfl
+      rw [h_rem]
+      grind
+    · show φ₂.heap hl = some v
+      simp [φ₂, singletonState]
 /-- Combining: `x ↦[p₁] v ∗ x ↦[p₂] v ⊢ x ↦[p₁+p₂] v`
     (when `p₁ + p₂ ≤ 1`). -/
 theorem pointsToDirect_combine (hl : HeapLoc) (p₁ p₂ : preal) (v : Val) :
@@ -592,18 +693,37 @@ namespace Assertion
 
 /-- `emp` is self-framing. -/
 
-
-
-
 theorem selfFraming_sep {P Q : Assertion}
     (hP : SelfFraming P) (hQ : SelfFraming Q) : SelfFraming (P ∗ Q) := by
   intro φ
   constructor
   · intro h
     rcases h with ⟨φ₁, φ₂, hplus, hPφ₁, hQφ₂⟩
-    sorry
+    refine ⟨VirtualState.stabilize φ₁, VirtualState.stabilize φ₂, ?_, ?_, ?_⟩
+    · exact VirtualState.stabilize_sum hplus
+    · exact (hP φ₁).mp hPφ₁
+    · exact (hQ φ₂).mp hQφ₂
   · intro h
-    sorry
+    rcases h with ⟨φ₁, φ₂, hplus, hPφ₁, hQφ₂⟩
+
+    have hdecomp : VirtualState.plus (VirtualState.stabilize φ) (VirtualState.core φ) = some φ := by
+      exact VirtualState.decompose_stabilize_pure φ
+
+    obtain ⟨ψ, hψ1, hψ2⟩ :=
+      VirtualState.plus_assoc_exists hplus hdecomp
+
+    refine ⟨φ₁, ψ, hψ2, hPφ₁, ?_⟩
+
+    have hstabψ : VirtualState.stabilize ψ = VirtualState.stabilize φ₂ := by
+      apply VirtualState.stabilize_of_plus_core
+      apply hψ1
+
+    have hQst : Q (VirtualState.stabilize φ₂) := (hQ φ₂).mp hQφ₂
+    have : Q (VirtualState.stabilize ψ) := by
+      simpa [hstabψ] using hQst
+    exact (hQ ψ).mpr this
+
+
 
 /-- Pure assertions are self-framing (they only hold on empty heap which is stable). -/
 theorem selfFraming_hPure (P : Prop) : SelfFraming (hPure P) := by

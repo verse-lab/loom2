@@ -195,6 +195,273 @@ theorem Disjoint.symm {a b : VirtualState} (h : Disjoint a b) : Disjoint b a := 
     rw[←preal.mk_add_mk_eq_mk'] at hle
     grind
 
+theorem disjoint_of_plus {a b x : VirtualState}
+    (h : plus a b = some x) : Disjoint a b := by
+  unfold plus at h
+  split at h
+  rename_i hD
+  · exact hD
+  · simp at h
+
+theorem plus_mask {a b x : VirtualState}
+    (h : plus a b = some x) :
+    ∀ hl, x.mask hl = a.mask hl + b.mask hl := by
+  intro hl
+  unfold plus at h
+  split at h
+  rename_i hD
+  · simp at h
+    subst h
+    rfl
+  · simp at h
+
+theorem plus_heap {a b x : VirtualState}
+    (h : plus a b = some x) :
+    ∀ hl, x.heap hl = heapMerge a.heap b.heap hl := by
+  intro hl
+  unfold plus at h
+  split at h
+  rename_i hD
+  · simp at h
+    subst h
+    rfl
+  · simp at h
+
+theorem heapMerge_eq_left_of_compatible
+    {h₁ h₂ : PartialHeap} {hl : HeapLoc} {v : Val}
+    (hcomp : heapCompatible h₁ h₂)
+    (h1 : h₁ hl = some v) :
+    heapMerge h₁ h₂ hl = some v := by
+  unfold heapMerge
+  cases h2 : h₂ hl with
+  | none =>
+      simp [h1]
+  | some v2 =>
+      have hv : v = v2 := hcomp hl v v2 h1 h2
+      simp [h1, hv]
+
+theorem heapMerge_eq_right_of_compatible
+    {h₁ h₂ : PartialHeap} {hl : HeapLoc} {v : Val}
+    (hcomp : heapCompatible h₁ h₂)
+    (h2 : h₂ hl = some v) :
+    heapMerge h₁ h₂ hl = some v := by
+  unfold heapMerge
+  cases h1 : h₁ hl with
+  | none =>
+      simp [h2]
+  | some v1 =>
+      have hv : v1 = v := hcomp hl v1 v h1 h2
+      simp [hv]
+
+theorem heapMerge_assoc
+    {h₁ h₂ h₃ : PartialHeap}
+    (h12 : heapCompatible h₁ h₂)
+    (h23 : heapCompatible h₂ h₃)
+    (h13 : heapCompatible h₁ h₃) :
+    ∀ hl, heapMerge (heapMerge h₁ h₂) h₃ hl = heapMerge h₁ (heapMerge h₂ h₃) hl := by
+  intro hl
+  unfold heapMerge
+  cases h1 : h₁ hl with
+  | none =>
+      cases h2 : h₂ hl with
+      | none =>
+          cases h3 : h₃ hl <;> simp
+      | some v2 =>
+          cases h3 : h₃ hl with
+          | none =>
+              simp
+          | some v3 =>
+              have hv : v2 = v3 := h23 hl v2 v3 h2 h3
+              simp
+  | some v1 =>
+      cases h2 : h₂ hl with
+      | none =>
+          cases h3 : h₃ hl with
+          | none =>
+              simp
+          | some v3 =>
+              have hv : v1 = v3 := h13 hl v1 v3 h1 h3
+              simp
+      | some v2 =>
+          have hv12 : v1 = v2 := h12 hl v1 v2 h1 h2
+          cases h3 : h₃ hl with
+          | none =>
+              simp
+          | some v3 =>
+              have hv13 : v1 = v3 := h13 hl v1 v3 h1 h3
+              have hv23 : v2 = v3 := h23 hl v2 v3 h2 h3
+              simp [hv12, hv23]
+
+open preal in
+theorem plus_assoc_exists
+    {a b c ab x : VirtualState}
+    (hab : plus a b = some ab)
+    (hxc : plus ab c = some x) :
+    ∃ bc, plus b c = some bc ∧ plus a bc = some x := by
+  let bc : VirtualState :=
+    { mask := fun hl => b.mask hl + c.mask hl
+      heap := heapMerge b.heap c.heap
+      wf := by
+        constructor
+        · intro hl hp
+          have hb_nonneg : 0 ≤ (b.mask hl).val := (b.mask hl).nonneg
+          by_cases hbp : (b.mask hl).ppos
+          · have hs : (b.heap hl).isSome := b.wf.1 hl hbp
+            cases hb : b.heap hl with
+            | none =>
+                simp [hb] at hs
+            | some vb =>
+                simp [heapMerge, hb]
+          · have hbp0 : (b.mask hl).val = 0 := by
+              have hnot : ¬ 0 < (b.mask hl).val := by simpa [preal.ppos] using hbp
+              grind
+            have hp' : 0 < (b.mask hl).val + (c.mask hl).val := by
+              simpa [preal.ppos, preal.add_val] using hp
+            have hcp : (c.mask hl).ppos := by
+              unfold preal.ppos
+              rw [hbp0] at hp'
+              grind
+            have hs : (c.heap hl).isSome := c.wf.1 hl hcp
+            cases hc : c.heap hl with
+            | none =>
+                simp [hc] at hs
+            | some vc =>
+                cases hb : b.heap hl <;> simp [heapMerge, hb, hc]
+        · intro hl
+          have hDab : Disjoint a b := disjoint_of_plus hab
+          have hDxc : Disjoint ab c := disjoint_of_plus hxc
+          have habMask := plus_mask hab hl
+          have habcBound : ab.mask hl + c.mask hl ≤ (1 : preal) := hDxc.2 hl
+          show b.mask hl + c.mask hl ≤ (1 : preal)
+          show (b.mask hl + c.mask hl).val ≤ 1
+          simp [habMask] at habcBound
+          have ha_nonneg : 0 ≤ (a.mask hl).val := (a.mask hl).nonneg
+          have hb_nonneg : 0 ≤ (b.mask hl).val := (b.mask hl).nonneg
+          have hc_nonneg : 0 ≤ (c.mask hl).val := (c.mask hl).nonneg
+          simp [preal.add_val] at habcBound ⊢
+          unfold HAdd.hAdd at habcBound
+          unfold instHAdd at habcBound
+          simp at habcBound
+          unfold Add.add at habcBound
+          unfold instAdd at habcBound
+          simp at habcBound
+          unfold LE.le at habcBound
+          unfold instLE at habcBound
+          grind  }
+
+  have hDab : Disjoint a b := disjoint_of_plus hab
+  have hDxc : Disjoint ab c := disjoint_of_plus hxc
+
+  have hDbc : Disjoint b c := by
+    constructor
+    · intro hl vb vc hb hc
+      have habHeap : ab.heap hl = some vb := by
+        rw [plus_heap hab hl]
+        exact heapMerge_eq_right_of_compatible hDab.1 hb
+      exact hDxc.1 hl vb vc habHeap hc
+    · intro hl
+      have habMask := plus_mask hab hl
+      have habcBound : ab.mask hl + c.mask hl ≤ (1 : preal) := hDxc.2 hl
+      show b.mask hl + c.mask hl ≤ (1 : preal)
+      show (b.mask hl + c.mask hl).val ≤ 1
+      rw [habMask] at habcBound
+      have ha_nonneg : 0 ≤ (a.mask hl).val := (a.mask hl).nonneg
+      simp [preal.add_val] at habcBound ⊢
+      unfold HAdd.hAdd at habcBound
+      unfold instHAdd at habcBound
+      simp at habcBound
+      unfold Add.add at habcBound
+      unfold instAdd at habcBound
+      simp at habcBound
+      unfold LE.le at habcBound
+      unfold instLE at habcBound
+      grind
+
+  have hbc : plus b c = some bc := by
+    unfold plus
+    simp [hDbc]
+    apply VirtualState.ext
+    · intro hl
+      rfl
+    · intro hl
+      rfl
+
+  have hDabc : Disjoint a bc := by
+    constructor
+    · intro hl va vbc ha hvbc
+      change heapMerge b.heap c.heap hl = some vbc at hvbc
+      cases hb : b.heap hl with
+      | none =>
+          cases hc : c.heap hl with
+          | none =>
+              unfold heapMerge at hvbc
+              simp [hb, hc] at hvbc
+          | some vc =>
+              have hab_va : ab.heap hl = some va := by
+                rw [plus_heap hab hl]
+                exact heapMerge_eq_left_of_compatible hDab.1 ha
+              have hvc_eq_vbc : vc = vbc := by
+                have h_m : heapMerge b.heap c.heap hl = some vbc := hvbc
+                unfold heapMerge at h_m
+                simp [hb, hc] at h_m
+                exact h_m
+              subst hvc_eq_vbc
+              exact hDxc.1 hl va _ hab_va hc
+      | some vb =>
+          have hva_eq_vb := hDab.1 hl va vb ha hb
+          have hvb_eq_vbc : vb = vbc := by
+            have h_m : heapMerge b.heap c.heap hl = some vbc := hvbc
+            unfold heapMerge at h_m
+            simp [hb] at h_m
+            exact h_m
+          rw [hva_eq_vb, hvb_eq_vbc]
+    · intro hl
+      have hbcMask : bc.mask hl = b.mask hl + c.mask hl := rfl
+      have habMask := plus_mask hab hl
+      have hxcMask := plus_mask hxc hl
+      have hxabound : a.mask hl + bc.mask hl ≤ (1 : preal) := by
+        rw [hbcMask]
+        have hbound := hDxc.2 hl
+
+        show (a.mask hl + (b.mask hl + c.mask hl)).val ≤ (1 : preal).val
+        have h1 : (a.mask hl + (b.mask hl + c.mask hl)).val = (a.mask hl + b.mask hl + c.mask hl).val := by
+          simp only [preal.add_val]
+          grind
+        rw [h1]
+        change ab.mask hl + c.mask hl ≤ 1 at hbound
+        rw [habMask] at hbound
+        exact hbound
+      exact hxabound
+
+  have hax : plus a bc = some x := by
+    unfold plus
+    simp [hDabc]
+    apply VirtualState.ext
+    · intro hl
+      change a.mask hl + (b.mask hl + c.mask hl) = x.mask hl
+      rw [plus_mask hxc hl, plus_mask hab hl]
+      apply preal.ext
+      simp only [preal.add_val]
+      grind
+
+    · intro hl
+      show heapMerge a.heap bc.heap hl = x.heap hl
+      rw [plus_heap hxc hl]
+      have hab_eq : ab.heap = heapMerge a.heap b.heap := funext (plus_heap hab)
+      have hbc_eq : bc.heap = heapMerge b.heap c.heap := funext (plus_heap hbc)
+      rw [hab_eq, hbc_eq]
+
+      have hac_comp : heapCompatible a.heap c.heap := by
+        intro hl' va' vc' ha' hc'
+        have hab_va : ab.heap hl' = some va' := by
+          rw [plus_heap hab hl']
+          exact heapMerge_eq_left_of_compatible hDab.1 ha'
+        exact hDxc.1 hl' va' vc' hab_va hc'
+      exact (heapMerge_assoc hDab.1 hDbc.1 hac_comp hl).symm
+  exact ⟨bc, hbc, hax⟩
+
+
+
 open preal in
 theorem plus_empty_left (a : VirtualState) : plus empty a = some a := by
   unfold plus
@@ -217,7 +484,7 @@ theorem plus_empty_left (a : VirtualState) : plus empty a = some a := by
   · grind
   · intro hl
     simp [empty, heapMerge]
-    cases h : a.heap hl <;> simp [h]
+    cases h : a.heap hl <;> simp
 
 def stabilize (φ : VirtualState) : VirtualState where
   mask := φ.mask
@@ -255,7 +522,7 @@ def Stable (φ : VirtualState) : Prop :=
 
 theorem stabilize_stable (φ : VirtualState) : (stabilize φ).Stable := by
   intro hl v hheap
-  simp [Stable, stabilize] at hheap ⊢
+  simp [stabilize] at hheap ⊢
   grind
 
 theorem stable_eq_stabilize {φ : VirtualState} (hs : φ.Stable) :
@@ -278,7 +545,7 @@ theorem stable_of_eq_stabilize {φ : VirtualState}
   simp [stabilize, hheap] at h'
   by_cases hp : (φ.mask hl).ppos
   · exact hp
-  · simp [hp, hheap] at h'
+  · simp [hp] at h'
 
 -- ============================================================================
 -- § 4. Abstract sep_algebra laws, concretely proved
@@ -309,7 +576,7 @@ theorem plus_empty_right (a : VirtualState) : plus a empty = some a := by
     grind
   · intro hl
     simp [empty, heapMerge]
-    cases h : a.heap hl <;> simp [h]
+    cases h : a.heap hl <;> simp
 
 /-- **Key fact for the Isabelle-style `emp`**:
     `stabilize (core φ) = VirtualState.empty` for every φ.
@@ -458,13 +725,13 @@ theorem stabilize_sum {a b x : VirtualState}
                 have ha_nonneg : 0 ≤ (a.mask hl).val := (a.mask hl).nonneg
                 simp [preal.add_val] at *
                 grind
-              simp [hsum_pos, hb]
+              simp [hsum_pos]
               cases ha : a.heap hl with
               | none =>
-                  simp [ha, hb]
+                  simp
               | some va =>
                   have hEq : va = vb := hD.1 hl va vb ha hb
-                  simp [ha, hb, hEq]
+                  simp [hEq]
         ·
           -- neither positive
           intro hsum_pos
