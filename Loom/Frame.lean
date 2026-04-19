@@ -6,7 +6,8 @@ Authors: Vladimir Gladshtein, Sebastian Graf
 module
 
 prelude
-import Lean
+import Init.Meta
+import Init.ByCases
 public import Loom.LatticeExt
 
 public section

@@ -18,7 +18,7 @@ import Loom.Tactic.VCGenTime
 
 
 
-open Lean Parser Meta Elab Tactic Sym Loom Lean.Order Lean.Meta.Sym
+open Lean Parser Meta Elab Tactic Sym Sym.Internal Loom Lean.Order Lean.Meta.Sym
 open Loom.Tactic.SpecAttr
 open Std.Do'
 open Grind (GrindM)
@@ -111,6 +111,31 @@ def mkBackwardRuleForLogicCached
     let rule ← LogicOp.mkBackwardRule lop as excessArgs resultType?
     modify ({ · with logicBackwardRuleCache := s.insert key rule })
     return rule
+
+/-! ## Simplification and intros -/
+
+/-- Simplify `goal` with the given `methods`. Returns `none` if simp closes
+    the goal; otherwise returns the (possibly unchanged) goal. -/
+def VCGenM.simpGoal (methods : Sym.Simp.Methods) (goal : Grind.Goal)
+    : VCGenM (Option Grind.Goal) := do
+  match ← Sym.simpGoal goal.mvarId methods with
+  | .closed       => return none
+  | .goal mvarId' => return some { goal with mvarId := mvarId' }
+  | .noProgress   => return some goal
+
+/-- Simplify the goal with `{ methods with pre := Sym.Simp.simpTelescope }`
+    (if simp methods are configured), then intro forall-bound variables.
+    Returns `none` if simp closes the goal. -/
+def introsAndSimp (goal : Grind.Goal) : VCGenM (Option Grind.Goal) := do
+  let mut goal := goal
+  if let some methods := (← read).simpMethods then
+    let some goal' ← VCGenM.simpGoal { methods with pre := Sym.Simp.simpTelescope } goal
+      | return none
+    goal := goal'
+  if (← goal.mvarId.getType).isForall then
+    let .goal _ goal' ← goal.intros #[] | failure
+    goal := goal'
+  return some goal
 
 /-! ## Goal classification -/
 
@@ -277,13 +302,9 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       goal ← goal.replaceTargetDefEq newTarget
       return .goals [goal]
   | _ =>
-    -- Try simplifying with simp methods before giving up
-    if let some methods := (← read).simpMethods then
-      match ← Sym.simpGoal goal methods with
-      | .closed => return .goals []
-      | .goal goal' => return .goals [goal']
-      | .noProgress => pure ()
     return .noProgramOrLatticeFoundInTarget target
+
+#check Sym.Simp.SimpM
 
 
 /-- Emit a VC for a goal that cannot be further decomposed.
@@ -316,7 +337,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
     worklist := worklist'
-    let goal ← introsWP goal
+    let some goal ← introsAndSimp goal | continue
     -- Unfold Triple goals that arise from subgoals (e.g., loop invariant specs)
     let goal ← unfoldTriple rules goal
     let res ← solve goal.mvarId

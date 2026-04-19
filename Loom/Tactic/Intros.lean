@@ -34,14 +34,6 @@ def IntroRules.mk' : SymM IntroRules := do
     propPreIntro    := ← mkBackwardRuleFromDecl ``prop_pre_intro
   }
 
-/-- Introduce all forall-bound variables in the goal. -/
-def introsWP (goal : Grind.Goal) : SymM Grind.Goal := do
-  let mut goal := goal
-  if (← goal.mvarId.getType).isForall then
-    let .goal _ goal' ← goal.intros #[] | failure
-    goal := goal'
-  return goal
-
 /-- Expand `pre ⊑ rhs` when the lattice type is a function type `σ₁ → ... → σₙ → BaseTy`
     into `∀ s₁ ... sₙ, pre s₁ ... sₙ ⊑ rhs s₁ ... sₙ`, then intro the `sᵢ`.
     This is needed after unfolding Triple when `Pred` has excess state arguments. -/

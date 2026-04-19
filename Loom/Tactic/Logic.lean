@@ -14,7 +14,7 @@ public import Loom.Frame
 
 public section
 
-open Lean Meta Sym Loom Lean.Order
+open Lean Meta Sym Sym.Internal Loom Lean.Order
 
 namespace Loom
 
