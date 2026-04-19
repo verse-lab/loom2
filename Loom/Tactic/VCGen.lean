@@ -16,8 +16,6 @@ import Loom.Tactic.Match
 import Loom.Tactic.Intros
 import Loom.Tactic.VCGenTime
 
-
-
 open Lean Parser Meta Elab Tactic Sym Sym.Internal Loom Lean.Order Lean.Meta.Sym
 open Loom.Tactic.SpecAttr
 open Std.Do'
@@ -303,9 +301,6 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       return .goals [goal]
   | _ =>
     return .noProgramOrLatticeFoundInTarget target
-
-#check Sym.Simp.SimpM
-
 
 /-- Emit a VC for a goal that cannot be further decomposed.
     If the goal is `True ⊑ x` (on Prop), first eliminate the `True ⊑` wrapper. -/
