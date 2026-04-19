@@ -754,7 +754,9 @@ abbrev Assertion := VirtualState → Prop
 
 namespace Assertion
 
-def entails (P Q : Assertion) : Prop := ∀ φ, P φ → Q φ
+@[grind] def entails (P Q : Assertion) : Prop := ∀ φ, P φ → Q φ
+
+
 infix:55 " ⊢ " => entails
 
 def sep (P Q : Assertion) : Assertion :=
@@ -1000,9 +1002,7 @@ theorem pointsToDirect_entails_fieldEq (hl : HeapLoc) (p : preal) (v : Val) :
 
 end Assertion
 
--- ============================================================================
--- § 9. Example: acc(p.f) && p.f == 5 (unchanged)
--- ============================================================================
+
 
 namespace Examples
 

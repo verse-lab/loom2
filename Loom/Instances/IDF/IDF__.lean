@@ -1,4 +1,9 @@
+import Loom.Triple.Basic
 import Loom.Instances.IDF.IDF_
+
+
+open Lean.Order Loom
+
 open Classical
 
 set_option autoImplicit false
@@ -102,6 +107,29 @@ theorem plus_comm {a b c : VirtualState}
           have := hD.1 hl va vb h1 h2
           subst this; rfl
   · exact absurd h (by simp)
+
+
+theorem Disjoint.assoc_left
+    {a b c ab x : VirtualState}
+    (hab : plus a b = some ab)
+    (hxc : plus ab c = some x) :
+    ∃ bc, Disjoint b c ∧ plus b c = some bc ∧ Disjoint a bc ∧ plus a bc = some x := by
+  rcases plus_assoc_exists hab hxc with ⟨bc, hbc, hax⟩
+  exact ⟨bc, disjoint_of_plus hbc, hbc, disjoint_of_plus hax, hax⟩
+
+
+
+ theorem Disjoint.assoc_right
+    {a b c bc x : VirtualState}
+    (hbc : plus b c = some bc)
+    (hax : plus a bc = some x) :
+    ∃ ab, Disjoint a b ∧ plus a b = some ab ∧ Disjoint ab c ∧ plus ab c = some x := by
+  have hcb : plus c b = some bc := plus_comm hbc
+  have hxa : plus bc a = some x := plus_comm hax
+  rcases plus_assoc_exists hcb hxa with ⟨ab, hba, hcab⟩
+  have hab : plus a b = some ab := plus_comm hba
+  have habc : plus ab c = some x := plus_comm hcab
+  exact ⟨ab, disjoint_of_plus hab, hab, disjoint_of_plus habc, habc⟩
 
 /-- Empty is disjoint with every well-formed virtual state. -/
 theorem Disjoint.empty_right (a : VirtualState) : Disjoint a empty := by
@@ -310,7 +338,7 @@ theorem sep_mono_l {H P Q : Assertion} (hle : P ⊢ Q) : P ∗ H ⊢ Q ∗ H := 
   exact ⟨φ₁, φ₂, hplus, hle _ hP, hH⟩
 
 /-- Full monotonicity of `∗`. -/
-theorem sep_mono {P Q P' Q' : Assertion} (hp : P ⊢ P') (hq : Q ⊢ Q') :
+@[grind .]theorem sep_mono {P Q P' Q' : Assertion} (hp : P ⊢ P') (hq : Q ⊢ Q') :
     P ∗ Q ⊢ P' ∗ Q' := by
   intro φ h
   rcases h with ⟨φ₁, φ₂, hplus, hP, hQ⟩
@@ -327,6 +355,29 @@ theorem sep_comm_eq (P Q : Assertion) : (P ∗ Q) = (Q ∗ P) := by
   exact ⟨fun h => sep_comm P Q φ h, fun h => sep_comm Q P φ h⟩
 
 
+
+theorem sep_assoc_l (P Q R : Assertion) : (P ∗ Q) ∗ R ⊢ P ∗ (Q ∗ R) := by
+  intro φ h
+  rcases h with ⟨φ₁₂, φ₃, h123, h12, hR⟩
+  rcases h12 with ⟨φ₁, φ₂, h12, hP, hQ⟩
+  rcases VirtualState.plus_assoc_exists h12 h123 with ⟨φ₂₃, h23, h1_23⟩
+  exact ⟨φ₁, φ₂₃, h1_23, hP, ⟨φ₂, φ₃, h23, hQ, hR⟩⟩
+
+ theorem sep_assoc_r (P Q R : Assertion) : P ∗ (Q ∗ R) ⊢ (P ∗ Q) ∗ R := by
+  intro φ h
+  rcases h with ⟨φ₁, φ₂₃, h1_23, hP, h23⟩
+  rcases h23 with ⟨φ₂, φ₃, h23, hQ, hR⟩
+  have h32 : VirtualState.plus φ₃ φ₂ = some φ₂₃ := VirtualState.plus_comm h23
+  have h23_1 : VirtualState.plus φ₂₃ φ₁ = some φ := VirtualState.plus_comm h1_23
+  rcases VirtualState.plus_assoc_exists h32 h23_1 with ⟨φ₁₂, h21, h3_12⟩
+  have h12 : VirtualState.plus φ₁ φ₂ = some φ₁₂ := VirtualState.plus_comm h21
+  have h12_3 : VirtualState.plus φ₁₂ φ₃ = some φ := VirtualState.plus_comm h3_12
+  exact ⟨φ₁₂, φ₃, h12_3, ⟨φ₁, φ₂, h12, hP, hQ⟩, hR⟩
+
+ theorem sep_assoc_eq (P Q R : Assertion) : ((P ∗ Q) ∗ R) = (P ∗ (Q ∗ R)) := by
+  funext φ
+  apply propext
+  exact ⟨sep_assoc_l P Q R φ, sep_assoc_r P Q R φ⟩
 
 
 
@@ -380,7 +431,7 @@ theorem hPure_True_eq_emp : hPure True = emp := by
 
 
 /-- Pure elimination on the left of ∗. -/
-theorem hPure_sep_elim {P : Prop} {Q : Assertion} : (⌜P⌝) ∗ Q ⊢ Q := by
+theorem hPure_sep_elim {P : Prop} {Q : Assertion} : (hPure P : Assertion) ∗ Q ⊢ Q := by
   intro φ h
   rcases h with ⟨φ₁, φ₂, hplus, hP, hQ⟩
   cases hP with
@@ -461,11 +512,11 @@ theorem wand_mono_l {H P Q : Assertion} (hle : P ⊢ H) : H -∗ Q ⊢ P -∗ Q 
 
 
 /-- `hPure True ∗ Q ⊢ Q`. -/
-theorem hPure_True_sep_elim {Q : Assertion} : (⌜True⌝ )∗ Q ⊢ Q :=
+theorem hPure_True_sep_elim {Q : Assertion} : (hPure True : Assertion) ∗ Q ⊢ Q :=
   hPure_sep_elim
 
-/-- `Q ⊢ hPure True ∗ Q` (because `⌜True⌝ = emp`). -/
-theorem hPure_True_sep_intro {Q : Assertion} : Q ⊢ (⌜True⌝ )∗ Q := by
+/-- `Q ⊢ hPure True ∗ Q` (because `hPure True = emp`). -/
+theorem hPure_True_sep_intro {Q : Assertion} : Q ⊢ (hPure True )∗ Q := by
   rw [hPure_True_eq_emp]; exact emp_sep_entail Q
 
 end Assertion
@@ -681,6 +732,125 @@ theorem pointsToDirect_value_unique'
   apply pointsToDirect_value_unique (φ := φ) (P := P) (Q := Q)
   · rw [sep_comm_eq]; exact hP
   · rw [sep_comm_eq]; exact hQ
+
+
+
+
+structure HeapM α where
+  predTrans : PredTrans Assertion EPost⟨⟩ α
+  monotone : predTrans.monotone := by grind
+
+@[grind =] theorem le_hProp_eq_forall (a b : Assertion) : (a ⊑ b) = ∀ h, (a h → b h) := by
+    simp [PartialOrder.rel]
+
+@[grind =] theorem le_fun_eq_forall {α} (f g : α → Assertion) : (f ⊑ g) = ∀ a, f a ⊑ g a := by
+  simp [PartialOrder.rel]
+
+@[grind =] theorem PredTrans.monotone_eq {l e α} [PartialOrder l] [PartialOrder e] (pt : PredTrans l e α):
+    (pt.monotone) =
+  ∀ post post' epost epost', epost ⊑ epost' → post ⊑ post' → pt post epost ⊑ pt post' epost'
+ := by simp [PredTrans.monotone]
+
+@[grind! .]
+theorem HeapM.predTrans_monotone {α } (m : HeapM α) : m.predTrans.monotone := m.monotone
+
+def HeapM.bind {α β} (x : HeapM α) (f : α → HeapM β) : HeapM β :=
+  { predTrans := fun post epost => x.predTrans (fun a => (f a).predTrans post epost) epost }
+
+instance : Monad HeapM where
+  pure a := { predTrans := fun post _ => post a }
+  bind := HeapM.bind
+
+instance : LawfulMonad (HeapM) where
+  map_const := rfl
+  id_map _ := rfl
+  seqLeft_eq _ _ := rfl
+  seqRight_eq _ _ := rfl
+  pure_seq _ _ := rfl
+  bind_pure_comp _ _ := rfl
+  bind_map _ _ := rfl
+  pure_bind _ _ := rfl
+  bind_assoc _ _ _ := rfl
+
+def HeapM.pickSuchThat {α} (p : α → Assertion) : HeapM α :=
+  { predTrans := fun post _ h => (∃ a, p a h) ∧ ∀ a, p a h → post a h }
+
+def HeapM.exhale (hp : Assertion) : HeapM Unit :=
+  { predTrans := fun post _ => hp ∗ post ()
+    monotone := by
+      intro post post' epost epost' hpost hpost' H
+      simp
+      revert H
+      apply sep_mono
+      grind
+      grind
+    }
+
+def HeapM.inhale (hp : Assertion) : HeapM Unit :=
+  { predTrans := fun post _ => hp -∗ post ()
+    monotone := by
+      intro post post' epost epost' hpost hpost' H
+      simp
+      apply wand_mono_r
+      grind
+    }
+
+def HeapM.read (x : HeapLoc) : HeapM Val :=
+  pickSuchThat fun v h => (h.lookup x).any (·.1 = v)
+
+def HeapM.assign (x : HeapLoc) (v : Val) : HeapM Unit := do
+  exhale perm(x)
+  inhale (x ↦ v)
+
+def HeapM.alloc (v : Val) : HeapM HeapLoc := do
+  let newKey ← pickSuchThat fun l h => h.contains l = false
+  inhale (newKey ↦ v)
+  return newKey
+
+def HeapM.skip : HeapM Unit :=
+  { predTrans := fun post _ => post () }
+
+instance : WPMonad HeapM Assertion EPost⟨⟩ where
+  wpTrans x post _ :=  x.predTrans post ⟨⟩
+  wp_trans_pure x post _ := by
+    intro h post' hpost
+    simp_all [pure, hWand, hExists, hPure] <;> constructor; constructor
+    try apply post'
+    constructor <;> rfl
+    apply Heap.addUnion_empty
+    apply Heap.Disjoint.empty_right
+  wp_trans_bind x f post _ := by
+    apply hForall_intro; intro H
+    apply hForall_elim H (Q := H -∗ _)
+    apply hWand_mono
+    simp [bind]
+    apply x.monotone
+    rfl
+    intro a
+    simp
+    apply hForall_star_elim
+    apply hWand_elim
+  wp_trans_monotone x := by
+    intro post post' epost epost' hpost hpost' H
+    apply hForall_intro
+    intro H_1
+    apply hForall_elim H_1 (Q := H_1 -∗ _)
+    apply hWand_mono
+    apply x.monotone
+    grind
+    simp [PartialOrder.rel]
+    intro a v HH
+    simp_all [hStar]
+    cases HH with
+    | intro h₁ h₂ hH hP hunion hdisj =>
+       constructor
+       apply hH
+       apply hpost'
+       apply hP
+       apply hunion
+       apply hdisj
+
+
 
 end Assertion
 
