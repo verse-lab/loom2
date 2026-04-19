@@ -56,6 +56,7 @@ structure VCGen.State where
   specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   splitBackwardRuleCache : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
   logicBackwardRuleCache : Std.HashMap (Name × Array Expr × Nat) BackwardRule := {}
+  simpState              : Sym.Simp.State := {}
   invariants             : Array MVarId := #[]
   vcs                    : Array MVarId := #[]
 
@@ -112,16 +113,22 @@ def mkBackwardRuleForLogicCached
 
 /-! ## Simplification and intros -/
 
-/-- Simplify `goal` with the given `methods`. Returns `none` if simp closes
-    the goal; otherwise returns the (possibly unchanged) goal. -/
+/-- Simplify `goal` with the given `methods`, threading `simpState` through
+    `VCGenM`'s state to reuse the persistent cache across calls.
+    Returns `none` if simp closes the goal; otherwise returns the (possibly
+    unchanged) goal. -/
 def VCGenM.simpGoal (methods : Sym.Simp.Methods) (goal : Grind.Goal)
     : VCGenM (Option Grind.Goal) := do
-  match ← Sym.simpGoal goal.mvarId methods with
+  let decl ← goal.mvarId.getDecl
+  let (result, simpState') ← Sym.Simp.SimpM.run (Sym.Simp.simp decl.type)
+    methods {} (← get).simpState
+  modify fun s => { s with simpState := simpState' }
+  match ← result.toSimpGoalResult goal.mvarId with
   | .closed       => return none
   | .goal mvarId' => return some { goal with mvarId := mvarId' }
   | .noProgress   => return some goal
 
-/-- Simplify the goal with `{ methods with pre := Sym.Simp.simpTelescope }`
+/-- Simplify the goal with `Sym.Simp.simpTelescope`
     (if simp methods are configured), then intro forall-bound variables.
     Returns `none` if simp closes the goal. -/
 def introsAndSimp (goal : Grind.Goal) : VCGenM (Option Grind.Goal) := do
