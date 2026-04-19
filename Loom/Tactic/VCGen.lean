@@ -156,8 +156,17 @@ inductive GoalKind where
   | EPostVC (relConst : Expr) (α inst : Expr) (pre : Expr) (epost : Expr) (excessArgs : Array Expr)
   /-- RHS is a lattice connective application (`meet`/`himp`/`pure`) with optional excess args. -/
   | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr) (resultType? : Option Expr := none)
-  /-- RHS is a WP application. -/
-  | WP (head : Expr) (args : Array Expr)
+  /-- `pre ⊑ @wp ... (letE _ _ val body) appArgs post epost excessArgs`, non-dependent let. -/
+  | Let (head : Expr) (m l errTy monadInst instAL instEAL instWP α post epost : Expr)
+        (val body : Expr) (appArgs : Array Expr) (excessArgs : Array Expr)
+  /-- `pre ⊑ @wp ... e ... excessArgs` where `e` is `ite`/`dite`/`match`. -/
+  | Match (info : Do.SplitInfo) (head : Expr)
+          (m l errTy monadInst instAL instEAL instWP : Expr)
+          (e : Expr) (args : Array Expr) (excessArgs : Array Expr)
+  /-- `pre ⊑ @wp ... e ... excessArgs` where `e.getAppFn` is `const`/`fvar` — apply a spec. -/
+  | Spec (e : Expr) (m l instWP : Expr) (excessArgs : Array Expr)
+  /-- RHS is a WP application but doesn't match Let/Match/Spec. -/
+  | WP (e : Expr)
   /-- Lattice type is Prop and precondition is not `True`; intro the pre. -/
   | IntroPre
   /-- RHS is neither a recognized WP nor a recognized lattice connective. -/
@@ -202,7 +211,20 @@ def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
         let (epostTarget, index) := peelEPostTailChain epostArg
         let epost ← mkEPostAtIndex epostTarget index
         return .EPostVC target.getAppFn α inst pre epost (args.extract 3 args.size)
-      | wp => return .WP head args
+      | wp =>
+        let_expr wp m l errTy monadInst instAL instEAL instWP α e post epost :=
+          mkAppN head <| args.take 11
+          | return .Unknown
+        let excessArgs := args.extract 11 args.size
+        if let .letE _x _ty val body _nonDep := e.getAppFn then
+          return .Let head m l errTy monadInst instAL instEAL instWP α post epost
+            val body e.getAppRevArgs excessArgs
+        if let some info ← Do.getSplitInfo? e then
+          return .Match info head m l errTy monadInst instAL instEAL instWP
+            e args excessArgs
+        if e.getAppFn.isConst || e.getAppFn.isFVar then
+          return .Spec e m l instWP excessArgs
+        return .WP e
       | meet =>
         let excessArgs := args.drop 4
         let as := args.extract 2 4
@@ -238,61 +260,49 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       let .goals goals ← rule.apply goal
         | throwError "Failed to apply logic rule at {indentExpr target}"
       return .goals goals
-  | .WP head args => do
-      -- Goal is: pre ⊑ @wp m l errTy monadInst instAL instEAL instWP α e post epost
-      let_expr wp m l errTy monadInst instAL instEAL instWP α e _post _epost :=
-        mkAppN head <| args.take 11
-        | return .noProgramOrLatticeFoundInTarget target
-      let excessArgs := args.extract 11 args.size
-      -- Non-dependent let-expressions
-      let f := e.getAppFn
-      if let .letE _x _ty val body _nonDep := f then
-        let body' ← Sym.instantiateRevBetaS body #[val]
-        let e' ← mkAppRevS body' e.getAppRevArgs
-        let wp ← mkAppS₁₁ head m l errTy monadInst instAL instEAL instWP α e' _post _epost
-        let rhs ← mkAppNS wp excessArgs
-        -- Rebuild the ⊑ goal with the new RHS
-        let_expr PartialOrder.rel l cl pre _rhs := target
-          | throwError "expected ⊑ goal but got {target}"
-        let newTarget ← mkAppNS (mkConst ``PartialOrder.rel) #[l, cl, pre, rhs]
-        goal ← goal.replaceTargetDefEq newTarget
-        return .goals [goal]
-      -- Split ite/dite/match
-      if let some info ← Do.getSplitInfo? e then
-        -- For matchers, try reduceRecMatcher? to reduce known discriminants
-        if let .matcher .. := info then
-          if let some e' ← reduceRecMatcher? e then
-            trace[Loom.Tactic.vcgen] "reduceRecMatcher simplified match in {e}"
-            let e' ← shareCommon e'
-            let rhs ← mkAppNS head <| args.set! 8 e'
-            let relArgs := target.getAppArgs
-            let newTarget ← mkAppNS target.getAppFn (relArgs.set! (relArgs.size - 1) rhs)
-            goal ← goal.replaceTargetDefEq newTarget
-            return .goals [goal]
-        -- Fall back to full split
-        trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
-        let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWP excessArgs
-        let .goals goals ← rule.apply goal
-          | throwError "Failed to apply split rule for {indentExpr e}"
-        let goals ← goals.mapM fun g => do
-          let .goal _ g ← Sym.intros g
-            | throwError "Failed to intro split parameters"
-          return g
-        return .goals goals
-      -- Apply registered specifications
-      let f := e.getAppFn
-      if f.isConst || f.isFVar then
-        trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
-        match ← findSpecs (← read).specThms e with
-        | .error thms => return .noSpecFoundForProgram e m thms
-        | .ok thm =>
-        trace[Loom.Tactic.vcgen] "Spec for {e}: {thm.proof}"
-        let some rule ← (mkBackwardRuleFromSpecCached thm l instWP excessArgs).run
-          | return .noSpecFoundForProgram e m #[thm]
-        trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
-        let .goals goals ← rule.apply goal
-          | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
-        return .goals goals
+  | .Let head m l errTy monadInst instAL instEAL instWP α post epost val body appArgs excessArgs => do
+      let body' ← Sym.instantiateRevBetaS body #[val]
+      let e' ← mkAppRevS body' appArgs
+      let wp ← mkAppS₁₁ head m l errTy monadInst instAL instEAL instWP α e' post epost
+      let rhs ← mkAppNS wp excessArgs
+      let_expr PartialOrder.rel l cl pre _rhs := target
+        | throwError "expected ⊑ goal but got {target}"
+      let newTarget ← mkAppNS (mkConst ``PartialOrder.rel) #[l, cl, pre, rhs]
+      goal ← goal.replaceTargetDefEq newTarget
+      return .goals [goal]
+  | .Match info head m l errTy monadInst instAL instEAL instWP e args excessArgs => do
+      -- For matchers, try reduceRecMatcher? to reduce known discriminants
+      if let .matcher .. := info then
+        if let some e' ← reduceRecMatcher? e then
+          trace[Loom.Tactic.vcgen] "reduceRecMatcher simplified match in {e}"
+          let e' ← shareCommon e'
+          let rhs ← mkAppNS head <| args.set! 8 e'
+          let relArgs := target.getAppArgs
+          let newTarget ← mkAppNS target.getAppFn (relArgs.set! (relArgs.size - 1) rhs)
+          goal ← goal.replaceTargetDefEq newTarget
+          return .goals [goal]
+      trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
+      let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWP excessArgs
+      let .goals goals ← rule.apply goal
+        | throwError "Failed to apply split rule for {indentExpr e}"
+      let goals ← goals.mapM fun g => do
+        let .goal _ g ← Sym.intros g
+          | throwError "Failed to intro split parameters"
+        return g
+      return .goals goals
+  | .Spec e m l instWP excessArgs => do
+      trace[Loom.Tactic.vcgen] "Applying a spec for {e}. Excess args: {excessArgs}"
+      match ← findSpecs (← read).specThms e with
+      | .error thms => return .noSpecFoundForProgram e m thms
+      | .ok thm =>
+      trace[Loom.Tactic.vcgen] "Spec for {e}: {thm.proof}"
+      let some rule ← (mkBackwardRuleFromSpecCached thm l instWP excessArgs).run
+        | return .noSpecFoundForProgram e m #[thm]
+      trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
+      let .goals goals ← rule.apply goal
+        | throwError "Failed to apply rule {thm.proof} for {indentExpr e}"
+      return .goals goals
+  | .WP e => do
       return .noStrategyForProgram e
   | .EPostVC relConst α inst pre epost excessArgs => do
       let rhs ← betaRevS epost excessArgs.reverse
