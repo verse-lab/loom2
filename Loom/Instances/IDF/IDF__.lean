@@ -786,14 +786,146 @@ def HeapM.exhale (hp : Assertion) : HeapM Unit :=
       grind
     }
 
+
+/-
+
+acc(p.f) && p.f == 5 ==>  p.f == 5
+
+
+-/
+
+/-
+
+
+fun α => P α : state -> Prop
+
+<=> ?
+
+fun α => ∃ Q, Q α ∧ (Q α → P α)
+
+
+a : α
+P a
+
+
+∃ Q, Q a ∧ (Q a → P )
+
+
+
+
+-/
+
+def rel_stable_assertion (ω: VirtualState) A := Assertion.StableAssert ((fun α => α = ω) ∗ A)
+
+def framed_by (A B : Assertion) := ∀ ω, A ω → VirtualState.Stable ω → rel_stable_assertion ω B
+
+
+
+def exInhaleProp (hp : Assertion) (post : Unit → Assertion) := fun φ => ∃ P, P φ ∧ SelfFraming P ∧ framed_by hp P ∧ (P ⊢ hp -∗ post ())
+
 def HeapM.inhale (hp : Assertion) : HeapM Unit :=
-  { predTrans := fun post _ => hp -∗ post ()
+--  SelfFraming (hp -* post ()) ∧ framed_by hp (hp-*post ()) ∗ (hp -∗ post ())
+  { predTrans := fun post _ => exInhaleProp hp post
     monotone := by
-      intro post post' epost epost' hpost hpost' H
-      simp
-      apply wand_mono_r
-      grind
+      intro post post' epost epost' hpost hpost' h
+      simp_all
+      intro P
+      obtain ⟨A, hA, hframe, hframed_by, impl⟩ := P
+      refine ⟨A, hA, hframe, hframed_by, ?_⟩
+      intro ψ hAψ
+      obtain ⟨H, ψ₁, ψ₂, hplus, hH, ⟨hfact⟩⟩ := impl ψ hAψ
+      refine ⟨H, ψ₁, _, hplus, hH, hPure'.intro ?_⟩
+      intro χ hχ
+      exact hpost' () χ (hfact χ hχ)
     }
+
+
+theorem wp_inhale_selfFraming
+    (hp : Assertion) (post : Unit → Assertion) :
+    SelfFraming (exInhaleProp hp post) := by
+  intro φ
+  constructor
+  ·
+    rintro ⟨P, hPφ, hSF, hFB, hEnt⟩
+    refine ⟨P, ?_, hSF, hFB, hEnt⟩
+
+    exact (hSF φ).mp hPφ
+  ·
+    rintro ⟨P, hP_stab, hSF, hFB, hEnt⟩
+    refine ⟨P, ?_, hSF, hFB, hEnt⟩
+    exact (hSF φ).mpr hP_stab
+
+theorem wp_existential_sound' (hp : Assertion) (post : Unit → Assertion) (ω : VirtualState)
+    (hwp : ∃ P, P ω ∧ SelfFraming P ∧ framed_by hp P ∧ (P ⊢ hp -∗ post ()))
+    (ω' : VirtualState)
+    (hreach : framed_by hp (· = ω) ∧
+              ∃ ω_hp, hp ω_hp ∧ VirtualState.plus ω ω_hp = some ω' ∧ ω'.Stable) :
+    post () ω' := by
+  obtain ⟨P, hPω, _, _, hEnt⟩ := hwp
+  obtain ⟨_, ω_hp, hhp, hplus, _⟩ := hreach
+  -- Step 1: Apply hEnt at ω
+  have hwand : (hp -∗ post ()) ω := hEnt ω hPω
+  -- Step 2: Unfold wand (existential style)
+  obtain ⟨H, ψ, ψ_empty, hplus_ω, hHψ, hpure⟩ := hwand
+  cases hpure with
+  | intro hfact =>
+    -- ψ_empty = VirtualState.empty (from hPure' constructor)
+    -- Now hplus_ω : plus ψ VirtualState.empty = some ω
+    have hψ_eq_ω : ψ = ω := by
+      have h1 : VirtualState.plus ψ VirtualState.empty = some ψ :=
+        VirtualState.plus_empty_right ψ
+      exact Option.some.inj (h1.symm.trans hplus_ω)
+    rw [hψ_eq_ω] at hHψ
+    -- Step 3: Build witness (hp ∗ H) ω'
+    -- plus ω ω_hp = some ω', so by commutativity plus ω_hp ω = some ω'
+    have hplus_comm : VirtualState.plus ω_hp ω = some ω' :=
+      VirtualState.plus_comm hplus   -- or however your comm is stated
+    -- Step 4: Apply hfact
+    exact hfact ω' ⟨ω_hp, ω, hplus_comm, hhp, hHψ⟩
+
+
+theorem wp_existential_sound
+    (hp : Assertion) (post : Unit → Assertion) (epost : EPost⟨⟩) :
+    ((fun ω => (HeapM.inhale hp).predTrans post epost ω) ∗ hp) ⊢ post () := by
+  intro w hw
+  obtain ⟨ω, ω_hp, hplus, hwp, hhp⟩ := hw
+  -- hwp : (inhale hp).predTrans post epost ω
+  -- Unfold wp_existential
+  obtain ⟨P, hPω, _, _, hEnt⟩ := hwp
+  -- Apply the entailment at ω
+  have hwand : (hp -∗ post ()) ω := hEnt ω hPω
+  -- Unfold the wand
+  obtain ⟨H, ψ, ψ_empty, hplus_ω, hHψ, hpure⟩ := hwand
+  cases hpure with
+  | intro hfact =>
+    -- hfact : hp ∗ H ⊢ post ()
+    -- ψ_empty = VirtualState.empty, so ψ = ω
+    have hψ_eq_ω : ψ = ω :=
+      Option.some.inj ((VirtualState.plus_empty_right ψ).symm.trans hplus_ω)
+    rw [hψ_eq_ω] at hHψ
+    -- Now H ω and we want (hp ∗ H) w to apply hfact
+    have hplus_comm : VirtualState.plus ω_hp ω = some w :=
+      VirtualState.plus_comm hplus
+    exact hfact w ⟨ω_hp, ω, hplus_comm, hhp, hHψ⟩
+
+theorem wp_inhale_framed_by
+    (hp : Assertion) (post : Unit → Assertion) (epost : EPost⟨⟩) :
+    framed_by hp (fun φ => (HeapM.inhale hp).predTrans post epost φ) := by
+  intro w hhp_w hw_Stable
+  intro α hα
+  obtain ⟨a1, a2, hplus_α, ha1_eq, ha_a2⟩ := hα
+  subst ha1_eq
+  obtain ⟨P, hP_a2, hSF, hFB, hEnt⟩ := ha_a2
+  have hStableP := hFB _ hhp_w hw_Stable
+  have hα_in_P : ((fun φ => φ = a1) ∗ P) α := ⟨a1, a2, hplus_α, rfl, hP_a2⟩
+  have h_stab := hStableP α hα_in_P
+  obtain ⟨b1, b2, hplus_stab, hb1_eq, hP_b2⟩ := h_stab
+  subst hb1_eq
+  refine ⟨_, b2, hplus_stab, rfl, ?_⟩
+
+  exact ⟨P, hP_b2, hSF, hFB, hEnt⟩
+
+
 
 def HeapM.read (x : HeapLoc) : HeapM Val :=
   pickSuchThat fun v h => (h.lookup x).any (·.1 = v)
@@ -813,42 +945,35 @@ def HeapM.skip : HeapM Unit :=
 instance : WPMonad HeapM Assertion EPost⟨⟩ where
   wpTrans x post _ :=  x.predTrans post ⟨⟩
   wp_trans_pure x post _ := by
-    intro h post' hpost
-    simp_all [pure, hWand, hExists, hPure] <;> constructor; constructor
-    try apply post'
-    constructor <;> rfl
-    apply Heap.addUnion_empty
-    apply Heap.Disjoint.empty_right
+    intro h post'
+    simp_all [pure] <;> constructor
   wp_trans_bind x f post _ := by
-    apply hForall_intro; intro H
-    apply hForall_elim H (Q := H -∗ _)
-    apply hWand_mono
-    simp [bind]
-    apply x.monotone
-    rfl
-    intro a
-    simp
-    apply hForall_star_elim
-    apply hWand_elim
+    intro h post'
+    simp_all [bind, HeapM.bind]
   wp_trans_monotone x := by
     intro post post' epost epost' hpost hpost' H
-    apply hForall_intro
-    intro H_1
-    apply hForall_elim H_1 (Q := H_1 -∗ _)
-    apply hWand_mono
+    simp_all
+    unfold HeapM.predTrans
     apply x.monotone
     grind
-    simp [PartialOrder.rel]
-    intro a v HH
-    simp_all [hStar]
-    cases HH with
-    | intro h₁ h₂ hH hP hunion hdisj =>
-       constructor
-       apply hH
-       apply hpost'
-       apply hP
-       apply hunion
-       apply hdisj
+    grind
+
+
+
+
+theorem HeapM.inhaleAx (hp P : Assertion)
+    (hSF : SelfFraming P)
+    (hFB : framed_by hp P) :
+    ⦃ P ⦄ inhale hp ⦃ fun _ => P ∗ hp ⦄ := by
+  constructor
+  intro φ hPφ
+  refine ⟨P, hPφ, hSF, hFB, ?_⟩
+  intro ψ hPψ
+  refine ⟨P, ψ, VirtualState.empty, ?_, hPψ, hPure'.intro ?_⟩
+  · exact VirtualState.plus_empty_right ψ
+  ·
+    intro χ ⟨φ₁, φ₂, hplus, hhp, hP⟩
+    exact ⟨φ₂ , φ₁, (VirtualState.plus_comm hplus), hP, hhp⟩
 
 
 
