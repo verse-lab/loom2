@@ -517,6 +517,7 @@ def core (φ : VirtualState) : VirtualState where
 @[simp] theorem core_heap (φ : VirtualState) (hl : HeapLoc) :
     (core φ).heap hl = φ.heap hl := rfl
 
+/-- stabilize φ = φ -/
 def Stable (φ : VirtualState) : Prop :=
   ∀ hl v, φ.heap hl = some v → (φ.mask hl).ppos
 
