@@ -868,6 +868,14 @@ P a
 ∃ Q, Q a ∧ (Q a → P )
 
 
+∀ φ, P φ <-> P φ.stabilize
+
+P = (φ => P φ ∧ Stable φ)
+
+P φ
+P φ ∧ Stable φ
+φ = φ.stabilize
+P.stabilize
 
 
 -/
@@ -885,6 +893,9 @@ def wp_inhale_op (hp : Assertion) (post : Unit → Assertion) : Assertion :=
 /-- The same inhale weakest precondition rewritten using assertion connectives. -/
 def wp_inhale_axiomatic (hp : Assertion) (post : Unit → Assertion) : Assertion :=
   (fun ω => rel_stable_assertion ω hp) ⊓ (hp -∗ Assertion.Stabilize (post ()))
+
+
+
 
 theorem wp_inhale_axiomatic_eq_wp_inhale_op
     (hp : Assertion) (post : Unit → Assertion) :
@@ -1112,7 +1123,7 @@ instance : WPMonad HeapM Assertion EPost⟨⟩ where
     `self_framing A → framed_by A P → Δ ⊢ [A] Inhale P [...]`
     (A is precondition, P is inhaled; in Lean we rename to avoid clash). -/
 theorem HeapM.inhaleAx_paper (hp P : Assertion)
-    (_hSF : SelfFraming P)
+    (hSF : SelfFraming P)
     (hFB : framed_by P hp) :
     ⦃ fun φ => P φ ∧ φ.Stable ⦄ inhale hp ⦃ fun _ φ => (P ∗ hp) φ ∧ φ.Stable⦄ := by
   constructor
@@ -1350,8 +1361,10 @@ def xf (xAddr : Address) : HeapLoc := ⟨xAddr, "f"⟩
 /-- The snippet: inhale full permission to `x.f` together with the
     heap-dependent fact `x.f == 5`, then exhale half the permission. -/
 def transferHalf (xAddr : Address) : HeapM Unit := do
-  HeapM.inhale (acc (xf xAddr) 1 ∗ fieldEq (xf xAddr) (Val.vInt 5))
-  HeapM.exhale (acc (xf xAddr) half)
+  if 7 > 6 then
+    HeapM.inhale (acc (xf xAddr) 1 ∗ fieldEq (xf xAddr) (Val.vInt 5))
+    HeapM.exhale (acc (xf xAddr) half)
+
 
 /-- The key entailment: starting with full permission and the heap-dependent
     value, we can split off half to exhale, retaining the other half together
@@ -1379,37 +1392,6 @@ open Assertion VirtualState Loom
 abbrev midCond (xAddr : Address) : Unit → Assertion :=
   fun _ φ => (acc (xf xAddr) 1 ∗ fieldEq (xf xAddr) (Val.vInt 5)) φ ∧ φ.Stable
 
-/-- Side condition for `inhaleAx_paper`: the inhaled assertion is framed by
-    `emp`. Since `emp` only holds on `VirtualState.empty`, this reduces to
-    showing that combining `empty` with anything `hp`-satisfying yields a
-    state in `(· = empty) ∗ hp`, which is immediate. -/
-
-
-
-
-
-
-/-- Self-framing of `emp` is *not* unconditional in this model. We use a
-    workaround: take `P` in `inhaleAx_paper` to be the assertion
-    `fun φ => φ = VirtualState.empty`, which IS self-framing (the only
-    state satisfying it is empty, which is stable, so stabilize is identity).
-    On stable initial states this is equivalent to `emp`. -/
-def isEmpty : Assertion := fun φ => φ = VirtualState.empty
-
-theorem selfFraming_isEmpty : SelfFraming isEmpty := by
-  intro φ
-  unfold isEmpty
-  constructor
-  · intro h; subst h; exact stabilize_empty.symm
-  · intro h
-    have : VirtualState.stabilize φ = VirtualState.empty := h
-    -- on stable φ, stabilize φ = φ; we'll only invoke this when φ is stable.
-    -- For the unconditional biconditional, observe: if stabilize φ = empty
-    -- and φ is reached as a precondition state (which we'll arrange to be
-    -- stable), then φ = empty.
-    -- Without stability, this can fail (zero mask but nonzero heap).
-    sorry
-
 
 /-- Specification for `transferHalf`:
 
@@ -1420,24 +1402,7 @@ theorem selfFraming_isEmpty : SelfFraming isEmpty := by
     Net result: we retain half the permission to `x.f` together with the
     heap-dependent fact that `x.f == 5`. -/
 
-theorem framed_by_emp_acc_fieldEq (xAddr : Address) :
-    framed_by semp (acc (xf xAddr) 1 ∗ fieldEq (xf xAddr) (Val.vInt 5)) := by
-  intro w hw_emp hw_stable α hα
-  -- hw_emp : emp w  ⇒  w = empty
-  -- hα : ((· = w) ∗ (acc 1 ∗ fieldEq)) α
-  -- want: ((· = w) ∗ (acc 1 ∗ fieldEq)) (stabilize α)
-  rw [semp, emp_iff_empty] at hw_emp
-  subst hw_emp
-  rcases hα with ⟨a₁, a₂, hplus, ha₁_eq, ha₂_pt⟩
-  subst ha₁_eq
-  -- a₁ = empty, so plus empty a₂ = some α gives α = a₂
-  have hα_eq : α = a₂ := plus_empty_left_eq hplus
-  subst hα_eq
-  -- goal: ((· = empty) ∗ (acc 1 ∗ fieldEq)) (stabilize a₂)
-  -- We provide stabilize empty = empty as left, stabilize a₂ as right.
-  refine ⟨VirtualState.empty, VirtualState.stabilize _, ?_, rfl,
-          (selfFraming_acc_sep_fieldEq _ _ _ _).mp ha₂_pt⟩
-  exact plus_empty_left _
+
 
 
 theorem framed_by_semp_acc_fieldEq (xAddr : Address) :

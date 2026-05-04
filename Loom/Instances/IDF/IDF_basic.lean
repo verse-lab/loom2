@@ -1,4 +1,4 @@
-
+import Std.Data.ExtTreeMap.Lemmas
 
 open Classical
 
@@ -108,6 +108,8 @@ structure VirtualState where
   mask : Mask
   heap : PartialHeap
   wf : wfPreVirtualState mask heap
+
+
 
 namespace VirtualState
 
@@ -810,6 +812,41 @@ theorem Stabilize_selfFraming (A : Assertion) :
   ·
     -- rewrite backwards using idempotence of stabilize
     simpa [VirtualState.stable_eq_stabilize (VirtualState.stabilize_stable φ)] using h
+
+/-- If two self-framing assertions agree on stable states, they are equal. -/
+theorem selfFraming_ext {A B : Assertion}
+    (hA : SelfFraming A)
+    (hB : SelfFraming B)
+    (hAB : ∀ φ, VirtualState.Stable φ → A φ → B φ)
+    (hBA : ∀ φ, VirtualState.Stable φ → B φ → A φ) :
+    A = B := by
+  funext φ
+  apply propext
+  constructor
+  · intro hφ
+    have hA_st : A (VirtualState.stabilize φ) := (hA φ).mp hφ
+    have hB_st : B (VirtualState.stabilize φ) :=
+      hAB (VirtualState.stabilize φ) (VirtualState.stabilize_stable φ) hA_st
+    exact (hB φ).mpr hB_st
+  · intro hφ
+    have hB_st : B (VirtualState.stabilize φ) := (hB φ).mp hφ
+    have hA_st : A (VirtualState.stabilize φ) :=
+      hBA (VirtualState.stabilize φ) (VirtualState.stabilize_stable φ) hB_st
+    exact (hA φ).mpr hA_st
+
+/-- Self-framing assertions are exactly the stabilized ones. -/
+theorem selfFraming_iff_eq_stabilize (A : Assertion) :
+    SelfFraming A ↔ A = Stabilize A := by
+  constructor
+  · intro hA
+    apply selfFraming_ext hA (Stabilize_selfFraming A)
+    · intro φ hstable hφ
+      simpa [Stabilize, VirtualState.stable_eq_stabilize hstable] using hφ
+    · intro φ hstable hφ
+      simpa [Stabilize, VirtualState.stable_eq_stabilize hstable] using hφ
+  · intro hEq
+    rw [hEq]
+    exact Stabilize_selfFraming A
 
 /-- `semp` is self-framing immediately. -/
 theorem selfFraming_semp : SelfFraming semp := by
