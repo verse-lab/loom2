@@ -1105,6 +1105,14 @@ instance : WPMonad HeapM Assertion EPost⟨⟩ where
     grind
     grind
 
+/-- Restrict an assertion to stable states. -/
+abbrev stableOnly (P : Assertion) : Assertion :=
+  P ⊓ VirtualState.Stable
+
+/-- A `HeapM` triple interpreted only over stable states. -/
+abbrev StableTriple {α}
+    (pre : Assertion) (x : HeapM α) (post : α → Assertion) : Prop :=
+  Triple (stableOnly pre) x (fun a => stableOnly (post a)) ⊥
 
 
 
@@ -1112,18 +1120,8 @@ instance : WPMonad HeapM Assertion EPost⟨⟩ where
 
 
 
-/-- `HeapM.inhaleAx` with the paper's premises.
 
-    Following Isabelle's `SL_proof_implies_Viper` (AbstractSemanticsProperties.thy:1678),
-    the axiomatic inhale rule is proven complete w.r.t. operational semantics only for
-    **stable** initial states. We bake this into the precondition: the Hoare triple
-    is applied at states `φ` satisfying `P φ ∧ φ.Stable`.
-
-    Premises match Isabelle's `RuleInhale` (AbstractSemantics.thy:518):
-    `self_framing A → framed_by A P → Δ ⊢ [A] Inhale P [...]`
-    (A is precondition, P is inhaled; in Lean we rename to avoid clash). -/
 theorem HeapM.inhaleAx_paper (hp P : Assertion)
-    (hSF : SelfFraming P)
     (hFB : framed_by P hp) :
     ⦃ fun φ => P φ ∧ φ.Stable ⦄ inhale hp ⦃ fun _ φ => (P ∗ hp) φ ∧ φ.Stable⦄ := by
   constructor
@@ -1146,13 +1144,22 @@ theorem HeapM.inhaleAx_paper (hp P : Assertion)
     exact ⟨φ, ω_hp, hplus, hPφ, hhp⟩
     assumption
 
-/-- `HeapM.exhaleAx` with a stable-state precondition.
-
-    If `P` entails a separating decomposition into a stable leftover `Q`
-    and the exhaled resource `A`, then exhaling `A` establishes `Q`.
-    The `Q` witness is stabilized using `SelfFraming Q`, and stability of
-    the initial state guarantees the sum is preserved. -/
-
+theorem HeapM.inhaleAx_stable (hp P : Assertion)
+    (hFB : framed_by P hp) :
+    StableTriple P (inhale hp) (fun _ => P ∗ hp) := by
+  apply Triple.iff.mpr
+  intro φ hφ
+  have hφ' : P φ ∧ φ.Stable := by
+    simpa [stableOnly, meet_fun_apply, meet_prop_eq_and] using hφ
+  have hw :
+      Loom.wp (inhale hp) (fun _ φ => (P ∗ hp) φ ∧ φ.Stable) ⊥ φ :=
+    Triple.iff.mp (HeapM.inhaleAx_paper hp P hFB) φ hφ'
+  have hpost :
+      (fun _ : Unit => fun ψ => (P ∗ hp) ψ ∧ ψ.Stable) ⊑
+        (fun _ : Unit => stableOnly (P ∗ hp)) := by
+    intro (_ : Unit) ψ hψ
+    simpa [stableOnly, meet_fun_apply, meet_prop_eq_and] using hψ
+  exact WPMonad.wp_cons (inhale hp) _ _ ⊥ hpost φ hw
 
 
 
@@ -1179,7 +1186,6 @@ theorem HeapM.exhaleAx (A P Q : Assertion)
   simp [hStab, hQ_stab]
 
 theorem HeapM.exhaleAx' (A P Q : Assertion)
-    (_hSF : SelfFraming P)
     (hEntails : P ⊢ Q ∗ A)
     (hSQ : SelfFraming Q) :
     ⦃ P ⊓ VirtualState.Stable ⦄ exhale A ⦃ fun _ => Q ⊓ VirtualState.Stable ⦄ := by
@@ -1200,6 +1206,13 @@ theorem HeapM.exhaleAx' (A P Q : Assertion)
   have hStab : (VirtualState.stabilize φ₁).Stable := VirtualState.stabilize_stable φ₁
   have hQ_stab : Q (VirtualState.stabilize φ₁) := (hSQ φ₁).mp hQ
   simp [hStab, hQ_stab]
+
+theorem HeapM.exhaleAx_stable (A P Q : Assertion)
+    (hEntails : P ⊢ Q ∗ A)
+    (hSQ : SelfFraming Q) :
+    StableTriple P (exhale A) (fun _ => Q) := by
+  simpa [StableTriple, stableOnly] using
+    HeapM.exhaleAx' A P Q hEntails hSQ
 
 
 
@@ -1246,10 +1259,6 @@ theorem selfFraming_sep {P Q : Assertion}
     exact (hQ ψ).mpr this
 
 
-
-/-- Pure assertions are self-framing (they only hold on empty heap which is stable). -/
-theorem selfFraming_hPure (P : Prop) : SelfFraming (hPure P) := by
-      sorry
 
 end Assertion
 
@@ -1435,7 +1444,6 @@ theorem transferHalf_spec (xAddr : Address) :
     exact HeapM.inhaleAx_paper
             (acc (xf xAddr) 1 ∗ fieldEq (xf xAddr) (Val.vInt 5))
             semp
-            selfFraming_semp
             (framed_by_semp_acc_fieldEq xAddr)
   · -- exhale step
     intro _
