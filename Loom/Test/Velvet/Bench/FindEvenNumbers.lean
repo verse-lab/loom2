@@ -1,9 +1,6 @@
 import Loom.Test.Velvet.Syntax
--- import CaseStudies.Velvet.Utils
--- import CaseStudies.Velvet.UtilsLemmas
--- import Mathlib.Tactic
 
-attribute [-grind] getElem!_neg getElem?_neg getElem!_pos getElem?_pos
+attribute [-grind] getElem?_neg getElem?_pos getElem!_neg getElem!_pos Array.getElem_push
 
 
 /- Problem Description
@@ -54,13 +51,13 @@ method findEvenNumbers (arr : Array Int)
 
 set_option maxHeartbeats 10000000
 
-@[grind]
 theorem count_take [DecidableEq α] [Inhabited α] {a : α} {xs : Array α} :
   n < xs.size →
   (xs.take (n + 1)).count a = if xs[n]! = a then (xs.take n).count a + 1 else (xs.take n).count a := by
   intro; grind [Array.extract_succ_right, getElem!_neg, getElem?_neg, getElem?_pos, getElem!_pos]
 
-attribute [grind] Array.extract_size
+set_option trace.profiler true
 
 prove_correct findEvenNumbers by
   mvcgen' simplifying_assumptions with grind
+  all_goals grind [Array.extract_size, count_take]

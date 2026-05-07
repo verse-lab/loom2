@@ -1,6 +1,6 @@
 import Loom.Test.Velvet.Syntax
 
-attribute [-grind] getElem?_neg getElem?_pos Array.getElem_push
+attribute [-grind] getElem?_neg getElem?_pos getElem!_neg getElem!_pos Array.getElem_push
 
 -- Problem Description
 -- mergeSorted: Merge two sorted arrays of natural numbers into a single sorted array
@@ -81,7 +81,7 @@ method mergeSorted (a1 : Array Nat) (a2 : Array Nat)
 
   return result
 
-@[grind .]
+-- @[grind .]
 theorem count_take [DecidableEq α] [Inhabited α] {a : α} {xs : Array α} :
   n < xs.size →
   (xs.take (n + 1)).count a = if xs[n]! = a then (xs.take n).count a + 1 else (xs.take n).count a := by
@@ -92,6 +92,11 @@ theorem count_take [DecidableEq α] [Inhabited α] {a : α} {xs : Array α} :
 --   cases xs
 --   simp
 
+set_option maxHeartbeats 10000000
+
+set_option trace.profiler true
+
 prove_correct mergeSorted by
   mvcgen' simplifying_assumptions with grind
-  all_goals grind [Array.extract_size, isSorted_le]
+  any_goals grind [count_take, getElem!_neg, getElem!_pos]
+  any_goals grind [Array.extract_size, isSorted_le, getElem!_neg, getElem!_pos]
