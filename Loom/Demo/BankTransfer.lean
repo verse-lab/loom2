@@ -1,6 +1,6 @@
 import Loom.Triple.Basic
 import Loom.Tactic.VCGen
-import Loom.Instances.Specs
+import Loom.Demo.Specs
 
 open Lean.Order Std.Do'
 

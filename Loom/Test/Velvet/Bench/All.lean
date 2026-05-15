@@ -10,6 +10,7 @@ import Loom.Test.Velvet.Bench.FindMajorityElement
 import Loom.Test.Velvet.Bench.FindSmallest
 import Loom.Test.Velvet.Bench.HasOppositeSign
 import Loom.Test.Velvet.Bench.IfPowerOfFour
+import Loom.Test.Velvet.Bench.InsertionSort
 import Loom.Test.Velvet.Bench.IsDivisibleBy11
 import Loom.Test.Velvet.Bench.IsEven
 import Loom.Test.Velvet.Bench.IsGreater
