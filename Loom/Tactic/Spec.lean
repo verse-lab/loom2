@@ -187,7 +187,7 @@ meta def mkSpecBackwardProof
        This proof DOES NOT have a `?epostImpl` premise -/
     specApplied ← mkAppM ``WP.wp_econs_bot_rel #[prog, postAbstract, epostAbstract, specApplied]
 
-  let preApplied ← betaRevS pre ss.reverse
+  let preApplied ← Loom.betaRevS pre ss.reverse
   specApplied := mkAppN specApplied ss
   let wpTy ← mkAppM ``wp <| #[prog, postAbstract, epostAbstract] ++ ss
   let specAppliedTy ← mkAppM ``PartialOrder.rel #[preApplied, wpTy]

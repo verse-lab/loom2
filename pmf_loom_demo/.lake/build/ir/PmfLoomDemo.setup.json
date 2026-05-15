@@ -7298,11 +7298,47 @@
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/WP.ir",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/WP.olean.server",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/WP.olean.private"],
+  "Loom.Triple.SpecLemmas":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/SpecLemmas.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/SpecLemmas.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/SpecLemmas.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/SpecLemmas.olean.private"],
   "Loom.Triple.Basic":
   ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/Basic.olean",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/Basic.ir",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/Basic.olean.server",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Triple/Basic.olean.private"],
+  "Loom.Tactic.VCGenTime":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/VCGenTime.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/VCGenTime.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/VCGenTime.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/VCGenTime.olean.private"],
+  "Loom.Tactic.VCGen":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/VCGen.olean"],
+  "Loom.Tactic.Spec":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Spec.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Spec.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Spec.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Spec.olean.private"],
+  "Loom.Tactic.ShareExt":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/ShareExt.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/ShareExt.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/ShareExt.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/ShareExt.olean.private"],
+  "Loom.Tactic.Match":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Match.olean"],
+  "Loom.Tactic.Logic":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Logic.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Logic.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Logic.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Logic.olean.private"],
+  "Loom.Tactic.Intros":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Intros.olean"],
+  "Loom.Tactic.Attr":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Attr.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Attr.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Attr.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Tactic/Attr.olean.private"],
   "Loom.PredTrans":
   ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/PredTrans.olean",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/PredTrans.ir",
@@ -7313,11 +7349,18 @@
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/LatticeExt.ir",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/LatticeExt.olean.server",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/LatticeExt.olean.private"],
+  "Loom.Frame":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Frame.olean",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Frame.ir",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Frame.olean.server",
+   "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Frame.olean.private"],
   "Loom.ExceptPost":
   ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/ExceptPost.olean",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/ExceptPost.ir",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/ExceptPost.olean.server",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/ExceptPost.olean.private"],
+  "Loom.Demo.Specs":
+  ["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean/Loom/Demo/Specs.olean"],
   "LeanSearchClient.Syntax":
   ["/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/LeanSearchClient/.lake/build/lib/lean/LeanSearchClient/Syntax.olean",
    "/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/LeanSearchClient/.lake/build/lib/lean/LeanSearchClient/Syntax.ir",

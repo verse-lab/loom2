@@ -1,10 +1,10 @@
 {"synthetic": false,
  "schemaVersion": "2025-09-10",
  "outputs":
- {"o": ["e59c37156d851f09.olean"],
+ {"o": ["f6941dcc482a878b.olean"],
   "m": false,
-  "i": "409d298cc8c169f6.ilean",
-  "c": "bceeba5051cb0171.c"},
+  "i": "972aa98f34af06fe.ilean",
+  "c": "4d1a7548e57736c6.c"},
  "log":
  [{"message":
    ".> LEAN_PATH=/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/Cli/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/batteries/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/Qq/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/aesop/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/proofwidgets/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/importGraph/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/plausible/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/packages/mathlib/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/lean:/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/build/lib/lean /Users/volodeyka/.elan/toolchains/leanprover--lean4---v4.30.0-rc2/bin/lean -Dwarn.sorry=false --tstack=100000000 /Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/PmfLoomDemo/PMF.lean -o /Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/build/lib/lean/PmfLoomDemo/PMF.olean -i /Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/build/lib/lean/PmfLoomDemo/PMF.ilean -c /Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/build/ir/PmfLoomDemo/PMF.c --setup /Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/.lake/build/ir/PmfLoomDemo/PMF.setup.json --json",
@@ -17,6 +17,10 @@
       ["imports",
        [["Loom.Triple.Basic transitive imports (legacy)", "a6bdf78360410e31"],
         ["Loom.Triple.Basic:importAllArts", "cdada8716c47a755"],
+        ["Loom.Tactic.VCGen transitive imports (legacy)", "47f0ff282b6ad934"],
+        ["Loom.Tactic.VCGen:importAllArts", "c3ab1d03deef6aec"],
+        ["Loom.Demo.Specs transitive imports (legacy)", "e87de1b846eb1ea5"],
+        ["Loom.Demo.Specs:importAllArts", "05a86ddd733131e7"],
         ["Mathlib.Probability.ProbabilityMassFunction.Constructions transitive imports (legacy)",
          "f4225710acb4c1dd"],
         ["Mathlib.Probability.ProbabilityMassFunction.Constructions:importAllArts",
@@ -31,11 +35,11 @@
   ["Lean 4.30.0, commit 3dc1a088b6d2d8eafe25a7cd7ec7b58d731bd7cc",
    "2c8d2623007dfc36"],
   ["/Users/volodeyka/conductor/workspaces/loom2/thebes/pmf_loom_demo/PmfLoomDemo/PMF.lean",
-   "038784a73cdbc48f"],
+   "74ea1b915f3f0b22"],
   ["options", "00000000000006bb"],
   ["isModule: false", "feefd2a0d3a1847e"],
   ["Module.name: PmfLoomDemo.PMF", "5c4dc55fcf598e14"],
   ["Package.id?: (some pmf_loom_demo)", "696a446d2e1d0c66"],
   ["Module.leanArgs: #[-Dwarn.sorry=false, --tstack=100000000]",
    "6f2424ff5ca8215c"]],
- "depHash": "bbbba4005e143e52"}
+ "depHash": "f4093da0a2a54393"}

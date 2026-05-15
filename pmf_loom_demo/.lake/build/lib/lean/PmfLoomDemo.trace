@@ -15,8 +15,8 @@
      [["pmf_loom_demo/PmfLoomDemo:extraDep",
        [["@pmf_loom_demo:extraDep", "00000000000006bb"]]],
       ["imports",
-       [["PmfLoomDemo.PMF transitive imports (legacy)", "88ec06b27c122d00"],
-        ["PmfLoomDemo.PMF:importAllArts", "07a86aa5df70ece6"]]]]],
+       [["PmfLoomDemo.PMF transitive imports (legacy)", "762dec72a87df960"],
+        ["PmfLoomDemo.PMF:importAllArts", "ebee0bdcfda1e9aa"]]]]],
     ["libs",
      [["import dynlibs",
        [["/Users/volodeyka/conductor/workspaces/loom2/thebes/.lake/build/lib/libloom2_Loom.dylib",
@@ -34,4 +34,4 @@
   ["Package.id?: (some pmf_loom_demo)", "696a446d2e1d0c66"],
   ["Module.leanArgs: #[-Dwarn.sorry=false, --tstack=100000000]",
    "6f2424ff5ca8215c"]],
- "depHash": "eca1054bdfc01fc9"}
+ "depHash": "4e70fbe97ed4b851"}

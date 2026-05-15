@@ -1,5 +1,6 @@
 import Loom.Triple.Basic
--- import Loom.Tactic.VCGen
+import Loom.Tactic.VCGen
+import Loom.Demo.Specs
 import Mathlib.Probability.ProbabilityMassFunction.Constructions
 
 open Lean.Order Std.Do'
@@ -19,8 +20,7 @@ which is separate from mathlib's order hierarchy, so this demo provides the
 corresponding Loom lattice structure on `ENNReal` from mathlib's complete lattice.
 -/
 
-noncomputable instance instLeanOrderCompleteLatticeENNReal :
-    Lean.Order.CompleteLattice ENNReal where
+noncomputable instance : Lean.Order.CompleteLattice ENNReal where
   rel x y := x ≤ y
   rel_refl := le_rfl
   rel_trans := fun hxy hyz => le_trans hxy hyz
@@ -34,15 +34,13 @@ noncomputable instance instLeanOrderCompleteLatticeENNReal :
     · intro h
       exact sSup_le h
 
-attribute [local instance] instLeanOrderCompleteLatticeENNReal
-
 /-- Expected value of an `ENNReal` post-expectation under a mathlib `PMF`. -/
 noncomputable def expect (p : PMF α) (post : α → ENNReal) : ENNReal :=
   ∑' a, p a * post a
 
 theorem expect_pure (a : α) (post : α → ENNReal) :
-    expect (pure a : PMF α) post = post a := by
-  simp [expect, PMF.pure_apply]
+    expect (Pure.pure a : PMF α) post = post a := by
+  simp [expect, Pure.pure]
 
 theorem expect_bind (p : PMF α) (f : α → PMF β) (post : β → ENNReal) :
     expect (p >>= f) post = expect p (fun a => expect (f a) post) := by
@@ -60,20 +58,6 @@ theorem expect_bind (p : PMF α) (f : α → PMF β) (post : β → ENNReal) :
           intro a
           rw [ENNReal.tsum_mul_left]
 
-theorem expect_map (p : PMF α) (f : α → β) (post : β → ENNReal) :
-    expect (f <$> p) post = expect p (fun a => post (f a)) := by
-  rw [PMF.monad_map_eq_map, ← PMF.bind_pure_comp]
-  change expect (p >>= (pure ∘ f)) post = expect p (fun a => post (f a))
-  rw [expect_bind]
-  apply congrArg
-  funext a
-  simp [expect_pure]
-
-theorem expect_const_one (p : PMF α) :
-    expect p (fun _ => (1 : ENNReal)) = 1 := by
-  unfold expect
-  simp [p.tsum_coe]
-
 theorem expect_mono (p : PMF α) {post post' : α → ENNReal} :
     post ⊑ post' → expect p post ⊑ expect p post' := by
   intro hpost
@@ -83,7 +67,7 @@ noncomputable instance instWPLoomPMF : WP PMF ENNReal EPost.nil where
   wpTrans p := ⟨fun post _epost => expect p post⟩
   wp_trans_pure a := by
     intro post _epost
-    change post a ⊑ expect (pure a : PMF _) post
+    change post a ⊑ expect (Pure.pure a : PMF _) post
     rw [expect_pure]
   wp_trans_bind p f := by
     intro post _epost
@@ -117,6 +101,7 @@ theorem maybeIncrement_run (p : NNReal) (hp : p ≤ 1) (n : Nat) :
   ext r
   simp [StateT.run_bind, StateT.run_monadLift, StateT.run_modify]
 
+@[lspec]
 theorem bernoulli_spec (p : NNReal) (hp : p ≤ 1) (post : Bool → ENNReal) :
     ⦃ post true * p + post false * (1 - p) ⦄
       PMF.bernoulli p hp
@@ -128,36 +113,13 @@ theorem bernoulli_spec (p : NNReal) (hp : p ≤ 1) (post : Bool → ENNReal) :
   rw [tsum_bool]
   simp [PMF.bernoulli_apply, mul_comm, add_comm]
 
-theorem expect_maybeIncrementRun_reached (p : NNReal) (hp : p ≤ 1) (target n : Nat) :
-    expect (maybeIncrementRun p hp n)
-      (fun r : PUnit × Nat => if target ≤ r.2 then 1 else 0) =
-      if target ≤ n then (1 : ENNReal) else if target ≤ n + 1 then p else 0 := by
-  unfold maybeIncrementRun
-  rw [expect_map]
-  by_cases hn : target ≤ n
-  · have hpost :
-        (fun tick : Bool => if target ≤ (n + if tick then 1 else 0) then (1 : ENNReal) else 0) =
-          fun _ => (1 : ENNReal) := by
-      funext tick
-      cases tick <;> simp [hn, Nat.le_trans hn (Nat.le_succ n)]
-    rw [hpost, expect_const_one]
-    simp [hn]
-  · by_cases hsucc : target ≤ n + 1
-    · unfold expect
-      rw [tsum_bool]
-      simp [PMF.bernoulli_apply, hn, hsucc]
-    · unfold expect
-      rw [tsum_bool]
-      simp [PMF.bernoulli_apply, hn, hsucc]
-
 theorem spec_maybeIncrement_reached (p : NNReal) (hp : p ≤ 1) (target : Nat) :
     ⦃ fun n => if target ≤ n then (1 : ENNReal) else if target ≤ n + 1 then p else 0 ⦄
       maybeIncrement p hp
     ⦃ fun _ n => if target ≤ n then 1 else 0 ⦄ := by
-  rw [Triple.iff]
-  intro n
-  rw [StateT.apply_wp]
-  rw [maybeIncrement_run, wp_apply, expect_maybeIncrementRun_reached]
-
+  unfold maybeIncrement
+  mvcgen'; simp [PartialOrder.rel, expect_pure];
+  split_ifs <;> try grind [le_add_right, le_rfl]
+  norm_cast; grind [add_tsub_cancel_of_le hp]
 
 end PMF

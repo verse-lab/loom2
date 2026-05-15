@@ -4,6 +4,15 @@ import Loom.Tactic.VCGen
 open Lean.Order Std.Do'
 
 @[lspec]
+theorem Spec.monadLift_StateT_demo {m : Type u → Type v} {Pred EPred : Type u}
+    [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    (x : m α) (post : α → σ → Pred) (epost : EPred) :
+    Triple (fun s => wp x (fun a => post a s) epost)
+      (monadLift x : StateT σ m α) post epost := by
+  rw [Triple.iff]
+  exact WP.monadLift_StateT_wp x post
+
+@[lspec]
 theorem Spec.modify_StateT {m : Type u → Type v} {Pred EPred : Type u}
     [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
     (f : σ → σ) (post : PUnit → σ → Pred) (epost : EPred) :
