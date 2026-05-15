@@ -9,7 +9,7 @@ open scoped ENNReal
 namespace PMF
 
 /-!
-This module connects mathlib's concrete `PMF` monad to Loom's custom WP class.
+This module connects mathlib's concrete `PMF` monad to Loom's custom WPMonad class.
 
 Mathlib's `PMF α` stores a probability mass function `α → ENNReal` with total mass `1`.
 For Loom, we expose it through weakest pre-expectations: a distribution maps a
@@ -63,7 +63,7 @@ theorem expect_mono (p : PMF α) {post post' : α → ENNReal} :
   intro hpost
   exact ENNReal.tsum_le_tsum fun a => mul_le_mul_right (hpost a) (p a)
 
-noncomputable instance instWPLoomPMF : WP PMF ENNReal EPost.nil where
+noncomputable instance instWPMonadLoomPMF : WPMonad PMF ENNReal EPost.nil where
   wpTrans p := ⟨fun post _epost => expect p post⟩
   wp_trans_pure a := by
     intro post _epost

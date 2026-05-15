@@ -25,7 +25,7 @@ A predicate transformer `x : PredTrans Pred EPred α` takes a normal postconditi
 an exception postcondition `epost : EPred`, and returns a precondition of type `Pred`.
 
 `PredTrans` forms a monad, so monadic programs can be interpreted by a monad morphism into
-`PredTrans`; this is exactly what `WP` encodes.
+`PredTrans`; this is exactly what `WPMonad` encodes.
 
 ## Main definitions
 

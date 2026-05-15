@@ -135,8 +135,8 @@ meta partial def decomposeEPostRel (epostSpec epostAbstract : Expr) : SymM Expr 
 Turn a spec proof `pre ⊑ wp prog post epost` into a backward rule proof term.
 
 If `post` and/or `epost` are concrete (not top-level metavariables), fresh target metavariables
-are introduced and the proof is generalized using `WP.wp_consequence_rel`, `WP.wp_econs_rel`,
-or `WP.wp_econs_bot_rel`. If `pre` is concrete, it is generalized using `PartialOrder.rel_trans`.
+are introduced and the proof is generalized using `WPMonad.wp_consequence_rel`, `WPMonad.wp_econs_rel`,
+or `WPMonad.wp_econs_bot_rel`. If `pre` is concrete, it is generalized using `PartialOrder.rel_trans`.
 
 The result stays in `⊑` form: `?pre s1..sn ⊑ wp prog ?post ?epost s1..sn`.
 -/
@@ -148,7 +148,7 @@ meta def mkSpecBackwardProof
   3. `specProof` represents the Lean expression for the proof of the spec `pre ⊑ wp prog post epost`
   4. `ss` represents the Lean expressions for the state variables `s1`, `s2`, ..., `sn`
   5. `ssTypes` represents the Lean types for the state variables `s1`, `s2`, ..., `sn` -/
-  let_expr wp _m _Pred _EPred _monadInst _instAL _instEAL _instWP _α prog postSpec epostSpec := rhs
+  let_expr wp _m _Pred _EPred _monadInst _instAL _instEAL _instWPMonad _α prog postSpec epostSpec := rhs
     | throwError "target not a wp application {rhs}"
   let mut postAbstract := postSpec.consumeMData
   let mut epostAbstract := epostSpec.consumeMData
@@ -166,7 +166,7 @@ meta def mkSpecBackwardProof
     let hpost ← mkFreshExprMVar (userName := `postImpl) hpostTy
     /- get the proof of `pre ⊑ wp prog postAbstract epostSpec`, where `post` is abstracted.
        Uses wp_consequence_rel: post ⊑ post' → pre ⊑ wp x post epost → pre ⊑ wp x post' epost -/
-    specApplied ← mkAppM ``WP.wp_consequence_rel #[prog, postSpec, postAbstract, epostSpec, hpost, specApplied]
+    specApplied ← mkAppM ``WPMonad.wp_consequence_rel #[prog, postSpec, postAbstract, epostSpec, hpost, specApplied]
 
   /- abstract concrete `epost` if it is not already abstract -/
   unless epostAbstract.isMVar do
@@ -175,17 +175,17 @@ meta def mkSpecBackwardProof
     /- mvar `epostAbstract` for new abstract `epost` -/
     epostAbstract ← mkFreshExprMVar (userName := `epost) epostTy
     /- if `epost` is `⊥`, then `epost ⊑ epostAbstract` holds trivially and
-      abstracting `epost` can be simply done by `WP.wp_econs_bot_rel` without
+      abstracting `epost` can be simply done by `WPMonad.wp_econs_bot_rel` without
       introducing a new premise. This case is quite common, that's why we handle
       it specially. -/
     let_expr bot _ _ := epostSpec |
       /- Decompose `epostSpec ⊑ epostAbstract` into per-component proofs
         using `EPost.cons_rel` and `EPost.nil_rel` -/
       let hepost ← decomposeEPostRel epostSpec epostAbstract
-      specApplied ← mkAppM ``WP.wp_econs_rel #[prog, postAbstract, epostSpec, epostAbstract, hepost, specApplied]
+      specApplied ← mkAppM ``WPMonad.wp_econs_rel #[prog, postAbstract, epostSpec, epostAbstract, hepost, specApplied]
     /- get the proof of `pre ⊑ wp prog postAbstract epostAbstract`, where `epost (= ⊥)` is abstracted.
        This proof DOES NOT have a `?epostImpl` premise -/
-    specApplied ← mkAppM ``WP.wp_econs_bot_rel #[prog, postAbstract, epostAbstract, specApplied]
+    specApplied ← mkAppM ``WPMonad.wp_econs_bot_rel #[prog, postAbstract, epostAbstract, specApplied]
 
   let preApplied ← Loom.betaRevS pre ss.reverse
   specApplied := mkAppN specApplied ss
@@ -232,19 +232,19 @@ Given a spec `pre ⊑ wp prog post epost` where the lattice type is
 `Pred = σ1 → ... → σn → Prop`, produces an auxiliary lemma.
 
 - `l`: the goal's lattice type (e.g. `Nat → Prop`)
-- `instWP`: the `WP` instance for the goal monad
+- `instWPMonad`: the `WPMonad` instance for the goal monad
 - `excessArgs`: free variables representing state args from `Pred = σ1 → ... → σn → Prop`
 -/
 meta def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
-  (Pred instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
+  (Pred instWPMonad : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
   -- Instantiate the spec theorem, creating metavars for all universally quantified params
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
   let_expr PartialOrder.rel Pred' _cl' pre rhs := specType
     | throwError "target not a partial order ⊑ application {specType}"
   guard <| ← isDefEqGuarded Pred Pred'
-  let_expr wp _m' _ _ _monadInst' _instAL' _instEAL' instWP' _α _EPred' _post _epost := rhs
+  let_expr wp _m' _ _ _monadInst' _instAL' _instEAL' instWPMonad' _α _EPred' _post _epost := rhs
     | throwError "target not a wp application {rhs}"
-  guard <| ← isDefEqGuarded instWP instWP'
+  guard <| ← isDefEqGuarded instWPMonad instWPMonad'
   -- Use local excess-state binders so explicit post premises can be re-lifted to `⊑`.
   let mut ss := #[]
   let mut ssTypes := #[]
@@ -260,14 +260,14 @@ meta def tryMkBackwardRuleFromSpec (specThm : SpecTheorem)
 /-- Like `tryMkBackwardRuleFromSpec` but skips `mkAuxLemma` — for local fvar specs
     where the proof references local variables that the kernel can't see. -/
 meta def tryMkBackwardRuleFromLocalSpec (specThm : SpecTheorem)
-  (Pred instWP : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
+  (Pred instWPMonad : Expr) (excessArgs : Array Expr) : OptionT SymM BackwardRule := do
   let (_xs, _bs, specProof, specType) ← specThm.proof.instantiate
   let_expr PartialOrder.rel Pred' _cl' pre rhs := specType
     | throwError "target not a partial order ⊑ application {specType}"
   guard <| ← isDefEqGuarded Pred Pred'
-  let_expr wp _m' _ _ _monadInst' _instAL' _instEAL' instWP' _α _EPred' _post _epost := rhs
+  let_expr wp _m' _ _ _monadInst' _instAL' _instEAL' instWPMonad' _α _EPred' _post _epost := rhs
     | throwError "target not a wp application {rhs}"
-  guard <| ← isDefEqGuarded instWP instWP'
+  guard <| ← isDefEqGuarded instWPMonad instWPMonad'
   let mut ss := #[]
   let mut ssTypes := #[]
   for arg in excessArgs do
@@ -297,11 +297,11 @@ private meta def testSpecBackwardProofType' (declName : Name)
   instantiateMVars (← inferType spec)
 
 /-- Test helper: call tryMkBackwardRuleFromSpec and return the backward rule type. -/
-private meta def testBackwardRule' (declName : Name) (Pred instWP : Expr)
+private meta def testBackwardRule' (declName : Name) (Pred instWPMonad : Expr)
     (excessArgs : Array Expr) : MetaM Expr := do
   let specThm ← mkSpecTheoremFromConst declName
   let rule ← SymM.run do
-    tryMkBackwardRuleFromSpec specThm Pred instWP excessArgs
+    tryMkBackwardRuleFromSpec specThm Pred instWPMonad excessArgs
   match rule with
   | some br => inferType br.expr
   | none => throwError "tryMkBackwardRuleFromSpec returned none for {declName}"
@@ -314,8 +314,8 @@ private meta def testBackwardRule' (declName : Name) (Pred instWP : Expr)
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) Pred)
   let instEAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) errTy)
-  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
-  let ty ← testBackwardRule' ``WP.wp_bind Pred instWP #[]
+  let instWPMonad ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
+  let ty ← testBackwardRule' ``WPMonad.wp_bind Pred instWPMonad #[]
   logInfo m!"Test 1' (Id, n=0): {ty}"
 
 -- Test 2': wp_bind for StateM Nat, n=1 excess arg
@@ -327,9 +327,9 @@ private meta def testBackwardRule' (declName : Name) (Pred instWP : Expr)
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) Pred)
   let instEAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) errTy)
-  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
+  let instWPMonad ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule' ``WP.wp_bind Pred instWP #[s]
+    let ty ← testBackwardRule' ``WPMonad.wp_bind Pred instWPMonad #[s]
     logInfo m!"Test 2' (StateM Nat, n=1): {ty}"
 
 -- Test A': concrete post, 1 excess arg
@@ -404,9 +404,9 @@ theorem spec_get_StateM_test' (post : Nat → Nat → Prop) (epost : EPost.nil) 
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) Pred)
   let instEAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) errTy)
-  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
+  let instWPMonad ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule' ``spec_get_StateM_test' Pred instWP #[s]
+    let ty ← testBackwardRule' ``spec_get_StateM_test' Pred instWPMonad #[s]
     logInfo m!"Test F' (get_StateT, StateM Nat, n=1): {ty}"
 
 -- Test G': Spec.set_StateT for StateM Nat (abstract post/epost, concrete pre)
@@ -423,9 +423,9 @@ theorem spec_set_StateM_test' (v : Nat) (post : PUnit → Nat → Prop) (epost :
   let monadM ← synthInstance (← mkAppM ``Monad #[m])
   let instAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) Pred)
   let instEAL ← synthInstance (mkApp (mkConst ``Assertion [.zero]) errTy)
-  let instWP ← synthInstance (mkAppN (mkConst ``WP [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
+  let instWPMonad ← synthInstance (mkAppN (mkConst ``WPMonad [.zero, .zero, .zero, .zero]) #[m, Pred, errTy, monadM, instAL, instEAL])
   withLocalDeclD `s nat fun s => do
-    let ty ← testBackwardRule' ``spec_set_StateM_test' Pred instWP #[s]
+    let ty ← testBackwardRule' ``spec_set_StateM_test' Pred instWPMonad #[s]
     logInfo m!"Test G' (set_StateT, StateM Nat, n=1): {ty}"
 
 -- Test H': nested epost with state args (exercises ssTypes in decomposeEPostRel)

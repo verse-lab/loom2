@@ -71,17 +71,17 @@ namespace VCGen
 /-! ## Backward rule construction -/
 
 /-- Cached version of `tryMkBackwardRuleFromSpec`.
-    Cache key: `(proof key, instWP, excessArgs.size)`. -/
+    Cache key: `(proof key, instWPMonad, excessArgs.size)`. -/
 def mkBackwardRuleFromSpecCached (specThm : SpecTheorem)
-    (l instWP : Expr) (excessArgs : Array Expr)
+    (l instWPMonad : Expr) (excessArgs : Array Expr)
     : OptionT VCGenM BackwardRule := do
-    let key := (specThm.proof.key, instWP, excessArgs.size)
+    let key := (specThm.proof.key, instWPMonad, excessArgs.size)
     let s := (← get).specBackwardRuleCache
     match s[key]? with
     | some rule => return rule
     | none =>
       let some rule ← (withNewMCtxDepth
-          (tryMkBackwardRuleFromSpec specThm l instWP excessArgs).run : SymM _)
+          (tryMkBackwardRuleFromSpec specThm l instWPMonad excessArgs).run : SymM _)
         | failure
       modify fun st => { st with specBackwardRuleCache := st.specBackwardRuleCache.insert key rule }
       return rule
@@ -89,18 +89,18 @@ def mkBackwardRuleFromSpecCached (specThm : SpecTheorem)
 
 open Lean.Elab.Tactic.Do in
 def mkBackwardRuleForSplitCached
-    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instAL instEAL instWP : Expr)
+    (splitInfo : SplitInfo) (wpHead m l errTy monadInst instAL instEAL instWPMonad : Expr)
     (excessArgs : Array Expr) : VCGenM BackwardRule := do
   let cacheKey := match splitInfo with
     | .ite .. => ``ite
     | .dite .. => ``dite
     | .matcher matcherApp => matcherApp.matcherName
   let s := (← get).splitBackwardRuleCache
-  match s[(cacheKey, instWP, excessArgs.size)]? with
+  match s[(cacheKey, instWPMonad, excessArgs.size)]? with
   | some rule => return rule
   | none =>
-    let rule ← mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instAL instEAL instWP excessArgs
-    modify ({ · with splitBackwardRuleCache := s.insert (cacheKey, instWP, excessArgs.size) rule })
+    let rule ← mkBackwardRuleForSplit splitInfo wpHead m l errTy monadInst instAL instEAL instWPMonad excessArgs
+    modify ({ · with splitBackwardRuleCache := s.insert (cacheKey, instWPMonad, excessArgs.size) rule })
     return rule
 
 def mkBackwardRuleForLogicCached
@@ -119,7 +119,7 @@ def mkBackwardRuleForLogicCached
 
 /-- Result of trying to solve a single goal of the form `pre ⊑ wp prog post epost`. -/
 inductive SolveResult where
-  /-- The RHS was neither a WP goal nor a supported lattice goal. -/
+  /-- The RHS was neither a WPMonad goal nor a supported lattice goal. -/
   | noProgramOrLatticeFoundInTarget (T : Expr)
   /-- Don't know how to handle `e` in `pre ⊑ wp e post epost`. -/
   | noStrategyForProgram (e : Expr)
@@ -136,11 +136,11 @@ inductive GoalKind where
   | EPostVC (relConst : Expr) (α inst : Expr) (pre : Expr) (epost : Expr) (excessArgs : Array Expr)
   /-- RHS is a lattice connective application (`meet`/`himp`) with optional excess args. -/
   | Lattice (lop : LogicOp) (as : Array Expr) (excessArgs : Array Expr)
-  /-- RHS is a WP application. -/
-  | WP (head : Expr) (args : Array Expr)
+  /-- RHS is a WPMonad application. -/
+  | WPMonad (head : Expr) (args : Array Expr)
   /-- Lattice type is Prop and precondition is not `True`; intro the pre. -/
   | IntroPre
-  /-- RHS is neither a recognized WP nor a recognized lattice connective. -/
+  /-- RHS is neither a recognized WPMonad nor a recognized lattice connective. -/
   | Unknown
 
 /-! ## Private helpers -/
@@ -182,7 +182,7 @@ def classifyGoalKind (target : Expr) : VCGenM GoalKind := do
         let (epostTarget, index) := peelEPostTailChain epostArg
         let epost ← mkEPostAtIndex epostTarget index
         return .EPostVC target.getAppFn α inst pre epost (args.extract 3 args.size)
-      | wp => return .WP head args
+      | wp => return .WPMonad head args
       | meet =>
         let excessArgs := args.drop 4
         let as := args.extract 2 4
@@ -218,9 +218,9 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       let .goals goals ← rule.apply goal
         | throwError "Failed to apply logic rule at {indentExpr target}"
       return SolveResult.goals goals
-  | .WP head args => do
-      -- Goal is: pre ⊑ @wp m l errTy monadInst instAL instEAL instWP α e post epost
-      let_expr wp m l errTy monadInst instAL instEAL instWP α e _post _epost :=
+  | .WPMonad head args => do
+      -- Goal is: pre ⊑ @wp m l errTy monadInst instAL instEAL instWPMonad α e post epost
+      let_expr wp m l errTy monadInst instAL instEAL instWPMonad α e _post _epost :=
         mkAppN head <| args.take 11
         | return .noProgramOrLatticeFoundInTarget target
       let excessArgs := args.extract 11 args.size
@@ -229,7 +229,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
       if let .letE _x _ty val body _nonDep := f then
         let body' ← Sym.instantiateRevBetaS body #[val]
         let e' ← mkAppRevS body' e.getAppRevArgs
-        let wp ← mkAppS₁₁ head m l errTy monadInst instAL instEAL instWP α e' _post _epost
+        let wp ← mkAppS₁₁ head m l errTy monadInst instAL instEAL instWPMonad α e' _post _epost
         let rhs ← mkAppNS wp excessArgs
         -- Rebuild the ⊑ goal with the new RHS
         let_expr PartialOrder.rel l cl pre _rhs := target
@@ -251,7 +251,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
             return SolveResult.goals [goal]
         -- Fall back to full split
         trace[Loom.Tactic.vcgen] "Applying split rule for {e}. Excess args: {excessArgs}"
-        let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWP excessArgs
+        let rule ← mkBackwardRuleForSplitCached info head m l errTy monadInst instAL instEAL instWPMonad excessArgs
         let .goals goals ← rule.apply goal
           | throwError "Failed to apply split rule for {indentExpr e}"
         -- Intro split parameters and rename the condition hypothesis
@@ -294,7 +294,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
               if let some _ ← pattern.match? e then
                 trace[Loom.Tactic.vcgen] "Applying local spec for fvar {e}"
                 try
-                  let some rule ← (tryMkBackwardRuleFromLocalSpec spec l instWP excessArgs).run
+                  let some rule ← (tryMkBackwardRuleFromLocalSpec spec l instWPMonad excessArgs).run
                     | dbg_trace "tryMkBackwardRuleFromLocalSpec returned none"; continue
                   -- Strip mdata from goal type so backward rule pattern matches
                   let goalTy ← goal.getType
@@ -310,7 +310,7 @@ def solve (goal : MVarId) : VCGenM SolveResult := goal.withContext do
         | .error thms => return .noSpecFoundForProgram e m thms
         | .ok thm =>
         trace[Loom.Tactic.vcgen] "Spec for {e}: {thm.proof}"
-        let some rule ← (mkBackwardRuleFromSpecCached thm l instWP excessArgs).run
+        let some rule ← (mkBackwardRuleFromSpecCached thm l instWPMonad excessArgs).run
           | return .noSpecFoundForProgram e m #[thm]
         trace[Loom.Tactic.vcgen] "Applying rule {rule.pattern.pattern} at {target}"
         let .goals goals ← rule.apply goal

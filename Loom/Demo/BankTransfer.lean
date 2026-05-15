@@ -102,7 +102,7 @@ def withdraw (amount : Nat) : BankM PUnit := do
   setWithDrawToday <| withDrawToday + amount
 
 #synth
-  WP BankM
+  WPMonad BankM
       (Nat → Balance → Prop)
     EPost⟨
       AuditError → Nat → Balance → Prop,

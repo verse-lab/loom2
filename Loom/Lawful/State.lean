@@ -5,9 +5,9 @@ import Loom.Lawful.Lift
 
 open Lean.Order Loom
 
-variable (m : Type u₁ → Type u₂) (Pred : Type u₁) (EPred : Type u₁) [Monad m] [WP m Pred EPred]
+variable (m : Type u₁ → Type u₂) (Pred : Type u₁) (EPred : Type u₁) [Monad m] [WPMonad m Pred EPred]
 
-class LawfulMonadStateOf (σ : Type u₁) [WP m Pred EPred]
+class LawfulMonadStateOf (σ : Type u₁) [WPMonad m Pred EPred]
   [MonadStateOf σ m] [MonadStateOf σ (PredTrans Pred EPred)] where
   wp_get : (get : PredTrans Pred EPred σ) ⊑ wp (get : m σ)
   wp_set (s : σ) : (set s : PredTrans Pred EPred PUnit) ⊑ wp (set s : m PUnit)
@@ -17,20 +17,20 @@ instance StateT.instLawfulMonadStateOf (σ : Type u₁) : LawfulMonadStateOf (St
   wp_get := by
     simp [get, getThe, MonadStateOf.get]
     intro post epost s
-    unfold wp; simp [WP.wpTrans]
+    unfold wp; simp [WPMonad.wpTrans]
     unfold StateT.get StateT.run; simp; apply PartialOrder.rel_trans; rotate_left;
-    apply WP.wp_pure; rfl
+    apply WPMonad.wp_pure; rfl
   wp_set := by
     simp [set, MonadStateOf.set]
     intro post epost e s
-    unfold wp; simp [WP.wpTrans]
+    unfold wp; simp [WPMonad.wpTrans]
     unfold StateT.set StateT.run; simp; apply PartialOrder.rel_trans; rotate_left;
-    apply WP.wp_pure; rfl
+    apply WPMonad.wp_pure; rfl
   wp_modifyGet := by
     simp [modifyGet, MonadStateOf.modifyGet]
     intro α post post' epost s; simp
     unfold wp StateT.modifyGet StateT.run; simp; apply PartialOrder.rel_trans; rotate_left;
-    apply WP.wp_pure; rfl
+    apply WPMonad.wp_pure; rfl
 
 instance (σ ε : Type u₁)
   [MonadStateOf σ m] [MonadStateOf σ (PredTrans Pred EPred)] [LawfulMonadStateOf m Pred EPred σ] :
@@ -56,7 +56,7 @@ instance (σ ρ : Type u₁)
 -- instance (σ : Type u₁)
 --   [MonadStateOf σ m] [MonadStateOf σ (PredTrans Pred EPred)] [LawfulMonadStateOf m Pred EPred σ]
 --   (n : Type u₁ → Type u₂) (k : Type u₁) (d : Type u₁)
---   [CompleteLattice k] [CompleteLattice d] [Monad n] [WP n k d]
+--   [CompleteLattice k] [CompleteLattice d] [Monad n] [WPMonad n k d]
 --   [MonadLift m n]
 --   [MonadLift (PredTrans Pred EPred) (PredTrans k d)]
 --   [LawfulWPLift m Pred EPred n k d] :
@@ -88,9 +88,9 @@ instance (ρ : Type u₁) : LawfulMonadReaderOf (ReaderT ρ m) (ρ → Pred) EPr
   wp_read := by
     simp [read, readThe, MonadReaderOf.read]
     intro post epost r
-    unfold wp; simp [WP.wpTrans]
+    unfold wp; simp [WPMonad.wpTrans]
     apply PartialOrder.rel_trans; rotate_left;
-    apply WP.wp_pure; rfl
+    apply WPMonad.wp_pure; rfl
 
 instance (ρ ρ' : Type u₁)
   [MonadReaderOf ρ m] [MonadReaderOf ρ (PredTrans Pred EPred)] [LawfulMonadReaderOf m Pred EPred ρ] :
@@ -110,7 +110,7 @@ instance (ρ σ : Type u₁)
 -- instance (ρ : Type u₁)
 --   [MonadReaderOf ρ m] [MonadReaderOf ρ (PredTrans Pred EPred)] [LawfulMonadReaderOf m Pred EPred ρ]
 --   (n : Type u₁ → Type u₂) (k : Type u₁) (d : Type u₁)
---   [CompleteLattice k] [CompleteLattice d] [Monad n] [WP n k d]
+--   [CompleteLattice k] [CompleteLattice d] [Monad n] [WPMonad n k d]
 --   [MonadLift m n]
 --   [MonadLift (PredTrans Pred EPred) (PredTrans k d)]
 --   [LawfulWPLiftT m Pred EPred n k d] :

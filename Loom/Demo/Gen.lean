@@ -9,7 +9,7 @@ open Lean.Order Std.Do'
 section MonadTransformers
 
 variable {m : Type → Type v} {Pred EPred : Type _}
-variable [Monad m] [LawfulMonad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+variable [Monad m] [LawfulMonad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EPred]
 
 /-
   post st
@@ -20,20 +20,20 @@ variable [Monad m] [LawfulMonad m] [Assertion Pred] [Assertion EPred] [WP m Pred
   <-> ∀ s, post s
 -/
 noncomputable instance (priority := high) IgnoreState [Inhabited σ] :
-  WP (StateT σ m) Pred EPred where
+  WPMonad (StateT σ m) Pred EPred where
   wpTrans x := ⟨fun post epost => ⨅ s, wp (m := m) (x s) (post ·.1) epost⟩
   wp_trans_pure x := by
     intro post epost
     apply le_iInf
     intro s
-    exact WP.wp_pure (m := m) (x, s) (post ·.1) epost
+    exact WPMonad.wp_pure (m := m) (x, s) (post ·.1) epost
   wp_trans_bind x f := by
     intro post epost
     apply le_iInf
     intro s
-    apply PartialOrder.rel_trans _ (WP.wp_bind (m := m) (x s) ..)
+    apply PartialOrder.rel_trans _ (WPMonad.wp_bind (m := m) (x s) ..)
     apply PartialOrder.rel_trans (iInf_le _ s)
-    apply WP.wp_consequence (m := m)
+    apply WPMonad.wp_consequence (m := m)
     intro x
     exact iInf_le _ x.2
   wp_trans_monotone x := by
@@ -41,25 +41,25 @@ noncomputable instance (priority := high) IgnoreState [Inhabited σ] :
     apply le_iInf
     intro s
     apply PartialOrder.rel_trans (iInf_le _ s)
-    apply WP.wp_consequence_econs (m := m) (x := x s)
+    apply WPMonad.wp_consequence_econs (m := m) (x := x s)
     · intro x; apply hpost
     · exact hepost
 
 noncomputable instance (priority := high) IgnoreReader [Inhabited ρ] :
-  WP (ReaderT ρ m) Pred EPred where
+  WPMonad (ReaderT ρ m) Pred EPred where
   wpTrans x := ⟨fun post epost => ⨅ r, wp (m := m) (x r) post epost⟩
   wp_trans_pure x := by
     intro post epost
     apply le_iInf
     intro r
-    exact WP.wp_pure (m := m) x post epost
+    exact WPMonad.wp_pure (m := m) x post epost
   wp_trans_bind x f := by
     intro post epost
     apply le_iInf
     intro r
-    apply PartialOrder.rel_trans _ (WP.wp_bind (m := m) (x r) ..)
+    apply PartialOrder.rel_trans _ (WPMonad.wp_bind (m := m) (x r) ..)
     apply PartialOrder.rel_trans (iInf_le _ r)
-    apply WP.wp_consequence (m := m)
+    apply WPMonad.wp_consequence (m := m)
     intro x
     exact iInf_le _ r
   wp_trans_monotone x := by
@@ -67,13 +67,13 @@ noncomputable instance (priority := high) IgnoreReader [Inhabited ρ] :
     apply le_iInf
     intro r
     apply PartialOrder.rel_trans (iInf_le _ r)
-    apply WP.wp_consequence_econs (m := m) (x r)
+    apply WPMonad.wp_consequence_econs (m := m) (x r)
     · intro x; apply hpost
     · exact hepost
 
 end MonadTransformers
 
-instance (priority := high) : WP (Except ε) Prop EPost⟨⟩ where
+instance (priority := high) : WPMonad (Except ε) Prop EPost⟨⟩ where
   wpTrans x := ⟨fun post _epost => match x with
     | .ok x => post x
     | .error _ => False⟩
@@ -91,15 +91,15 @@ theorem chooseAny_wp (post : α → Prop) [Random Id α] :
   ⦃ ∀ a, post a ⦄ Gen.chooseAny α ⦃ a, post a ⦄ := by
   rw [Triple.iff]
   intro hpost
-  simp [Gen.chooseAny, liftM, monadLift, wp, WP.wpTrans]
+  simp [Gen.chooseAny, liftM, monadLift, wp, WPMonad.wpTrans]
   solve_by_elim
 
 theorem Testable.run_wp [Testable p] :
   ⦃ p ∧ post ⦄ Testable.runPropE p c m ⦃ _, post ⦄ := by
   rw [Triple.iff]; intro ⟨ph, posth⟩
-  simp [Testable.runPropE]; apply WP.wp_bind (m := Gen)
+  simp [Testable.runPropE]; apply WPMonad.wp_bind (m := Gen)
   simp [tryCatch, MonadExceptOf.tryCatch, tryCatchThe, Except.tryCatch]
-  simp [wp, WP.wpTrans]
+  simp [wp, WPMonad.wpTrans]
   intro s r
   cases hrun : (((fun a => DoResultPR.pure a PUnit.unit) <$> Testable.runProp p c m) s r) with
   | ok a =>

@@ -21,7 +21,7 @@ Hoare triples form the basis for compositional functional correctness proofs abo
 As usual, `Triple pre x post epost` holds iff the precondition `pre` entails the weakest
 precondition `wp x post epost` of `x : m α` for the postcondition `post` and error
 postcondition `epost`.
-It is thus defined in terms of an instance `WP m Pred EPred`.
+It is thus defined in terms of an instance `WPMonad m Pred EPred`.
 -/
 
 namespace Std.Do'
@@ -32,7 +32,7 @@ variable {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
 /-- A Hoare triple for reasoning about monadic programs. A Hoare triple `Triple pre x post epost`
 is a *specification* for `x`: if assertion `pre` holds before `x`, then postcondition `post` holds
 after running `x` (and `epost` handles any errors). -/
-inductive Triple [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred] (pre : Pred) (x : m α) (post : α → Pred) (epost : EPred) : Prop
+inductive Triple [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EPred] (pre : Pred) (x : m α) (post : α → Pred) (epost : EPred) : Prop
   /-- Construct a triple from a weakest precondition entailment. -/
   | intro (hwp : pre ⊑ wp x post epost)
 
@@ -49,13 +49,13 @@ macro_rules
 
 namespace Triple
 
-variable [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+variable [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EPred]
 
 theorem iff {x : m α} {pre : Pred} {post : α → Pred} {epost : EPred} :
     Triple pre x post epost ↔ (pre ⊑ wp x post epost) :=
   ⟨fun ⟨h⟩ => h, fun h => ⟨h⟩⟩
 
-/-- Extract the WP proof from a Triple. -/
+/-- Extract the WPMonad proof from a Triple. -/
 theorem toWP {pre : Pred} {x : m α} {post : α → Pred} {epost : EPred}
     (h : Triple pre x post epost) : pre ⊑ wp x post epost :=
   Triple.iff.mp h
@@ -65,7 +65,7 @@ theorem iff_conseq {x : m α} {pre : Pred} {post : α → Pred} {epost : EPred} 
     (∀ pre' post', (pre' ⊑ pre) → (post ⊑ post') → pre' ⊑ wp x post' epost) := by
   constructor
   · intro ⟨h⟩ pre' post' hpre hpost
-    exact PartialOrder.rel_trans hpre (PartialOrder.rel_trans h (WP.wp_consequence x _ _ epost hpost))
+    exact PartialOrder.rel_trans hpre (PartialOrder.rel_trans h (WPMonad.wp_consequence x _ _ epost hpost))
   · intro h
     exact ⟨h _ _ PartialOrder.rel_refl (fun _ => PartialOrder.rel_refl)⟩
 
@@ -86,7 +86,7 @@ theorem entails_wp_of_post {x : m α} {pre : Pred} {post post' : α → Pred} {e
 
 theorem pure (a : α) (h : pre ⊑ post a) :
     Triple pre (pure (f := m) a) post epost :=
-  iff.mpr (PartialOrder.rel_trans h (WP.wp_pure a post epost))
+  iff.mpr (PartialOrder.rel_trans h (WPMonad.wp_pure a post epost))
 
 theorem bind (x : m α) (f : α → m β)
     (mid : α → Pred)
@@ -95,9 +95,9 @@ theorem bind (x : m α) (f : α → m β)
     Triple pre (x >>= f) post epost := by
   apply iff.mpr
   apply PartialOrder.rel_trans (iff.mp hx)
-  apply PartialOrder.rel_trans (WP.wp_consequence x mid (fun a => wp (f a) post epost) epost
+  apply PartialOrder.rel_trans (WPMonad.wp_consequence x mid (fun a => wp (f a) post epost) epost
     (fun a => iff.mp (hf a)))
-  exact WP.wp_bind x f post epost
+  exact WPMonad.wp_bind x f post epost
 
 end Triple
 

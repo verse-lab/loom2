@@ -31,7 +31,7 @@ instance {m : Type u → Type v} [md : Monad m] [ccpo : ∀ α, CCPO (m α)] [mo
   forIn {β} _ b f := @Loop.forIn m β md ccpo mono Loop.mk b f
 
 variable {m : Type u → Type v} {Pred : Type u} {EPred : Type u}
-  [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+  [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EPred]
   [∀ α, CCPO (m α)] [MonoBind m]
 
 theorem repeat_inv (f : Unit → β → m (ForInStep β))

@@ -8,15 +8,15 @@ open Loom Lean Meta Order Std.Do'
 
 -- Spec for MonadStateOf.get (defined in VCGen.lean's test section, replicated here)
 @[lspec high] theorem spec_get_StateT {m : Type u → Type v} {Pred EPred : Type u}
-    [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+    [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EPred]
     {σ : Type u} (post : σ → σ → Pred) (epost : EPred) :
     Triple (fun s => post s s) (get : StateT σ m σ) post epost := by
-  exact ⟨WP.get_StateT_wp post epost⟩
+  exact ⟨WPMonad.get_StateT_wp post epost⟩
 
 -- -- Specs for the standalone `get`/`set` functions (which elaborate to MonadState.get/set,
 -- -- a different head constant from MonadStateOf.get/set used above).
 -- @[lspec high] theorem spec_get_StateT' {m : Type u → Type v} {Pred EPred : Type u}
---     [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]
+--     [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EPred]
 --     {σ : Type u} (post : σ → σ → Pred) (epost : EPred) :
 --     Triple (fun s => post s s) (get : StateT σ m σ) post epost :=
 --   by simpa using (spec_get_StateT (m := m) (Pred := Pred) (EPred := EPred) (σ := σ) post epost)
