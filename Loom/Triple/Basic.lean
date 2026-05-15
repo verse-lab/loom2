@@ -40,6 +40,13 @@ inductive Triple [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred] 
 notation:60 "⦃ " pre " ⦄ " x " ⦃ " post " ⦄" => Triple pre x post ⊥
 /-- Hoare triple notation with a binder for the return value. -/
 notation:60 "⦃ " pre " ⦄ " x " ⦃ " v ", " post " ⦄" => Triple pre x (fun v => post) ⊥
+/-- Hoare triple notation with semicolon-separated exception postconditions. -/
+syntax:60 "⦃ " term " ⦄ " term " ⦃ " term "; " term ("; " term)* " ⦄" : term
+
+macro_rules
+  | `(⦃ $pre ⦄ $x ⦃ $post; $epost $[; $eposts]* ⦄) =>
+    `(Triple $pre $x $post epost⟨$epost, $eposts,*⟩)
+
 namespace Triple
 
 variable [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred]

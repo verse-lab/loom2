@@ -91,6 +91,12 @@ theorem join_le (x y z : α) : x ⊑ z → y ⊑ z → x ⊔ y ⊑ z := by
 /-- Indexed infimum -/
 noncomputable def iInf {ι : Type v} (f : ι → α) : α := inf (fun x => ∃ i, f i = x)
 
+/-- Indexed infimum notation: `⨅ i, f i` elaborates to `iInf fun i => f i`. -/
+syntax "⨅ " ident ", " term : term
+
+macro_rules
+  | `(⨅ $i:ident, $body:term) => `(iInf fun $i => $body)
+
 theorem iInf_le {ι : Type v} (f : ι → α) (i : ι) : iInf f ⊑ f i := by
   apply inf_le
   exact ⟨i, rfl⟩
