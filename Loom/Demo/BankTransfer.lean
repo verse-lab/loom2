@@ -6,11 +6,11 @@ open Lean.Order Std.Do'
 
 universe u v
 
-structure Balance where
-  balance : Nat
-  withDrawToday : Nat
-
 abbrev Limit := Nat
+
+structure Account where
+  balance : Nat
+  withdrawToday : Limit
 
 inductive TransferError where
   | insufficientFunds (available requested : Nat)
@@ -20,15 +20,14 @@ inductive AuditError where
   | limitExceeded (limit requested : Nat)
   deriving Repr, BEq
 
-abbrev BankM := ExceptT AuditError <| ReaderT Limit <| ExceptT TransferError <| StateM Balance
+abbrev BankM := ExceptT AuditError <| ReaderT Limit <| ExceptT TransferError <| StateM Account
 
 def getBalances : BankM Nat := do
   let account ← get
   return account.balance
 
-@[lspec high]
-theorem spec_getBalances
-    {post : Nat → Nat → Balance → Prop} :
+@[lspec]
+theorem spec_getBalances :
     ⦃ fun dayLimit acc => post acc.balance dayLimit acc ⦄
       getBalances
     ⦃ post ⦄ := by
@@ -36,17 +35,16 @@ theorem spec_getBalances
   mvcgen' with grind
 
 
-def getWithDrawToday : BankM Nat := do
+def getWithdrawToday : BankM Nat := do
   let account ← get
-  return account.withDrawToday
+  return account.withdrawToday
 
-@[lspec high]
-theorem spec_getWithDrawToday
-    {post : Nat → Nat → Balance → Prop} :
-    ⦃ fun dayLimit acc => post acc.withDrawToday dayLimit acc ⦄
-      getWithDrawToday
+@[lspec]
+theorem spec_getWithdrawToday :
+    ⦃ fun dayLimit acc => post acc.withdrawToday dayLimit acc ⦄
+      getWithdrawToday
     ⦃ post ⦄ := by
-  unfold getWithDrawToday
+  unfold getWithdrawToday
   mvcgen' with grind
 
 
@@ -54,9 +52,8 @@ theorem spec_getWithDrawToday
 def setBalances (balance : Nat) : BankM PUnit := do
   modify fun account => { account with balance }
 
-@[lspec high]
-theorem spec_setBalances (balance : Nat)
-    {post : PUnit → Nat → Balance → Prop} :
+@[lspec]
+theorem spec_setBalances :
     ⦃ fun dayLimit acc => post ⟨⟩ dayLimit { acc with balance } ⦄
       setBalances balance
     ⦃ post ⦄ := by
@@ -65,22 +62,21 @@ theorem spec_setBalances (balance : Nat)
 
 
 
-def setWithDrawToday (withDrawToday : Nat) : BankM PUnit := do
-  modify fun account => { account with withDrawToday }
+def setWithdrawToday (withdrawToday : Nat) : BankM PUnit := do
+  modify fun account => { account with withdrawToday }
 
-@[lspec high]
-theorem spec_setWithDrawToday (withDrawToday : Nat)
-    {post : PUnit → Nat → Balance → Prop} :
-    ⦃ fun dayLimit acc => post ⟨⟩ dayLimit { acc with withDrawToday } ⦄
-      setWithDrawToday withDrawToday
+@[lspec]
+theorem spec_setWithdrawToday :
+    ⦃ fun dayLimit acc => post ⟨⟩ dayLimit { acc with withdrawToday } ⦄
+      setWithdrawToday withdrawToday
     ⦃ post ⦄ := by
-  unfold setWithDrawToday
+  unfold setWithdrawToday
   mvcgen' with grind
 
 
 def getLimit : BankM Limit := read
 
-@[lspec high]
+@[lspec]
 theorem spec_getLimit :
     ⦃ fun dayLimit acc => post dayLimit dayLimit acc ⦄
       getLimit
@@ -88,39 +84,38 @@ theorem spec_getLimit :
   unfold getLimit
   mvcgen' with grind
 
-#print BankM
+
 
 def withdraw (amount : Nat) : BankM PUnit := do
-  let withDrawToday ← getWithDrawToday
+  let withdrawToday ← getWithdrawToday
   let dailyLimit ← read
-  if amount + withDrawToday > dailyLimit then
+  if amount + withdrawToday > dailyLimit then
     throwThe AuditError <| .limitExceeded dailyLimit amount
   let balance ← getBalances
   if balance < amount then
     throwThe TransferError <| .insufficientFunds balance amount
   setBalances <| balance - amount
-  setWithDrawToday <| withDrawToday + amount
+  setWithdrawToday <| withdrawToday + amount
 
 #synth
   WPMonad BankM
-      (Nat → Balance → Prop)
+      (Limit → Account → Prop)
     EPost⟨
-      AuditError → Nat → Balance → Prop,
-      TransferError → Balance → Prop⟩
+      AuditError → Limit → Account → Prop,
+      TransferError → Account → Prop⟩
 
-theorem spec_withdraw (amount : Nat)
-   (oldBalance : Nat) (oldWithDrawToday : Nat) :
-    ⦃ fun _ acc => acc.balance = oldBalance ∧ acc.withDrawToday = oldWithDrawToday ⦄
+theorem spec_withdraw (amount : Nat) (accOld : Account) :
+    ⦃ fun _ acc => acc = accOld ⦄
       withdraw amount
     ⦃ fun _ dayLimit acc =>
-        acc.balance + amount = oldBalance ∧
-        acc.withDrawToday = oldWithDrawToday + amount ∧
-        amount + oldWithDrawToday ≤ dayLimit;
+        acc.balance + amount = accOld.balance ∧
+        acc.withdrawToday = accOld.withdrawToday + amount ∧
+        amount + accOld.withdrawToday ≤ dayLimit;
       fun _ dayLimit acc =>
-        acc.balance = oldBalance ∧
-        acc.withDrawToday + amount > dayLimit;
+        acc.balance = accOld.balance ∧
+        acc.withdrawToday + amount > dayLimit;
       fun _ acc =>
-        acc.balance = oldBalance ∧
+        acc.balance = accOld.balance ∧
         amount > acc.balance ⦄ := by
   unfold withdraw
   mvcgen' with grind

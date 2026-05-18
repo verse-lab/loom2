@@ -21,7 +21,7 @@ variable [Monad m] [LawfulMonad m] [Assertion Pred] [Assertion EPred] [WPMonad m
 -/
 noncomputable instance (priority := high) IgnoreState [Inhabited σ] :
   WPMonad (StateT σ m) Pred EPred where
-  wpTrans x := ⟨fun post epost => ⨅ s, wp (m := m) (x s) (post ·.1) epost⟩
+  wpTrans x := ⟨fun post epost => ⨅ s, wp (x s) (post ·.1) epost⟩
   wp_trans_pure x := by
     intro post epost
     apply le_iInf
@@ -47,7 +47,7 @@ noncomputable instance (priority := high) IgnoreState [Inhabited σ] :
 
 noncomputable instance (priority := high) IgnoreReader [Inhabited ρ] :
   WPMonad (ReaderT ρ m) Pred EPred where
-  wpTrans x := ⟨fun post epost => ⨅ r, wp (m := m) (x r) post epost⟩
+  wpTrans x := ⟨fun post epost => ⨅ r, wp (x r) post epost⟩
   wp_trans_pure x := by
     intro post epost
     apply le_iInf
@@ -86,6 +86,8 @@ instance (priority := high) : WPMonad (Except ε) Prop EPost⟨⟩ where
     | error e => exact id
 
 open Plausible
+
+#print Gen
 
 theorem chooseAny_wp (post : α → Prop) [Random Id α] :
   ⦃ ∀ a, post a ⦄ Gen.chooseAny α ⦃ a, post a ⦄ := by

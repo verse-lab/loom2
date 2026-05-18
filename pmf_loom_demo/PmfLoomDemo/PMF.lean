@@ -91,16 +91,6 @@ noncomputable def maybeIncrement
   let tick ← PMF.bernoulli p hp
   modify (· + if tick then 1 else 0)
 
-noncomputable def maybeIncrementRun
-    (p : NNReal) (hp : p ≤ 1) (n : Nat) : PMF (PUnit × Nat) :=
-  (fun tick => (⟨⟩, n + if tick then 1 else 0)) <$> PMF.bernoulli p hp
-
-theorem maybeIncrement_run (p : NNReal) (hp : p ≤ 1) (n : Nat) :
-    (maybeIncrement p hp).run n = maybeIncrementRun p hp n := by
-  unfold maybeIncrement maybeIncrementRun
-  ext r
-  simp [StateT.run_bind, StateT.run_monadLift, StateT.run_modify]
-
 @[lspec]
 theorem bernoulli_spec (p : NNReal) (hp : p ≤ 1) (post : Bool → ENNReal) :
     ⦃ post true * p + post false * (1 - p) ⦄
@@ -118,7 +108,8 @@ theorem spec_maybeIncrement_reached (p : NNReal) (hp : p ≤ 1) (target : Nat) :
       maybeIncrement p hp
     ⦃ fun _ n => if target ≤ n then 1 else 0 ⦄ := by
   unfold maybeIncrement
-  mvcgen'; simp [PartialOrder.rel, expect_pure];
+  mvcgen'; dsimp only
+  simp [PartialOrder.rel, expect_pure];
   split_ifs <;> try grind [le_add_right, le_rfl]
   norm_cast; grind [add_tsub_cancel_of_le hp]
 
