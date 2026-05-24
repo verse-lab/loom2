@@ -35,7 +35,7 @@ theorem spec_getBalances :
   mvcgen' with grind
 
 
-def getWithdrawToday : BankM Nat := do
+def getWithdrawToday : BankM Limit := do
   let account ← get
   return account.withdrawToday
 
@@ -112,10 +112,10 @@ theorem spec_withdraw (amount : Nat) (accOld : Account) :
         acc.withdrawToday = accOld.withdrawToday + amount ∧
         amount + accOld.withdrawToday ≤ dayLimit;
       fun _ dayLimit acc =>
-        acc.balance = accOld.balance ∧
+        acc = accOld ∧
         acc.withdrawToday + amount > dayLimit;
       fun _ acc =>
-        acc.balance = accOld.balance ∧
+        acc = accOld ∧
         amount > acc.balance ⦄ := by
   unfold withdraw
   mvcgen' with grind

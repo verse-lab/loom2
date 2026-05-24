@@ -1,4 +1,4 @@
-import Loom.Demo.HeapProp
+import Loom.Demo.FracSepLogic.HeapProp
 
 open Lean.Order Std.Do'
 

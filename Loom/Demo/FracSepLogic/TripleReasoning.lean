@@ -1,4 +1,4 @@
-import Loom.Demo.HeapM
+import Loom.Demo.FracSepLogic.HeapM
 
 open Lean.Order Std.Do'
 open scoped Std.Do'
