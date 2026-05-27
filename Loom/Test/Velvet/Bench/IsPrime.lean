@@ -7,8 +7,8 @@ attribute [-grind] getElem?_neg getElem?_pos getElem!_neg getElem!_pos
 -/
 
 method isPrime (n : Nat) return (result : Bool)
-  require 2 ≤ n
-  ensures result = true ↔ ¬ ∃ k : Nat, 1 < k ∧ k < n ∧ n % k = 0
+  require precond: 2 ≤ n
+  ensures postcond: result = true ↔ ¬ ∃ k : Nat, 1 < k ∧ k < n ∧ n % k = 0
   do
   let mut k : Nat := 2
   let mut composite : Bool := false
@@ -29,5 +29,8 @@ method isPrime (n : Nat) return (result : Bool)
 
 set_option maxHeartbeats 10000000
 
--- prove_correct isPrime by
---   (mvcgen' simplifying_assumptions with grind) <;> sorry
+prove_correct isPrime by
+  (mvcgen' simplifying_assumptions with grind)
+  · sorry
+  · sorry
+

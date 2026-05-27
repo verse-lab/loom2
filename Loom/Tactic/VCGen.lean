@@ -494,17 +494,21 @@ private meta def elabSimplifyingAssumptions (simpClause : Syntax) : OptionT Tact
 public meta def VCGen.elab : Tactic := fun stx => withMainContext do
   let ctx ← getSpecTheorems
   let goal ← getMainGoal
-
   let withClause := stx[3]
   let hasWithClause := withClause.getNumArgs != 0
-  let mut disch ← elabDischTactic withClause
+  -- gets the tactic, none | grind | .tactic <custom-tactic>
+  let mut disch: VCGen.dischargeTactic ← elabDischTactic withClause
   let mut params ← Grind.mkDefaultParams {}
 
+  -- if the tactic was grind, then ig get the params for grind from that and then elaborate its params.
   if let .grind := disch then
     let grindStx := withClause[1]
+    -- ig this is just some grind specific thingy.. not that relevant.
+    -- ig some setup to make sure grind works well??
     params ← elabGrindParams grindStx goal
 
-  let simpMethods ← elabSimplifyingAssumptions stx[2]
+  -- gets the simplifying procedures?.. that the user provided
+  let simpMethods: Option Sym.Simp.Methods ← elabSimplifyingAssumptions stx[2]
   -- dbg_trace "disch: {repr disch}"
   let { invariants, vcs } ← Grind.GrindM.run (params := params) do
     let mut migratedCtx ← migrateSpecTheoremsDatabase ctx

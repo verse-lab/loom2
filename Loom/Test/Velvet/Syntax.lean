@@ -4,6 +4,7 @@ Velvet Syntax: method/prove_correct commands and while' loop macro.
 import Lean
 import Loom.Test.Velvet.Theory
 import Loom.LatticeExt
+import Loom.Test.Velvet.Utils
 
 open Lean Elab Command Term Meta Std.Do' Order Loom Lean.Order
 
@@ -67,25 +68,6 @@ private def _root_.Lean.EnvExtension.get' [Inhabited σ] (ext : EnvExtension σ)
 
 /-! ## While' syntax (partial correctness — no decreasing) -/
 
-/-- Fold invariants into an `InvListWithNames` — a named conjunction list. -/
-private def foldInvariants (invs : Array (Lean.TSyntax `term))
-    (names : Array (Option Ident) := #[]) : Lean.MacroM (Lean.TSyntax `term) := do
-  if invs.isEmpty then `(True)
-  else
-    let invListOne := mkIdent ``Loom.InvListWithNames.one
-    let invListCons := mkIdent ``Loom.InvListWithNames.cons
-    -- Build right-nested InvListWithNames: cons h₁ inv₁ (cons h₂ inv₂ (one h₃ inv₃))
-    let getName (i : Nat) : Lean.MacroM (Lean.TSyntax `term) := do
-      let name := match names[i]? with
-        | some (some id) => id.getId.toString
-        | _ => s!"invariant{i + 1}"
-      let nameStr := Lean.Syntax.mkStrLit name
-      `(Lean.Name.mkSimple $nameStr)
-    let lastIdx := invs.size - 1
-    let mut result ← `($invListOne ($(← getName lastIdx)) $(invs[lastIdx]!))
-    for i in List.range lastIdx |>.reverse do
-      result ← `($invListCons ($(← getName i)) $(invs[i]!) $result)
-    return result
 
 -- While' with optional named invariants: `invariant h : pred` or `invariant pred`
 syntax "while' " termBeforeDo
@@ -112,6 +94,7 @@ syntax "while' " termBeforeDo
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* decreasing $m done_with $d do $body) => do
     let inv ← foldInvariants invs ns
+    dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
       decreasingGadget $m
@@ -121,6 +104,7 @@ macro_rules
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* decreasing $m do $body) => do
     let inv ← foldInvariants invs ns
+    dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
       decreasingGadget $m
@@ -130,6 +114,7 @@ macro_rules
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* done_with $d do $body) => do
     let inv ← foldInvariants invs ns
+    dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
       onDoneGadget $d
@@ -138,6 +123,7 @@ macro_rules
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* do $body) => do
     let inv ← foldInvariants invs ns
+    dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
       onDoneGadget (¬ $cond)
@@ -149,23 +135,6 @@ macro_rules
   | `(doElem|$id:ident[$idx:term] := $val:term) =>
     `(doElem| $id:term := Array.set! $id:term $idx $val)
 
-/-! ## Helpers -/
-
-/-- Fold terms into an `InvListWithNames` — a named conjunction list. -/
-private def andList (ts : Array (TSyntax `term)) (names : Array Name := #[])
-    (pfx : String := "clause") : MacroM (TSyntax `term) := do
-  if ts.size = 0 then `(term| True) else
-    let invListOne := mkIdent ``Loom.InvListWithNames.one
-    let invListCons := mkIdent ``Loom.InvListWithNames.cons
-    let getName (i : Nat) : MacroM (TSyntax `term) := do
-      let name := if i < names.size then names[i]!.toString else s!"{pfx}{i + 1}"
-      let nameStr := Lean.Syntax.mkStrLit name
-      `(Lean.Name.mkSimple $nameStr)
-    let lastIdx := ts.size - 1
-    let mut result ← `($invListOne ($(← getName lastIdx)) $(ts[lastIdx]!))
-    for i in List.range lastIdx |>.reverse do
-      result ← `($invListCons ($(← getName i)) $(ts[i]!) $result)
-    return result
 
 /-! ## `method` command -/
 

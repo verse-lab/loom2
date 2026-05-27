@@ -3,6 +3,7 @@ Velvet Theory: partial-correctness loop infrastructure for Option monad programs
 Adapted from Loom/Test/Velvet.lean — removes decreasing/measure requirements.
 -/
 import Lean
+import Loom.Test.Velvet.Gadgets
 import Loom.Triple.SpecLemmas
 import Loom.Test.Specs
 import Loom.Tactic.VCGen
@@ -102,13 +103,6 @@ theorem repeat_inv_partial_simple (f : Unit → β → Option (ForInStep β))
   repeat_inv_partial f
     (fun | ForInStep.yield b => inv b | ForInStep.done b => inv b)
     init hstep
-
-set_option linter.unusedVariables false in
-def invariantGadget (inv : Prop) : Option PUnit := pure ⟨⟩
-set_option linter.unusedVariables false in
-def decreasingGadget (measure : Nat) : Option PUnit := pure ⟨⟩
-set_option linter.unusedVariables false in
-def onDoneGadget {α : Type _} (done : α) : Option PUnit := pure ⟨⟩
 
 /-- Spec for `repeat do` loops — partial correctness (no decreasing measure). -/
 @[lspec]

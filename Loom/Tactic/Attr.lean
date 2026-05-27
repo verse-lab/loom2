@@ -135,7 +135,10 @@ private def mkSpecTheorem (type : Expr) (proof : SpecProof) (prio : Nat) : MetaM
     else
       throwError "unexpected kind of spec theorem; expected Triple or ⊑ wp{indentExpr type}"
   let keys ← DiscrTree.mkPath prog (noIndexAtArgs := false)
-  return { keys, prog := (← mkForallFVars xs prog), proof, priority := prio }
+  dbg_trace s!"This is the program: {prog}"
+  let prog' <- mkForallFVars xs prog
+  dbg_trace s!"This is the program': {prog'}"
+  return { keys, prog := prog', proof, priority := prio }
 
 def mkSpecTheoremFromConst (declName : Name) (prio : Nat := eval_prio default) : MetaM SpecTheorem := do
   let cinfo ← getConstInfo declName

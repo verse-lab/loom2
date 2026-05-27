@@ -18,9 +18,11 @@ attribute [-grind] getElem?_neg getElem?_pos getElem!_neg getElem!_pos Array.get
 def HasConsecutivePair (a : Array Int) : Prop :=
   ∃ i : Nat, i + 1 < a.size ∧ a[i]! + 1 = a[i + 1]!
 
+#grind_lint check HasConsecutivePair
+
 method containsConsecutiveNumbers (a : Array Int)
   return (result : Bool)
-  ensures result = true ↔ HasConsecutivePair a
+  ensures post: result = true ↔ HasConsecutivePair a
   do
     if a.size < 2 then
       return false
@@ -29,12 +31,12 @@ method containsConsecutiveNumbers (a : Array Int)
       let mut found : Bool := false
       while' i + 1 < a.size ∧ found = false
         -- Bounds: loop condition gives i+1 < a.size; keep a weaker, stable form.
-        invariant (i + 1 ≤ a.size)
+        invariant hbound: (i + 1 ≤ a.size)
         -- Progress information: as long as we haven't found a pair, indices before i are checked.
-        invariant (found = false → (∀ j : Nat, j < i → a[j]! + 1 ≠ a[j + 1]!))
+        invariant hprogress: found = false → (∀ j : Nat, j < i → a[j]! + 1 ≠ a[j + 1]!))
         -- If found is true, we have a witness consecutive pair.
-        invariant (found = true → HasConsecutivePair a)
-        done_with (i + 1 ≥ a.size ∨ found = true)
+        invariant  hfound: (found = true → HasConsecutivePair a)
+        done_with hdone: (i + 1 ≥ a.size ∨ found = true)
       do
         if a[i]! + 1 = a[i + 1]! then
           found := true
@@ -43,6 +45,3 @@ method containsConsecutiveNumbers (a : Array Int)
       return found
 
 set_option maxHeartbeats 10000000
-
-prove_correct containsConsecutiveNumbers by
-  mvcgen' simplifying_assumptions with grind

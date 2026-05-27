@@ -18,6 +18,49 @@ attribute [-grind] getElem?_neg getElem?_pos getElem!_neg getElem!_pos Array.get
 def gaussSumNat (n : Nat) : Nat :=
   n * (n + 1) / 2
 
+
+method sumAndAverage' (n: Nat) return (result: Int × Float)
+  ensures result.1 = Int.ofNat (gaussSumNat n)
+  ensures n = 0 → result.2 = 0.0
+  ensures n > 0 → result.2 = (Float.ofInt result.1) / (Float.ofNat n)
+  do
+  -- Assume there's an implicit tc: [inst: sumAndAverage'.Proofs n]
+  -- Then during elaboration:
+    let mut idx : Nat := 0
+    let mut sm : Nat := 0
+    -- ideally should be while (h: <cond>)
+    while' idx < n
+-- how do we get this in the program context? without having a sorry?
+-- The idea would be to bundle up stuff somehow and put it in the context of the runnable program.
+-- A way would be to inject a typeclass instance for that..
+-- Like how do we say there's this thingy, but we'll prove it later? it's kind of like adding an assume to the thing? is there any mechanism??
+        invariant (sm = gaussSumNat idx) 
+        invariant (idx <= n)
+        done_with (n = idx)
+        do
+        idx := idx + 1
+        sm := sm + idx
+    
+
+    let sumNat : Nat := sm
+    let sumInt : Int := Int.ofNat sumNat
+
+    if n = 0 then
+      return (sumInt, 0.0)
+    else
+      let avg : Float := (Float.ofInt sumInt) / (Float.ofNat n)
+      return (sumInt, avg)
+
+set_option maxHeartbeats 10000000
+
+prove_correct sumAndAverage' by
+  mvcgen' simplifying_assumptions with grind
+  unfold gaussSumNat; grind
+  simp_all; unfold gaussSumNat; simp_all; unfold gaussSumNat; grind
+  unfold gaussSumNat at *; grind
+
+
+
 method sumAndAverage (n: Nat) return (result: Int × Float)
   ensures result.1 = Int.ofNat (gaussSumNat n)
   ensures n = 0 → result.2 = 0.0
@@ -36,3 +79,5 @@ set_option maxHeartbeats 10000000
 
 prove_correct sumAndAverage by
   mvcgen' simplifying_assumptions with grind
+
+

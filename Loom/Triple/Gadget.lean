@@ -8,6 +8,7 @@ module
 prelude
 public import Loom.Triple.Basic
 public import Loom.Frame
+public import Loom.Tactic.Attr
 
 @[expose] public section
 
@@ -31,6 +32,7 @@ def assertGadget [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EP
 /-- Specification for `assertGadget`: the precondition requires both the assertion `as` and
 the Heyting implication `as ⇨ post ⟨⟩`, ensuring the assertion holds and the postcondition
 follows from it. -/
+@[lspec]
 theorem Spec.assertGadget (name : Name) (as : Pred) [Frame Pred] :
   Triple (m := m) (as ⊓ (as ⇨ post ⟨⟩)) (Loom.assertGadget name as) post epost := by
   simpa [Loom.assertGadget] using
