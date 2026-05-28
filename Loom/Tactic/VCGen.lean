@@ -56,6 +56,7 @@ structure VCGen.Context where
   mProdNames   : Array Name := #[]  -- MProd component names from the method definition
   clauseNames  : ClauseNameHints := {}  -- names for require/ensures clauses
   localSpecs   : Array SpecTheorem := #[]  -- local fvar specs (from recursive IH)
+  infoTree     : Option InfoTree
 
 structure VCGen.State where
   specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
@@ -380,6 +381,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← Grind.mkGoal goal
   let rules := (← read).introRules
   let goal ← unfoldTriple rules goal
+  let infoTree := (<- read).infoTree
   let mut worklist := Std.Queue.empty.enqueue goal
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
@@ -389,7 +391,7 @@ meta def work (goal : MVarId) : VCGenM Unit := do
     let goal ← unfoldTriple rules goal
     let res ← solve goal.mvarId
     match res with
-    | .noProgramOrLatticeFoundInTarget .. =>
+    | .noProgramOrLatticeFoundInTarget e =>
       emitVC goal
     | .noSpecFoundForProgram prog _ #[] =>
       throwError "No spec found for program {prog}."
@@ -509,6 +511,8 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
 
   -- gets the simplifying procedures?.. that the user provided
   let simpMethods: Option Sym.Simp.Methods ← elabSimplifyingAssumptions stx[2]
+
+  let infoTree <- Term.getInfoTreeWithContext?
   -- dbg_trace "disch: {repr disch}"
   let { invariants, vcs } ← Grind.GrindM.run (params := params) do
     let mut migratedCtx ← migrateSpecTheoremsDatabase ctx
@@ -533,7 +537,7 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
     let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
     let mProdNames ← mProdNameHintsRef.get
     let clauseNames ← clauseNameHintsRef.get
-    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames, localSpecs }
+    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames, localSpecs, infoTree }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen

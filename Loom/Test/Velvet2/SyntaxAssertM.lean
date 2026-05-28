@@ -2,7 +2,7 @@ import Lean
 import Lean.Parser
 import Loom.Test.Velvet.Theory
 import Loom.Test.Velvet.Utils
-import Loom.Triple.Gadget
+import Loom.Test.Velvet2.AssertM
 
 open Lean Elab Command Term Meta Lean.Parser Lean.Macro Std.Do'
 
@@ -38,9 +38,11 @@ syntax "method " ("rec ")? ident bracketedBinder* " returns " "(" ident " : " te
   (" requires " (atomic(ident " : "))? termBeforeDo)*
   (" ensures " (atomic(ident " : "))? termBeforeDo)* " do " doSeq : command
 
+syntax "let " ident " <- " "guard " term : doElem
 
-macro "assert" n:ident t:term : term => `(Loom.assertGadget (Lean.Name.anonymous) $t)
-
+macro_rules
+  | `(doElem| let $h:ident <- guard $p:term) =>
+      `(doElem| let $h:ident ← AssertM.assume $p)
 
 set_option linter.unusedVariables false in
 elab_rules : command
@@ -74,12 +76,12 @@ elab_rules : command
         if recTk.isSome then
           `(command|
             set_option linter.unusedVariables false in
-            def $name $binders* : Option $retType:term := do $body
+            def $name $binders* : AssertM $retType:term := do $body
               partial_fixpoint)
         else
           `(command|
             set_option linter.unusedVariables false in
-            def $name $binders* : Option $retType:term := do $body)
+            def $name $binders* : AssertM $retType:term := do $body)
       let obligation : Obligations := {
         binderIdents := binders
         ids := ids
@@ -98,7 +100,6 @@ elab_rules : command
         throwErrorAt name "recursive method `{declName}` requires `rec`; write `method rec {name.getId} ...`"
     | _, _ => pure ()
     obligations.modify' (·.insert declName { obligation with isFixpoint := isRec })
-
 
 syntax "prove_correct " ident " by " tacticSeq : command
 
@@ -128,7 +129,7 @@ private def mkProveCorrectThm (name : Ident) (obligation : Obligations)
           $pre
           ($name $ids*)
           (fun $retId => $post)
-          (True : Prop) := by
+          EPost.nil.mk := by
         apply $tripleFromPC
         apply $pcName
         intro $ihName $ihRawName
@@ -146,7 +147,7 @@ private def mkProveCorrectThm (name : Ident) (obligation : Obligations)
           $pre
           ($name $ids*)
           (fun $retId => $post)
-          (True : Prop) := by
+          EPost.nil.mk := by
         simp only [$name:ident]
         ($proof))
 

@@ -38,7 +38,7 @@ set_option maxHeartbeats 10000000
  -   apply WP.wp_bind -/
 
 
-
+#print isGreaterWithInvariants
 
 prove_correct isGreaterWithInvariants by
   mvcgen' simplifying_assumptions with grind
@@ -85,9 +85,33 @@ prove_correct foo' by
   
   
 
+/- run_meta do
+ -     let infoTree <- Lean.Elab.getInfoTrees
+ -     for tree in infoTree do
+ -         tree.collectTermInfoM (fun ctx ti =>
+ -                 if (isDefeq ti.expr 
+ -         ) -/
+        
+
+method get_idx returns (res: Nat)
+    ensures res = 1
+    do
+        return 1
+
+prove_correct get_idx by
+    mvcgen' simplifying_assumptions with grind
+
+method foo_bar (arr: Array Int) returns (res: Int)
+    requires arr.size = 2
+    requires arr[1]! = 10
+    ensures res = 10
+do
+    let idx <- get_idx
+    /- assert idxEq1 (idx = 1) -/
+    let result := arr[idx]!
+    return result
 
 
-
-
-
+prove_correct foo_bar by
+    mvcgen' simplifying_assumptions with grind
 
