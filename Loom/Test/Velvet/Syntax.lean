@@ -93,7 +93,7 @@ syntax "while' " termBeforeDo
 
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* decreasing $m done_with $d do $body) => do
-    let inv ← foldInvariants invs ns
+    let inv ← mkNamedPropList invs (optionalIdentNames ns) "invariant"
     dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
@@ -103,7 +103,7 @@ macro_rules
 
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* decreasing $m do $body) => do
-    let inv ← foldInvariants invs ns
+    let inv ← mkNamedPropList invs (optionalIdentNames ns) "invariant"
     dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
@@ -113,7 +113,7 @@ macro_rules
 
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* done_with $d do $body) => do
-    let inv ← foldInvariants invs ns
+    let inv ← mkNamedPropList invs (optionalIdentNames ns) "invariant"
     dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
@@ -122,7 +122,7 @@ macro_rules
 
 macro_rules
   | `(doElem| while' $cond $[ invariant $[$ns : ]? $invs]* do $body) => do
-    let inv ← foldInvariants invs ns
+    let inv ← mkNamedPropList invs (optionalIdentNames ns) "invariant"
     dbg_trace s!"Invariants folded: {inv}"
     `(doElem| repeat do
       invariantGadget $inv
@@ -168,8 +168,8 @@ elab_rules : command
         | some id => id.getId
         | none => Name.mkSimple s!"ensures{idx + 1}"
     -- Build pre/post with WithHypName annotations
-    let pre ← liftMacroM <| andList req reqNames "require"
-    let post ← liftMacroM <| andList ens ensNames "ensures"
+    let pre ← liftMacroM <| mkNamedPropList req (explicitNames reqNames) "require"
+    let post ← liftMacroM <| mkNamedPropList ens (explicitNames ensNames) "ensures"
     -- Build definition
     let defCmd ← `(command|
       set_option linter.unusedVariables false in
@@ -219,8 +219,8 @@ elab_rules : command
       ensNames := ensNames.push <| match ensNs[idx]! with
         | some id => id.getId
         | none => Name.mkSimple s!"ensures{idx + 1}"
-    let pre ← liftMacroM <| andList req reqNames "require"
-    let post ← liftMacroM <| andList ens ensNames "ensures"
+    let pre ← liftMacroM <| mkNamedPropList req (explicitNames reqNames) "require"
+    let post ← liftMacroM <| mkNamedPropList ens (explicitNames ensNames) "ensures"
     -- Build recursive definition with partial_fixpoint
     let defCmd ← `(command|
       set_option linter.unusedVariables false in

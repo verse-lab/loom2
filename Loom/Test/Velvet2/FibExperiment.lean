@@ -29,7 +29,7 @@ theorem fibAcc_correct' (n : Nat) (a : Nat) (b : Nat) :
     True
     (fibAcc n a b)
     (fun result =>
-        Loom.InvListWithNames.one
+        Loom.NamedProp.one
         (Lean.Name.mkSimple "ensures1")
         (result = fibAccSpec n a b))
     (True : Prop) := by

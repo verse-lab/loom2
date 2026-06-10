@@ -119,7 +119,7 @@ theorem Spec.forIn_loop
       (fun b => inv b ⊓ doneWith b) eInv :=
   sorry
 
-private def foldInvariants (invs : Array (Lean.TSyntax `term)) : Lean.MacroM (Lean.TSyntax `term) := do
+private def mkLoopInvariantConjunction (invs : Array (Lean.TSyntax `term)) : Lean.MacroM (Lean.TSyntax `term) := do
   if invs.isEmpty then `(True)
   else
     let mut result := invs[0]!
@@ -135,7 +135,7 @@ syntax "while' " termBeforeDo
 
 macro_rules
   | `(doElem| while' $cond $[ invariant $invs]* decreasing $m done_with $d do $body) => do
-    let inv ← foldInvariants invs
+    let inv ← mkLoopInvariantConjunction invs
     `(doElem| repeat do
       invariantGadget $inv
       decreasingGadget $m
@@ -144,7 +144,7 @@ macro_rules
 
 macro_rules
   | `(doElem| while' $cond $[ invariant $invs]* decreasing $m do $body) => do
-    let inv ← foldInvariants invs
+    let inv ← mkLoopInvariantConjunction invs
     `(doElem| repeat do
       invariantGadget $inv
       decreasingGadget $m

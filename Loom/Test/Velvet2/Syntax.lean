@@ -27,7 +27,6 @@ private def _root_.Lean.EnvExtension.get' [Inhabited σ] (ext : EnvExtension σ)
     [Monad m] [MonadEnv m] : m σ := do
   return ext.getState (← getEnv)
 
-
 syntax "while " (atomic(ident " : "))? termBeforeDo
   (" invariant " (atomic(ident " : "))? termBeforeDo)*
   " decreasing " (atomic(ident " : ")? termBeforeDo )
@@ -39,7 +38,22 @@ syntax "method " ("rec ")? ident bracketedBinder* " returns " "(" ident " : " te
   (" ensures " (atomic(ident " : "))? termBeforeDo)* " do " doSeq : command
 
 
-macro "assert" n:ident t:term : term => `(Loom.assertGadget (Lean.Name.anonymous) $t)
+syntax "assert" (atomic(ident " : ")) term : term
+
+
+    /- let getName (i : Nat) : MacroM (TSyntax `term) := do
+     -   let name := match names[i]? with
+     -     | some (some name) => name.toString
+     -     | _ => s!"{pfx}{i + 1}"
+     -   let nameStr := Lean.Syntax.mkStrLit name
+     -   `(Lean.Name.mkSimple $nameStr) -/
+
+macro_rules
+  | `(term| assert $nm:ident : $t:term ) => do
+    let str := nm.getId.getString!
+    let strlit := Lean.Syntax.mkStrLit str
+    let nm' : TSyntax `term <- `(Lean.Name.mkSimple $strlit)
+    `(Loom.assertGadget $nm' $t)
 
 
 set_option linter.unusedVariables false in
@@ -68,8 +82,8 @@ elab_rules : command
           | some id => id.getId
           | none => Name.mkSimple s!"ensures{idx + 1}"
 
-      let pre ← liftMacroM <| andList req reqNames "requires"
-      let post ← liftMacroM <| andList ens ensNames "ensures"
+      let pre ← liftMacroM <| mkNamedPropList req (explicitNames reqNames) "requires"
+      let post ← liftMacroM <| mkNamedPropList ens (explicitNames ensNames) "ensures"
       let defCmd ←
         if recTk.isSome then
           `(command|
@@ -171,18 +185,14 @@ macro_rules
   let loopIdent := hcond.getD defaultLoopIdent
 
 
-  let invs' <- foldInvariants invs ns
+  let invs' <- mkNamedPropList invs (optionalIdentNames ns) "invariant"
 
   let default_done_with: TSyntax `term ← withRef cond do `(¬ $cond)
   let doneWith := d.getD default_done_with
-
-  -- TODO: Re-enable this once `done_with` names are introduced properly by vcgen.
-  -- let defaultDoneWithIdent := mkIdent `h_done_with
-  -- let doneWithIdent := (h_done.join.getD defaultDoneWithIdent)
-  -- let doneWithNameStr := Lean.Syntax.mkStrLit doneWithIdent.getId.toString
-  -- let doneWithNameTerm : TSyntax `term ← `(Lean.Name.mkSimple $doneWithNameStr)
-  -- let invListOne := mkIdent ``Loom.InvListWithNames.one
-  -- let doneWithNamed : TSyntax `term ← `($invListOne $doneWithNameTerm $doneWith)
+  let doneWithName := match h_done.join with
+    | some id => id.getId
+    | none => `h_done_with
+  let doneWithNamed ← mkNamedPropList #[doneWith] #[some doneWithName] "done_with"
 
   -- TODO: Think about this
   -- Ideally, when the loop finishes, we want it to return the done_with condition.
@@ -194,8 +204,7 @@ macro_rules
   `(doElem| repeat do
     invariantGadget $invs'
     decreasingGadget $m
-    -- Use `$doneWithNamed` here once named `done_with` hypotheses are supported.
-    onDoneGadget $doneWith
+    onDoneGadget $doneWithNamed
         if $loopIdent : $cond then $body else break
     )
 

@@ -36,6 +36,7 @@ inductive Triple [Monad m] [Assertion Pred] [Assertion EPred] [WPMonad m Pred EP
   /-- Construct a triple from a weakest precondition entailment. -/
   | intro (hwp : pre ⊑ wp x post epost)
 
+
 /-- Hoare triple notation without exception postcondition (defaults to `⊥`). -/
 notation:60 "⦃ " pre " ⦄ " x " ⦃ " post " ⦄" => Triple pre x post ⊥
 /-- Hoare triple notation with a binder for the return value. -/

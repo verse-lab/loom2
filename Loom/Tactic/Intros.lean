@@ -12,42 +12,54 @@ open Std.Do'
 
 namespace Loom
 
-/-! ## InvListWithNames: named conjunction list -/
+/-! ## NamedProp: named proposition list -/
 
-/-- Named conjunction — `one name p` is just `p`, `cons name p rest` is `p ∧ rest`.
+/-- Named proposition — `one name p` is just `p`, `cons name p rest` is `p ∧ rest`.
     NOT reducible so `simp` doesn't unfold it. VCGen detects and decomposes explicitly. -/
-noncomputable def InvListWithNames.one (_name : Lean.Name) (p : Prop) : Prop := p
-noncomputable def InvListWithNames.cons (_name : Lean.Name) (p : Prop) (rest : Prop) : Prop := p ∧ rest
+noncomputable def NamedProp.one (_name : Lean.Name) (p : Prop)
+    (_stx : Option Syntax := none) : Prop := p
+noncomputable def NamedProp.cons (_name : Lean.Name) (p : Prop) (rest : Prop)
+    (_stx : Option Syntax := none) : Prop := p ∧ rest
 
-/-! ## InvListWithNames pretty printing -/
+/-! ## NamedProp pretty printing -/
 
-/-- Pretty-print `InvListWithNames.one name p` as `[name] p` -/
-@[app_unexpander InvListWithNames.one]
-def unexpandInvListOne : Lean.PrettyPrinter.Unexpander
+/-- Pretty-print `NamedProp.one name p` as `[name] p` -/
+@[app_unexpander NamedProp.one]
+def unexpandNamedPropOne : Lean.PrettyPrinter.Unexpander
   | `($_ $name $p) => do
+    match name with
+    | `(Lean.Name.mkSimple $s) => `([$s] $p)
+    | _ => throw ()
+  | `($_ $name $p $_stx) => do
     match name with
     | `(Lean.Name.mkSimple $s) => `([$s] $p)
     | _ => throw ()
   | _ => throw ()
 
-/-- Pretty-print `InvListWithNames.cons name p rest` as `[name] p ∧ rest` -/
-@[app_unexpander InvListWithNames.cons]
-def unexpandInvListCons : Lean.PrettyPrinter.Unexpander
+/-- Pretty-print `NamedProp.cons name p rest` as `[name] p ∧ rest` -/
+@[app_unexpander NamedProp.cons]
+def unexpandNamedPropCons : Lean.PrettyPrinter.Unexpander
   | `($_ $name $p $rest) => do
+    match name with
+    | `(Lean.Name.mkSimple $s) => `([$s] $p ∧ $rest)
+    | _ => throw ()
+  | `($_ $name $p $rest $_stx) => do
     match name with
     | `(Lean.Name.mkSimple $s) => `([$s] $p ∧ $rest)
     | _ => throw ()
   | _ => throw ()
 
 -- Pre-intro rules for VCGen
-theorem invlist_cons_pre_intro (_name : Lean.Name) (p rest c : Prop) :
-    (p → rest ⊑ c) → InvListWithNames.cons _name p rest ⊑ c := by
-  unfold InvListWithNames.cons
+theorem named_prop_cons_pre_intro (_name : Lean.Name) (p rest c : Prop)
+    (_stx : Option Syntax := none) :
+    (p → rest ⊑ c) → NamedProp.cons _name p rest _stx ⊑ c := by
+  unfold NamedProp.cons
   intro h ⟨hp, hr⟩; exact h hp hr
 
-theorem invlist_one_pre_intro (_name : Lean.Name) (p c : Prop) :
-    (p → True ⊑ c) → InvListWithNames.one _name p ⊑ c := by
-  unfold InvListWithNames.one
+theorem named_prop_one_pre_intro (_name : Lean.Name) (p c : Prop)
+    (_stx : Option Syntax := none) :
+    (p → True ⊑ c) → NamedProp.one _name p _stx ⊑ c := by
+  unfold NamedProp.one
   intro h hp; exact h hp trivial
 
 /-! ## Name extraction from Expr -/
@@ -108,8 +120,8 @@ structure IntroRules where
   trueMeetPreElim    : BackwardRule
   propPreIntro       : BackwardRule
   mProdForall        : BackwardRule
-  invlistConsPreIntro : BackwardRule
-  invlistOnePreIntro  : BackwardRule
+  namedPropConsPreIntro : BackwardRule
+  namedPropOnePreIntro  : BackwardRule
 
 /-- Build the `IntroRules` cache. -/
 def IntroRules.mk' : SymM IntroRules := do
@@ -119,8 +131,8 @@ def IntroRules.mk' : SymM IntroRules := do
     trueMeetPreElim    := ← mkBackwardRuleFromDecl ``true_meet_pre_elim
     propPreIntro       := ← mkBackwardRuleFromDecl ``prop_pre_intro
     mProdForall        := ← mkBackwardRuleFromDecl ``MProd.forall_intro
-    invlistConsPreIntro := ← mkBackwardRuleFromDecl ``invlist_cons_pre_intro
-    invlistOnePreIntro  := ← mkBackwardRuleFromDecl ``invlist_one_pre_intro
+    namedPropConsPreIntro := ← mkBackwardRuleFromDecl ``named_prop_cons_pre_intro
+    namedPropOnePreIntro  := ← mkBackwardRuleFromDecl ``named_prop_one_pre_intro
   }
 
 /-- Extract MProd component names from a `forIn` callback expression.
@@ -246,28 +258,28 @@ meta def introsExcessArgs (goal : Grind.Goal) : SymM Grind.Goal := goal.withCont
 /-- Recursively decompose a precondition `pre ⊑ rhs` by introducing
     individual components as hypotheses. Handles:
     - `meet` (conjunction): `a ⊓ b ⊑ c` → intro right, recurse on left
-    - `InvListWithNames.cons`: extract name from the constructor, intro with name
-    - `InvListWithNames.one`: extract name, intro, done
+    - `NamedProp.cons`: extract name from the constructor, intro with name
+    - `NamedProp.one`: extract name, intro, done
     - `True ⊓ b`: skip True
     - Non-meet, non-True: intro as a single hypothesis -/
 meta partial def introMeetPre (rules : IntroRules) (goal : MVarId) : SymM MVarId :=
   goal.withContext do
   let type ← goal.getType
-  let_expr PartialOrder.rel _α _inst pre _rhs := type | return goal
-  -- InvListWithNames.cons name p rest ⊑ c
-  if pre.isAppOfArity ``InvListWithNames.cons 3 then
+  let_expr PartialOrder.rel α inst pre rhs := type | return goal
+  -- NamedProp.cons name p rest stx ⊑ c
+  if pre.isAppOfArity ``NamedProp.cons 4 then
     let nameExpr := pre.getAppArgs[0]!
     let hypName := exprToName? nameExpr |>.getD `h
-    match ← rules.invlistConsPreIntro.apply goal with
+    match ← rules.namedPropConsPreIntro.apply goal with
     | .goals [goal'] =>
       let (_, goal'') ← goal'.intro hypName
       introMeetPre rules goal''
     | _ => return goal
-  -- InvListWithNames.one name p ⊑ c
-  else if pre.isAppOfArity ``InvListWithNames.one 2 then
+  -- NamedProp.one name p stx ⊑ c
+  else if pre.isAppOfArity ``NamedProp.one 3 then
     let nameExpr := pre.getAppArgs[0]!
     let hypName := exprToName? nameExpr |>.getD `h
-    match ← rules.invlistOnePreIntro.apply goal with
+    match ← rules.namedPropOnePreIntro.apply goal with
     | .goals [goal'] =>
       let (_, goal'') ← goal'.intro hypName
       return goal''
@@ -275,9 +287,22 @@ meta partial def introMeetPre (rules : IntroRules) (goal : MVarId) : SymM MVarId
   -- meet (conjunction)
   else if pre.isAppOf ``meet && pre.getAppNumArgs ≥ 4 then
     let a := pre.getAppArgs[2]!
+    let b := pre.getAppArgs[3]!
     if a.isConstOf ``True then
       match ← rules.trueMeetPreElim.apply goal with
       | .goals [goal'] => introMeetPre rules goal'
+      | _ => return goal
+    else if b.isAppOfArity ``NamedProp.one 3 then
+      let nameExpr := b.getAppArgs[0]!
+      let innerProp := b.getAppArgs[1]!
+      let hypName := exprToName? nameExpr |>.getD `h
+      let newPre := mkAppN pre.getAppFn (pre.getAppArgs.set! 3 innerProp)
+      let newTarget ← shareCommon (mkAppN type.getAppFn #[α, inst, newPre, rhs])
+      let goal ← goal.replaceTargetDefEq newTarget
+      match ← rules.meetPreIntro.apply goal with
+      | .goals [goal'] =>
+        let (_, goal'') ← goal'.intro hypName
+        introMeetPre rules goal''
       | _ => return goal
     else
       match ← rules.meetPreIntro.apply goal with

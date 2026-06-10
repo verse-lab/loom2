@@ -56,7 +56,6 @@ structure VCGen.Context where
   mProdNames   : Array Name := #[]  -- MProd component names from the method definition
   clauseNames  : ClauseNameHints := {}  -- names for require/ensures clauses
   localSpecs   : Array SpecTheorem := #[]  -- local fvar specs (from recursive IH)
-  infoTree     : Option InfoTree
 
 structure VCGen.State where
   specBackwardRuleCache  : Std.HashMap (Name × Expr × Nat) BackwardRule := {}
@@ -164,6 +163,7 @@ private partial def peelEPostTailChain (curr : Expr) (idx : Nat := 0) : Expr × 
       peelEPostTailChain args[args.size - 1]! (idx + 1)
     else
       (curr, idx)
+
 
 /-! ## Core logic -/
 
@@ -338,9 +338,9 @@ meta partial def emitVC (goal : Grind.Goal) : VCGenM Unit := do
     let .goals [goal'] ← goal.apply rule
       | throwError "Failed to apply elim_pre rule"
     goal := goal'
-  -- Unwrap InvListWithNames: split into individual named VCs
+  -- Unwrap NamedProp: split into individual named VCs
   let ty ← instantiateMVars (← goal.mvarId.getType)
-  if ty.isAppOfArity ``InvListWithNames.cons 3 then
+  if ty.isAppOfArity ``NamedProp.cons 4 then
     let nameExpr := ty.getAppArgs[0]!
     let innerProp := ty.getAppArgs[1]!
     let restTy := ty.getAppArgs[2]!
@@ -349,14 +349,14 @@ meta partial def emitVC (goal : Grind.Goal) : VCGenM Unit := do
     let andTy ← shareCommon (mkApp2 (mkConst ``And) innerProp restTy)
     let mvarId ← goal.mvarId.replaceTargetDefEq andTy
     let [pGoal, restGoal] ← mvarId.apply (mkConst ``And.intro)
-      | throwError "Failed to split InvListWithNames.cons"
+      | throwError "Failed to split NamedProp.cons"
     pGoal.setTag tag
     -- Emit the head component
     emitVC { goal with mvarId := pGoal }
     -- Recursively emit the rest
     emitVC { goal with mvarId := restGoal }
     return
-  if ty.isAppOfArity ``InvListWithNames.one 2 then
+  if ty.isAppOfArity ``NamedProp.one 3 then
     let nameExpr := ty.getAppArgs[0]!
     let innerProp := ty.getAppArgs[1]!
     let tag := exprToName? nameExpr |>.getD `vc
@@ -365,6 +365,17 @@ meta partial def emitVC (goal : Grind.Goal) : VCGenM Unit := do
     mvarId.setTag tag
     goal := { goal with mvarId }
     -- Fall through to normal discharge below
+  -- Unwrap a named proposition on the RHS of a Prop-order goal, e.g.
+  -- `pre ⊑ NamedProp.one name p`, and use `name` as the emitted VC tag.
+  if let some (α, inst, pre, rhs) := ty.app4? ``PartialOrder.rel then
+    if rhs.isAppOfArity ``NamedProp.one 3 then
+      let nameExpr := rhs.getAppArgs[0]!
+      let innerProp := rhs.getAppArgs[1]!
+      let tag := exprToName? nameExpr |>.getD `vc
+      let newTarget ← shareCommon (mkAppN ty.getAppFn #[α, inst, pre, innerProp])
+      let mvarId ← goal.mvarId.replaceTargetDefEq newTarget
+      mvarId.setTag tag
+      goal := { goal with mvarId }
   let disch := (← read).disch
   let mut goals := [goal.mvarId]
   match disch with
@@ -381,7 +392,6 @@ meta def work (goal : MVarId) : VCGenM Unit := do
   let goal ← Grind.mkGoal goal
   let rules := (← read).introRules
   let goal ← unfoldTriple rules goal
-  let infoTree := (<- read).infoTree
   let mut worklist := Std.Queue.empty.enqueue goal
   repeat do
     let some (goal, worklist') := worklist.dequeue? | break
@@ -512,7 +522,6 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
   -- gets the simplifying procedures?.. that the user provided
   let simpMethods: Option Sym.Simp.Methods ← elabSimplifyingAssumptions stx[2]
 
-  let infoTree <- Term.getInfoTreeWithContext?
   -- dbg_trace "disch: {repr disch}"
   let { invariants, vcs } ← Grind.GrindM.run (params := params) do
     let mut migratedCtx ← migrateSpecTheoremsDatabase ctx
@@ -522,6 +531,7 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
     for ldecl in lctx do
       if ldecl.isImplementationDetail then continue
       let ty ← instantiateMVars ldecl.type
+      -- handles recursive case, where we have the local triple before mvcgen
       let isTriple ← forallTelescopeReducing ty fun _ body => do
         let body ← whnfR body
         return body.isAppOf ``Triple
@@ -537,7 +547,7 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
     let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
     let mProdNames ← mProdNameHintsRef.get
     let clauseNames ← clauseNameHintsRef.get
-    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames, localSpecs, infoTree }
+    VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch, mProdNames, clauseNames, localSpecs }
   replaceMainGoal (invariants ++ vcs).toList
 
 end VCGen

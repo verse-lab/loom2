@@ -36,7 +36,7 @@ set_option maxHeartbeats 10000000
 /- open Std.Do' Loom Lean.Order in
  - prove_correct isGreaterWithInvariants by
  -   apply Triple.intro
- -   apply invlist_one_pre_intro
+ -   apply named_prop_one_pre_intro
  -   intros ha
  -   apply prop_pre_elim
  -   unfold wp
@@ -49,26 +49,26 @@ set_option maxHeartbeats 10000000
 -- This needs me to figure out the syntactic positions of each of the VCs...
 prove_correct isGreaterWithInvariants by
   mvcgen' simplifying_assumptions with grind
-  · simp [Loom.InvListWithNames.one, Loom.InvListWithNames.cons]; grind
-  · simp [Loom.InvListWithNames.one, Loom.InvListWithNames.cons] at *;
+  · simp [Loom.NamedProp.one, Loom.NamedProp.cons]; grind
+  · simp [Loom.NamedProp.one, Loom.NamedProp.cons] at *;
     constructor
     grind; intros; sorry --some simplifications are missing, seeing wp in the goals, which is not something we should see..
-  · simp only [Loom.InvListWithNames.one, Loom.InvListWithNames.cons] at *;
+  · simp only [Loom.NamedProp.one, Loom.NamedProp.cons] at *;
     -- seems to be the goal related to decreasing?
     sorry
   · -- again seems to be some goal related to decreasing??? or idk? or invariants??
-    simp only [Loom.InvListWithNames.one, Loom.InvListWithNames.cons] at *;
+    simp only [Loom.NamedProp.one, Loom.NamedProp.cons] at *;
     grind
 
 
 #eval! (isGreaterWithInvariants 2 #[1]).run
   (AssertM.guard_of_triple (isGreaterWithInvariants_correct 2 #[1]) (by
-    unfold Loom.InvListWithNames.one
+    unfold Loom.NamedProp.one
     decide))
 
 #eval (isGreaterWithInvariants 2 #[1, 3]).run
   (AssertM.guard_of_triple (isGreaterWithInvariants_correct 2 #[1, 3]) (by
-    unfold Loom.InvListWithNames.one
+    unfold Loom.NamedProp.one
     decide))
 
 method guardedAccess (n : Int) (a : Array Int)
@@ -85,14 +85,14 @@ prove_correct guardedAccess by
   · exact size_gt_0
   · intro _h
     exact (Std.Do'.WPMonad.wp_pure (m := AssertM) (decide (a[0] < n))
-      (fun result => Loom.InvListWithNames.one `ensures1 ((result = true) = (a[0]! < n)))
+      (fun result => Loom.NamedProp.one `ensures1 ((result = true) = (a[0]! < n)))
       Std.Do'.EPost.nil.mk) (by
-        unfold Loom.InvListWithNames.one
+        unfold Loom.NamedProp.one
         grind)
 
 #eval (guardedAccess 2 #[1]).run
   (AssertM.guard_of_triple (guardedAccess_correct 2 #[1]) (by
-    unfold Loom.InvListWithNames.one
+    unfold Loom.NamedProp.one
     decide))
 
 #info_trees in
