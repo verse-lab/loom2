@@ -219,21 +219,128 @@ theorem SingletonSet.modify_get (s : SingletonSet α) (f : α → α) : (s.modif
   have hsget : s.toSet.mem s.get := (hs s.get).mpr rfl
   exact ((hmod (f s.get)).mp ⟨s.get, hsget, rfl⟩).symm
 
-namespace Credit
 
 abbrev Ghost (α : Type u) : Type u := SingletonSet α
 
-abbrev Credit := Nat
-
-structure CreditT (m : Type u → Type v) (α : Type u) where
-  run : Ghost Credit → m (α × Ghost Credit)
-
-def CreditT.tick [Monad m] : CreditT m Unit :=
-  ⟨fun c => pure (f := m) ((), c.modify (· + 1))⟩
-
-def Credit.default : Ghost Credit := SingletonSet.mk 0
-
-end Credit
-
-
 end Singleton
+
+
+namespace ReprExperiments
+
+/--
+trace: [Compiler.result] size: 1
+    def ReprExperiments.foo @&n : tobj :=
+      inc n;
+      return n
+[Compiler.result] size: 2
+    def ReprExperiments.foo._boxed n : tobj :=
+      let res := ReprExperiments.foo n;
+      dec n;
+      return res
+-/
+#guard_msgs in
+set_option trace.Compiler.result true in
+/- set_option trace.compiler.ir.result true in -/
+def foo (n: {n': Nat // n' > 10 }) : Nat :=
+    n.val
+
+
+/--
+trace: [Compiler.result] size: 1
+    def ReprExperiments.foo_id @&n : tobj :=
+      inc n;
+      return n
+[Compiler.result] size: 2
+    def ReprExperiments.foo_id._boxed n : tobj :=
+      let res := ReprExperiments.foo_id n;
+      dec n;
+      return res
+-/
+#guard_msgs in
+set_option trace.Compiler.result true in
+def foo_id (n: Nat) : Nat :=
+    n
+
+
+/--
+trace: [Compiler.result] size: 1
+    def ReprExperiments.foo'._redArg @&n : tobj :=
+      inc n;
+      return n
+[Compiler.result] size: 2
+    def ReprExperiments.foo'._redArg._boxed n : tobj :=
+      let res := ReprExperiments.foo'._redArg n;
+      dec n;
+      return res
+[Compiler.result] size: 1
+    def ReprExperiments.foo' @&n h : tobj :=
+      inc n;
+      return n
+[Compiler.result] size: 2
+    def ReprExperiments.foo'._boxed n h : tobj :=
+      let res := ReprExperiments.foo' n h;
+      dec n;
+      return res
+---
+warning: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+-/
+#guard_msgs in
+set_option trace.Compiler.result true in
+def foo' (n: Nat) (h: n > 10) : Nat :=
+    n
+
+
+/--
+trace: [Compiler.result] size: 1
+    def ReprExperiments.foo'_tup._redArg n : obj :=
+      let _x.1 := ctor_0[Prod.mk] n ◾;
+      return _x.1
+[Compiler.result] size: 1
+    def ReprExperiments.foo'_tup n h : obj :=
+      let _x.1 := ctor_0[Prod.mk] n ◾;
+      return _x.1
+---
+warning: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+-/
+#guard_msgs in
+set_option trace.Compiler.result true in
+def foo'_tup (n: Nat) (h: n > 10) : ( Nat × Prop) :=
+    (n, True)
+
+
+
+/--
+trace: [Compiler.result] size: 1
+    def ReprExperiments.foo'_struct._redArg @&n : tobj :=
+      inc n;
+      return n
+[Compiler.result] size: 2
+    def ReprExperiments.foo'_struct._redArg._boxed n : tobj :=
+      let res := ReprExperiments.foo'_struct._redArg n;
+      dec n;
+      return res
+[Compiler.result] size: 1
+    def ReprExperiments.foo'_struct @&n h : tobj :=
+      inc n;
+      return n
+[Compiler.result] size: 2
+    def ReprExperiments.foo'_struct._boxed n h : tobj :=
+      let res := ReprExperiments.foo'_struct n h;
+      dec n;
+      return res
+---
+warning: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+-/
+#guard_msgs in
+set_option trace.Compiler.result true in
+def foo'_struct (n: Nat) (h: n > 10) : { s : Nat // s = n } :=
+    ⟨n, by rfl⟩ 
+
+end ReprExperiments
+

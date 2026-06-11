@@ -15,3 +15,27 @@ precompileModules = true
 [[lean_exe]]
 name = "loom2"
 root = "Main"
+
+[[lean_exe]]
+name = "complexity-no-tick"
+root = "Loom.Demo.ComplexityBench.NoTick"
+
+[[lean_exe]]
+name = "complexity-basic"
+root = "Loom.Demo.ComplexityBench.Basic"
+
+[[lean_exe]]
+name = "complexity-ghost-tuple"
+root = "Loom.Demo.ComplexityBench.GhostTuple"
+
+[[lean_exe]]
+name = "complexity-ghost-structure"
+root = "Loom.Demo.ComplexityBench.GhostStructure"
+
+[[lean_exe]]
+name = "complexity-ghost-state-t"
+root = "Loom.Demo.ComplexityBench.GhostStateT"
+
+[[lean_exe]]
+name = "complexity-ghost-state-ref-t"
+root = "Loom.Demo.ComplexityBench.GhostStateRefT"
