@@ -335,10 +335,10 @@ theorem propSup_is_sup (c : Prop → Prop) : is_sup c (propSup c) := by
 instance : CompleteLattice Prop where
   has_sup c := ⟨propSup c, propSup_is_sup c⟩
 
-theorem prop_pre_intro (x y : Prop) : (x → True ⊑ y) → x ⊑ y :=
+theorem loom_prop_pre_intro (x y : Prop) : (x → True ⊑ y) → x ⊑ y :=
   fun h hx => h hx trivial
 
-theorem prop_pre_elim (x : Prop) : x → True ⊑ x :=
+theorem loom_prop_pre_elim (x : Prop) : x → True ⊑ x :=
   fun hx _ => hx
 
 /-- Intro the left component of a meet precondition: `a ⊓ b ⊑ c` becomes `a → b ⊑ c`. -/

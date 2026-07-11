@@ -31,7 +31,7 @@ def IntroRules.mk' : SymM IntroRules := do
     tripleIntro     := ← mkBackwardRuleFromDecl ``Triple.intro
     meetPreIntro    := ← mkBackwardRuleFromDecl ``meet_pre_intro'
     trueMeetPreElim := ← mkBackwardRuleFromDecl ``true_meet_pre_elim
-    propPreIntro    := ← mkBackwardRuleFromDecl ``prop_pre_intro
+    propPreIntro    := ← mkBackwardRuleFromDecl ``loom_prop_pre_intro
   }
 
 /-- Expand `pre ⊑ rhs` when the lattice type is a function type `σ₁ → ... → σₙ → BaseTy`
@@ -57,7 +57,7 @@ meta def introsExcessArgs (goal : Grind.Goal) : SymM Grind.Goal := goal.withCont
     individual components as hypotheses. Uses:
     - `meet_pre_intro`: `(a → b ⊑ c) → a ⊓ b ⊑ c` — intro left component
     - `true_meet_pre_elim`: `b ⊑ c → True ⊓ b ⊑ c` — skip True
-    - `prop_pre_intro`: `(x → True ⊑ y) → x ⊑ y` — base case (non-met pre) -/
+    - `loom_prop_pre_intro`: `(x → True ⊑ y) → x ⊑ y` — base case (non-met pre) -/
 meta partial def introMeetPre (rules : IntroRules) (goal : MVarId) : SymM MVarId :=
   goal.withContext do
   let type ← goal.getType
@@ -78,7 +78,7 @@ meta partial def introMeetPre (rules : IntroRules) (goal : MVarId) : SymM MVarId
         introMeetPre rules goal''
       | _ => return goal
   else if !pre.isConstOf ``True then
-    -- Non-meet, non-True pre: apply prop_pre_intro to get `pre → True ⊑ rhs`
+    -- Non-meet, non-True pre: apply loom_prop_pre_intro to get `pre → True ⊑ rhs`
     match ← rules.propPreIntro.apply goal with
     | .goals [goal'] =>
       let .goal _ goal'' ← Sym.intros goal' | return goal'

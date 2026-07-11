@@ -472,7 +472,7 @@ public meta def VCGen.elab : Tactic := fun stx => withMainContext do
   let { invariants, vcs } ← Grind.GrindM.run (params := params) do
     let migratedCtx ← migrateSpecTheoremsDatabase ctx
     let introRules ← IntroRules.mk'
-    let elimPreRule ← mkBackwardRuleFromDecl ``prop_pre_elim
+    let elimPreRule ← mkBackwardRuleFromDecl ``loom_prop_pre_elim
     VCGen.main goal { specThms := migratedCtx, introRules, elimPreRule, simpMethods, disch }
   replaceMainGoal (invariants ++ vcs).toList
 
