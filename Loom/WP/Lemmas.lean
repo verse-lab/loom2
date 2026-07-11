@@ -170,7 +170,7 @@ theorem tryCatch_Except_wp (x : Except ε α) (h : ε → Except ε α) :
   cases x <;> simp
 
 -- TODO: Upstream
-@[simp] theorem _root_.ExceptT.run_tryCatch [Monad m] [LawfulMonad m]
+@[simp] theorem _root_.ExceptT.loom_run_tryCatch [Monad m] [LawfulMonad m]
     (x : ExceptT ε m α) (h : ε → ExceptT ε m α) :
     (tryCatch x h : ExceptT ε m α).run =
       (do
@@ -186,7 +186,7 @@ theorem tryCatch_ExceptT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m P
     wp x post ⟨fun e => wp (h e) post epost, epost.tail⟩ ⊑
       wp (MonadExceptOf.tryCatch x h : ExceptT ε m α) post epost := by
   change _ ⊑ wp (tryCatch x h : ExceptT ε m α) _ _
-  simp only [ExceptT.apply_wp, ExceptT.run_tryCatch]
+  simp only [ExceptT.apply_wp, ExceptT.loom_run_tryCatch]
   apply PartialOrder.rel_trans; rotate_left; apply WP.wp_bind
   apply WP.wp_consequence; intro r; cases r with
   | ok a =>
@@ -413,7 +413,7 @@ theorem liftWith_ReaderT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m P
   simp [MonadControl.liftWith, ReaderT.run]
 
 -- TODO: Upstream
-@[simp] theorem _root_.ExceptT.run_liftM [Monad m] [LawfulMonad m] (x : m α) :
+@[simp] theorem _root_.ExceptT.loom_run_liftM [Monad m] [LawfulMonad m] (x : m α) :
     (liftM x : ExceptT ε m α).run = (Except.ok <$> x : m (Except ε α)) := rfl
 
 @[simp]
@@ -641,7 +641,7 @@ theorem orElse_Except_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred
   cases x <;> rfl
 
 -- TODO: Upstream
-@[simp] theorem _root_.ExceptT.run_orElse [Monad m] [LawfulMonad m]
+@[simp] theorem _root_.ExceptT.loom_run_orElse [Monad m] [LawfulMonad m]
     (x : ExceptT ε m α) (h : Unit → ExceptT ε m α) :
     (OrElse.orElse x h : ExceptT ε m α).run = (do
       let r ← x.run
