@@ -48,7 +48,7 @@ theorem get_StateT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EP
     (post : σ → σ → Pred) (epost : EPred) :
     (fun s => post s s) ⊑ wp (MonadStateOf.get : StateT σ m σ) post epost := by
   intro s
-  simpa [MonadStateOf.get] using
+  simpa [MonadStateOf.get, StateT.get, StateT.run] using
     (WP.wp_pure (m := m) (x := (s, s))
       (post := fun x => post x.fst x.snd) (epost := epost))
 
@@ -56,7 +56,7 @@ theorem set_StateT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EP
     (post : PUnit → σ → Pred) (epost : EPred) :
     (fun _ => post ⟨⟩ x) ⊑ wp (MonadStateOf.set x : StateT σ m PUnit) post epost := by
   intro s
-  simpa [MonadStateOf.set] using
+  simpa [MonadStateOf.set, StateT.set, StateT.run] using
     (WP.wp_pure (m := m) (x := (PUnit.unit, x))
       (post := fun x => post x.fst x.snd) (epost := epost))
 
@@ -64,7 +64,7 @@ theorem modifyGet_StateT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m P
     (post : α → σ → Pred) (epost : EPred) :
     (fun s => post (f s).1 (f s).2) ⊑ wp (MonadStateOf.modifyGet f : StateT σ m α) post epost := by
   intro s
-  simpa [MonadStateOf.modifyGet] using
+  simpa [MonadStateOf.modifyGet, StateT.modifyGet, StateT.run] using
     (WP.wp_pure (m := m) (x := f s)
       (post := fun x => post x.fst x.snd) (epost := epost))
 
@@ -121,7 +121,7 @@ theorem throwThe_wp [MonadExceptOf ε m] [Monad m] [Assertion Pred] [Assertion E
 @[simp]
 theorem throw_Except_wp (e : ε) :
     wp (MonadExceptOf.throw e : Except ε α) post epost = epost.head e := by
-  simp [wp, WP.wpTrans]
+  simp [wp, WP.wpTrans, MonadExceptOf.throw]
 
 theorem throw_ExceptT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred] (err : ε) :
     epost.head err ⊑ wp (MonadExceptOf.throw err : ExceptT ε m α) post epost := by
@@ -214,7 +214,7 @@ theorem tryCatch_OptionT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m P
     (h : PUnit → OptionT m α) :
   wp x post ⟨wp (h ⟨⟩) post epost, epost.tail⟩ ⊑
     wp (MonadExceptOf.tryCatch x h : OptionT m α) post epost := by
-  simp only [wp, MonadExceptOf.tryCatch, OptionT.tryCatch, OptionT.mk, OptionT.run]
+  simp only [wp, MonadExceptOf.tryCatch, OptionT.tryCatch, OptionT.mk]
   apply PartialOrder.rel_trans; rotate_left; apply WP.wp_bind
   apply WP.wp_consequence (m := m); intro o; cases o with
   | some a =>
@@ -316,7 +316,7 @@ theorem lift_ExceptT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred 
 theorem monadLift_OptionT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pred EPred] (x : m α) :
   wp x post epost.tail ⊑
     wp (MonadLift.monadLift x : OptionT m α) post epost := by
-  simp only [wp, MonadLift.monadLift, OptionT.mk, OptionT.lift, OptionT.run]
+  simp only [wp, MonadLift.monadLift, OptionT.mk, OptionT.lift]
   apply PartialOrder.rel_trans; rotate_left; apply WP.wp_bind
   apply WP.wp_consequence (m := m); intro a
   apply PartialOrder.rel_trans; rotate_left; apply WP.wp_pure
@@ -676,7 +676,7 @@ theorem orElse_OptionT_wp [Monad m] [Assertion Pred] [Assertion EPred] [WP m Pre
     (h : Unit → OptionT m α) :
   wp x post ⟨wp (h ()) post epost, epost.tail⟩ ⊑
     wp (OrElse.orElse x h : OptionT m α) post epost := by
-  simp only [wp, OrElse.orElse, OptionT.run]
+  simp only [wp, OrElse.orElse]
   apply PartialOrder.rel_trans; rotate_left; apply WP.wp_bind
   apply WP.wp_consequence (m := m); intro o; cases o with
   | some a =>

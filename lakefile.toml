@@ -5,7 +5,7 @@ defaultTargets = ["loom2"]
 [[require]]
 name = "plausible"
 git = "https://github.com/leanprover-community/plausible.git"
-rev = "main"
+rev = "v4.32.0"
 
 [[lean_lib]]
 name = "Loom"
